@@ -118,10 +118,14 @@ jobs:
           node-version-file: .nvmrc
 
       - name: Setup pnpm
-        # Version comes from package.json's "engines.pnpm" — keeps the
-        # active version in a single place rather than duplicated here.
+        # pnpm/action-setup needs the version explicitly — it does NOT read
+        # `engines.pnpm`, and as a `uses:` step it ignores the job's
+        # `working-directory`, so it never sees frontend/package.json's
+        # `packageManager` either. Keep this in sync with the
+        # `packageManager` field in frontend/package.json.
         uses: pnpm/action-setup@v4
         with:
+          version: 11.1.1
           run_install: false
 
       - name: Cache pnpm store
