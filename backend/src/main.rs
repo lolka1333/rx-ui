@@ -405,7 +405,7 @@ fn resolve_or_generate_jwt_secret(data_dir: &std::path::Path) -> anyhow::Result<
 /// one broken row (e.g. corrupt JSON in `protocol_config`) shouldn't stop
 /// the other inbounds from coming up. The operator sees the error in
 /// `/api/logs` and can fix or delete the bad row.
-async fn reconcile_inbounds_with_xray(state: &AppState) -> anyhow::Result<()> {
+pub(crate) async fn reconcile_inbounds_with_xray(state: &AppState) -> anyhow::Result<()> {
     let rows = sqlx::query!(
         r#"SELECT id, tag, enabled, listen, port,
                   protocol_config, transport_config, security_config, sniffing_config,
@@ -471,6 +471,22 @@ async fn reconcile_inbounds_with_xray(state: &AppState) -> anyhow::Result<()> {
 
     tracing::info!("xray reconciliation: pushed {pushed}/{total} enabled inbounds");
     Ok(())
+}
+
+/// Re-sync xray after a panel-initiated (re)start of the process.
+///
+/// A freshly (re)started xray has empty in-memory handlers, and the cached
+/// gRPC channel still points at the now-dead previous process. Drop the
+/// channel so the next call re-dials, then re-push every enabled inbound.
+/// Without this, a version switch / restart from the UI leaves xray with no
+/// proxy inbounds until the panel itself restarts — and `AddUser` (adding a
+/// client) then fails with "handler not found". Best-effort: errors are
+/// logged, not propagated, so the triggering request still succeeds.
+pub(crate) async fn resync_xray_state(state: &AppState) {
+    state.xray_client.invalidate().await;
+    if let Err(e) = reconcile_inbounds_with_xray(state).await {
+        tracing::error!("xray re-sync after restart failed: {e}");
+    }
 }
 
 /// Per-row arguments mirror of the `SELECT … FROM inbounds` shape used

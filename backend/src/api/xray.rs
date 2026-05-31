@@ -89,6 +89,11 @@ async fn install(
         // inbound + globals), and any user-facing inbounds get pushed to xray
         // dynamically via HandlerService.AddInbound after start.
         state.xray.start().await.map_err(AppError::Internal)?;
+        // The new process starts with empty in-memory handlers and the
+        // cached gRPC channel points at the old one — drop the channel and
+        // re-push every enabled inbound so clients keep working without a
+        // panel restart (otherwise AddUser later fails "handler not found").
+        crate::resync_xray_state(&state).await;
     }
 
     Ok(Json(serde_json::json!({
@@ -102,6 +107,7 @@ async fn start(
     State(state): State<AppState>,
 ) -> AppResult<Json<serde_json::Value>> {
     state.xray.start().await.map_err(AppError::Internal)?;
+    crate::resync_xray_state(&state).await;
     Ok(Json(serde_json::json!({ "started": true })))
 }
 
@@ -118,5 +124,6 @@ async fn restart(
     State(state): State<AppState>,
 ) -> AppResult<Json<serde_json::Value>> {
     state.xray.restart().await.map_err(AppError::Internal)?;
+    crate::resync_xray_state(&state).await;
     Ok(Json(serde_json::json!({ "restarted": true })))
 }
