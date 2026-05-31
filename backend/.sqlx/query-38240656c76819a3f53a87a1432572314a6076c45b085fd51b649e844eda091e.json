@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT inbound_id, disabled_reason FROM clients WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "inbound_id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "disabled_reason",
+        "ordinal": 1,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "38240656c76819a3f53a87a1432572314a6076c45b085fd51b649e844eda091e"
+}

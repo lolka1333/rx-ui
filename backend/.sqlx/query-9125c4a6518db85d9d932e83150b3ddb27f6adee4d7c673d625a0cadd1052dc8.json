@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE inbounds SET sockopt_config = ?, updated_at = datetime('now') WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "9125c4a6518db85d9d932e83150b3ddb27f6adee4d7c673d625a0cadd1052dc8"
+}

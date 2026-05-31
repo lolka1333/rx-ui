@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT panel_port, panel_base_path, sub_port FROM panel_settings WHERE id = 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "panel_port",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "panel_base_path",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "sub_port",
+        "ordinal": 2,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "13049397e2089660694db725a00624197f07eaa4d5aee2688187d3abde5d7ba8"
+}

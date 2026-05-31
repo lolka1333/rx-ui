@@ -1,0 +1,30 @@
+[workspace]
+resolver = "3"
+members = ["backend"]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+license = "MIT"
+authors = ["panel"]
+# MSRV pinned to the current latest stable so builds use a known-tested
+# toolchain. Bump when a new stable comes out and the workspace is
+# re-verified against it. Edition = "2024" requires at least 1.85.
+rust-version = "1.95"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = true
+opt-level = 3
+panic = "abort"

@@ -1,0 +1,85 @@
+[package]
+name = "rx-ui"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# Web framework
+axum = { version = "0.8", features = ["tower-log"] }
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+
+# Async runtime
+tokio = { version = "1.52", features = ["full"] }
+
+# Database
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "migrate", "macros", "chrono", "uuid"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ts-rs = { version = "12", features = ["serde-compat", "chrono-impl", "uuid-impl"] }
+
+# Auth
+jsonwebtoken = { version = "10", features = ["rust_crypto"] }
+argon2 = { version = "0.5", features = ["std"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+
+# Utils
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+anyhow = "1"
+thiserror = "2"
+dotenvy = "0.15"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+parking_lot = "0.12"
+
+# System info
+sysinfo = "0.39"
+
+# xray installer (GitHub release download + zip extraction).
+# reqwest 0.13 renamed `rustls-tls` → `rustls`; we also need `webpki-roots`
+# because the `rustls` flag no longer bundles a root cert store by default.
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "webpki-roots", "json"] }
+zip = { version = "8", default-features = false, features = ["deflate"] }
+
+# Xray gRPC client (HandlerService for runtime inbound CRUD).
+# `tonic-prost` is referenced from the build-script-generated proto
+# modules (`use tonic_prost as _;` paths), so it's pulled in even
+# though no panel source touches it directly.
+tonic = { version = "0.14", default-features = false, features = ["codegen", "transport", "channel"] }
+tonic-prost = "0.14"
+prost = "0.14"
+
+# Reality x25519 keypair generation (server-side)
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+rand = "0.8"
+base64 = "0.22"
+
+# Percent-encoding for share-link query/fragment components
+urlencoding = "2"
+
+# Embed the built frontend (Vite output in ../frontend/dist) into the
+# release binary so the panel ships as a single .exe. `compression`
+# feature gzip-compresses every embedded file at build time so we don't
+# pay the raw asset size in the binary (saves ~3MB on a typical antd
+# bundle). `mime_guess` gives us correct Content-Type headers for
+# served files — it's tiny (~20 KB) and has no runtime dependencies.
+rust-embed = { version = "8", features = ["compression"] }
+mime_guess = "2"
+
+[build-dependencies]
+# tonic 0.14 split prost-codegen into its own companion crate; that's
+# the only codegen we use, so we don't pull in `tonic-build` itself.
+tonic-prost-build = "0.14"
+# Ships a precompiled `protoc` binary so building doesn't require the user to
+# install protobuf-compiler system-wide. Used by build.rs to set $PROTOC.
+protoc-bin-vendored = "3"

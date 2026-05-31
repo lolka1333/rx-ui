@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Default tab title. Stays as-is for the admin shell. For the
+         public subscription landing the backend's
+         `static_assets::serve_index_with_title()` substitutes this
+         element with the operator-configured brand before sending the
+         HTML, so the tab carries the right name from the first paint —
+         no flash. -->
+    <title>Admin Panel</title>
+
+    <script>
+      // Pre-paint the background color from the persisted theme so refreshes
+      // don't flash white before React mounts. Mirrors the PALETTES in
+      // src/theme/tokens.ts — keep in sync if you change those colors.
+      (function () {
+        var PALETTES = {
+          light: '#f8fafc',
+          dark: '#0b1220',
+          darker: '#050505',
+        };
+        var mode = 'dark';
+        try {
+          var raw = localStorage.getItem('app-theme');
+          if (raw) {
+            var parsed = JSON.parse(raw);
+            var m = parsed && parsed.state && parsed.state.mode;
+            if (m && PALETTES[m]) mode = m;
+          }
+        } catch (e) { /* fall through to default */ }
+        var bg = PALETTES[mode];
+        var root = document.documentElement;
+        root.dataset.theme = mode;
+        root.style.setProperty('--bg', bg);
+        root.style.backgroundColor = bg;
+      })();
+    </script>
+    <style>
+      /* Failsafe for JS-disabled or pre-script paint: neutral near-black
+         matches the `darker` palette (the most conservative pick — light
+         users see a flash but never get burnt by stark white, dark users
+         get a value very close to their actual bg). The pre-paint script
+         above immediately overrides this with the persisted theme's
+         exact colour once it runs. */
+      html, body { background-color: #050505; margin: 0; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

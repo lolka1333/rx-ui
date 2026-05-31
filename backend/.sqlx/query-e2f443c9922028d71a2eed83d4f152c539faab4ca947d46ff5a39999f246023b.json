@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT c.id           AS \"id!\",\n                  c.email        AS \"email!\",\n                  i.tag          AS \"inbound_tag!\",\n                  c.uplink_total AS \"uplink_total!\",\n                  c.downlink_total AS \"downlink_total!\",\n                  c.enabled      AS \"enabled!\",\n                  c.traffic_limit_bytes\n           FROM clients c\n           JOIN inbounds i ON i.id = c.inbound_id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "email!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "inbound_tag!",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "uplink_total!",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "downlink_total!",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "enabled!",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "traffic_limit_bytes",
+        "ordinal": 6,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "e2f443c9922028d71a2eed83d4f152c539faab4ca947d46ff5a39999f246023b"
+}

@@ -1,0 +1,932 @@
+:root {
+  /* Inter is preferred when locally installed; otherwise fall back to the
+     platform's native UI font (San Francisco on macOS, Segoe UI on Windows,
+     Roboto on Android, Cantarell/Ubuntu on Linux). No external @import — the
+     panel must work fully offline and not leak a referer to a third-party
+     CDN on first paint. */
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'ss01';
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100dvh;
+  min-height: 100dvh;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--text);
+}
+
+/* Antd derives `--ant-color-border-disabled` by blending `colorPrimary`
+   (#6366f1, blue-violet) into the page background. On the `dark` palette
+   that produces a neutral-ish grey, but on `darker` (#050608 bg) the
+   blend skews bluish (#2e4064) and disabled inputs look like they have
+   a stray focus ring against the near-black surface. We override the
+   token to the same neutral border antd uses for enabled inputs — the
+   "disabled" signal is then carried entirely by the dimmed text +
+   bg-container tint, which is consistent across all three themes. */
+:root .xp,
+[data-theme='dark'] .xp,
+[data-theme='darker'] .xp {
+  --ant-color-border-disabled: var(--border);
+}
+
+/* ====================================================================
+   Theme cross-fade
+   With Antd in cssVar mode (see tokens.ts), a theme switch is just a
+   CSS-variable swap — no <style> regeneration, no layout. All elements
+   below have an always-on transition on the color properties so when
+   their var()-resolved values change, the browser interpolates them
+   smoothly. Cheap because no regen happens.
+   ==================================================================== */
+html,
+body,
+.ant-layout,
+.ant-layout-sider,
+.ant-layout-content,
+.ant-layout-header,
+.ant-drawer-section,
+.ant-card,
+.ant-menu,
+.ant-menu-item,
+.ant-menu-submenu-title,
+.ant-modal-content,
+.ant-modal-header,
+.ant-modal-footer,
+.ant-table,
+.ant-table-thead > tr > th,
+.ant-table-tbody > tr > td,
+.ant-btn-default,
+.ant-input,
+.ant-input-affix-wrapper,
+.ant-input-number,
+.ant-input-number-input,
+.ant-input-number-handler-wrap,
+.ant-input-number-group-addon,
+.ant-input-password,
+.ant-input-search,
+.ant-select-selector,
+.ant-select-selection-item,
+.ant-select-dropdown,
+.ant-form-item-label > label,
+.ant-form-item-explain,
+.ant-typography,
+.ant-divider,
+.ant-tag,
+.ant-collapse-header,
+.ant-collapse-content,
+.ant-switch,
+.ant-switch-handle,
+.app-settings-section,
+.app-settings-divider,
+.app-settings-dirtybar-inner {
+  transition:
+    background-color 0.22s ease,
+    color 0.22s ease,
+    border-color 0.22s ease,
+    box-shadow 0.22s ease;
+}
+
+/* ====================================================================
+   Drawer & Sider — slide animation
+   Standard Material easing (`cubic-bezier(0.4, 0, 0.2, 1)`) instead of
+   Antd's default `ease`, which front-loads motion and feels like a
+   snap on slow devices. 0.28s reads as a real slide.
+   ==================================================================== */
+.ant-drawer,
+.ant-drawer-content-wrapper,
+.ant-drawer-section {
+  height: 100dvh !important;
+  max-height: 100dvh !important;
+}
+
+.ant-drawer-content-wrapper {
+  /* Include `box-shadow` in the transition list — Antd applies an elevation
+     shadow on the panel that would otherwise snap on/off when the drawer
+     opens or closes (very visible on the light theme). */
+  transition:
+    transform 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.28s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  /* Antd v6 sets opacity:0.7 on its `-leave-active` class. We only animate
+     transform, so opacity would snap and the panel would look translucent
+     mid-slide. Lock to 1. */
+  opacity: 1 !important;
+}
+
+.ant-drawer-mask {
+  transition: opacity 0.28s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.ant-layout-sider {
+  transition:
+    width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    min-width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    max-width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    flex-basis 0.28s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+/* Drawer panel background — antd's dark algorithm doesn't override the
+   default white, so force it per theme to match the sidebar. */
+[data-theme='dark'] .ant-drawer-section { background-color: #131c2e; }
+[data-theme='darker'] .ant-drawer-section { background-color: #0c0d10; }
+[data-theme='light'] .ant-drawer-section { background-color: #ffffff; }
+
+/* ====================================================================
+   Inline submenu — minimise per-frame layout cost during height animation
+   ==================================================================== */
+.ant-menu-sub.ant-menu-inline {
+  contain: layout style;
+  will-change: height;
+}
+
+/* ====================================================================
+   Collapsed-sidebar icon snap fix — pin the icon's left coordinate.
+
+   The natural Antd behaviour swaps the menu item's padding from
+   `16px` (inline) to `calc(50% - 12px)` (inline-collapsed) at the
+   moment the class changes. While the Sider's width animates 208→64
+   over 0.28s, the calc() target *also* changes per frame (50% of a
+   shrinking parent). Combined with a real `transition` on padding,
+   the browser interpolates from `16px` toward "50% of width-at-start",
+   which is ~96px at width=208. The icon visibly swings rightward
+   (to ~44px from the sider's left) before the calc target catches
+   up and the icon drifts back to its final ~23px position. The eye
+   reads it as a U-shape, not a clean collapse.
+
+   We sidestep the calc entirely by forcing a constant 11px on both
+   inline-start and inline-end in BOTH states. The icon stays at the
+   same x throughout (item-left=12 + 11 + half-icon ≈ sider-centre at
+   width=64), and the Sider's width transition is the only motion
+   the eye has to track. `justify-content: flex-start` is kept so the
+   collapsed mode doesn't fight the explicit padding via flexbox
+   centering. Icon font-size + margin keep their own transitions
+   (synced to 0.28s) so the icon grows smoothly while staying put.
+   ==================================================================== */
+.ant-menu-inline > .ant-menu-item,
+.ant-menu-inline > .ant-menu-submenu > .ant-menu-submenu-title,
+.ant-menu-inline-collapsed > .ant-menu-item,
+.ant-menu-inline-collapsed > .ant-menu-submenu > .ant-menu-submenu-title {
+  padding-inline: 11px !important;
+}
+.ant-menu-inline-collapsed > .ant-menu-item,
+.ant-menu-inline-collapsed > .ant-menu-submenu > .ant-menu-submenu-title {
+  justify-content: flex-start;
+}
+.ant-menu-item,
+.ant-menu-submenu-title {
+  transition:
+    border-color 0.18s,
+    background-color 0.18s !important;
+}
+.ant-menu-item .anticon,
+.ant-menu-submenu-title .anticon {
+  transition:
+    font-size 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    margin 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    color 0.18s !important;
+}
+
+/* ====================================================================
+   Menu hover — subtle white/black tint, not Antd's teal fallback
+   ==================================================================== */
+.ant-menu-dark .ant-menu-item:hover:not(.ant-menu-item-selected),
+.ant-menu-dark .ant-menu-item-active:not(.ant-menu-item-selected),
+.ant-menu-dark .ant-menu-submenu-title:hover,
+.ant-menu-dark .ant-menu-submenu-active > .ant-menu-submenu-title {
+  background-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+.ant-menu-light .ant-menu-item:hover:not(.ant-menu-item-selected),
+.ant-menu-light .ant-menu-item-active:not(.ant-menu-item-selected),
+.ant-menu-light .ant-menu-submenu-title:hover,
+.ant-menu-light .ant-menu-submenu-active > .ant-menu-submenu-title {
+  background-color: rgba(0, 0, 0, 0.04) !important;
+}
+
+/* ====================================================================
+   Skeleton blocks — used by XrayUpdatesModal while GitHub is fetched.
+   Linear shimmer-wave instead of opacity pulse: the eye reads constant
+   motion as "loading", whereas a fade-in-fade-out has plateaus at the
+   peaks that read as "stuck". Per-block animationDelay set inline lets
+   the wave march down the list.
+   ==================================================================== */
+.app-skeleton-block {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.04) 0%,
+    rgba(255, 255, 255, 0.12) 50%,
+    rgba(255, 255, 255, 0.04) 100%
+  );
+  background-size: 200% 100%;
+  animation: app-skeleton-shimmer 1.2s linear infinite;
+}
+[data-theme='light'] .app-skeleton-block {
+  background: linear-gradient(
+    90deg,
+    rgba(0, 0, 0, 0.04) 0%,
+    rgba(0, 0, 0, 0.1) 50%,
+    rgba(0, 0, 0, 0.04) 100%
+  );
+  background-size: 200% 100%;
+}
+@keyframes app-skeleton-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-skeleton-block {
+    animation: none;
+    background: rgba(255, 255, 255, 0.08);
+  }
+}
+
+/* ====================================================================
+   Select focus — antd v6 leaves the border in a low-contrast `colorText`
+   tint when the dropdown opens, which reads as "the input went grey".
+   Pin it to the primary color with a soft glow.
+   ==================================================================== */
+.ant-select-focused .ant-select-content,
+.ant-select.ant-select-focused:not(.ant-select-disabled) .ant-select-content {
+  border-color: #6366f1 !important;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15) !important;
+}
+.ant-select:hover:not(.ant-select-disabled):not(.ant-select-focused) .ant-select-content {
+  border-color: #6366f1 !important;
+}
+
+/* ====================================================================
+   Theme submenu items — Switch/Checkbox lives inside the row so the row
+   itself shouldn't behave like a clickable nav target. Strip every menu
+   background state (selected / active / hover) so only the inline
+   control changes appearance.
+
+   The `.ant-menu-dark .ant-menu-item:hover` rule above wins on
+   specificity (3 classes vs our 2), so we mirror its leading `.ant-menu`
+   ancestor and tack on the same `:hover`/`-active` pseudo-classes plus
+   `!important`. Same dance for the light algorithm.
+   ==================================================================== */
+.ant-menu li.ant-menu-item[data-menu-id$="theme-dark"],
+.ant-menu li.ant-menu-item[data-menu-id$="theme-darker"],
+.ant-menu li.ant-menu-item[data-menu-id$="theme-dark"]:hover,
+.ant-menu li.ant-menu-item[data-menu-id$="theme-darker"]:hover,
+.ant-menu li.ant-menu-item[data-menu-id$="theme-dark"]:active,
+.ant-menu li.ant-menu-item[data-menu-id$="theme-darker"]:active,
+.ant-menu li.ant-menu-item[data-menu-id$="theme-dark"].ant-menu-item-active,
+.ant-menu li.ant-menu-item[data-menu-id$="theme-darker"].ant-menu-item-active,
+.ant-menu li.ant-menu-item[data-menu-id$="theme-dark"].ant-menu-item-selected,
+.ant-menu li.ant-menu-item[data-menu-id$="theme-darker"].ant-menu-item-selected {
+  background-color: transparent !important;
+}
+
+/* ====================================================================
+   Mobile tap-highlight off on interactive surfaces
+   ==================================================================== */
+.ant-menu-item,
+.ant-menu-submenu,
+.ant-menu-submenu-title,
+.ant-btn,
+.ant-drawer,
+.ant-drawer-mask,
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ====================================================================
+   Tooltips are UI hints, not selectable content. Highlighting the text
+   inside them looks like an accidental drag, not a user action.
+   v6 puts the text inside `.ant-tooltip-container`; older themes
+   sometimes still expose `.ant-tooltip-inner` — cover both.
+   ==================================================================== */
+.ant-tooltip,
+.ant-tooltip-container,
+.ant-tooltip-inner {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+/* ====================================================================
+   Server-IP toggle: new value slides up by 6px while fading in.
+   Triggered by a `key` change on the span (React remounts → animation
+   plays on the fresh element). Out-easing only — no overshoot.
+   ==================================================================== */
+.app-ip-reveal {
+  animation: app-ip-slide-up 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes app-ip-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-ip-reveal { animation: none; }
+}
+
+/* ====================================================================
+   Logs surface — used by LogsModal. Sits on the same elevated card
+   palette as the rest of the UI, with only a 1px border to set it apart
+   from the modal body. Scrollbar uses the global thin style.
+   ==================================================================== */
+.app-logs-surface {
+  background-color: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+.app-logs-surface:hover {
+  border-color: var(--border-strong);
+}
+[data-theme='light'] .app-logs-surface {
+  background-color: rgba(0, 0, 0, 0.02);
+}
+
+/* ====================================================================
+   Scrollbar (WebKit/Blink + Firefox)
+   `--border` from the dark palette is almost invisible against the panel
+   background; bumping to a translucent white/black gives the thumb enough
+   contrast to read as a scroll affordance, especially on phones where the
+   bar appears only briefly.
+   ==================================================================== */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background-color: rgba(255, 255, 255, 0.3); }
+[data-theme='light'] ::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.18);
+}
+[data-theme='light'] ::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0.3);
+}
+/* Firefox. `scrollbar-color: thumb track`. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+[data-theme='light'] * {
+  scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
+}
+
+/* ====================================================================
+   No text selection inside chrome (sidebar / drawer / login). Inputs stay
+   selectable so users can edit credentials.
+   ==================================================================== */
+.ant-layout-sider,
+.ant-layout-sider *,
+.ant-drawer-content-wrapper,
+.ant-drawer-content-wrapper *,
+.login-card,
+.login-card * {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+.login-card input,
+.login-card textarea {
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+  user-select: text;
+}
+
+/* ====================================================================
+   Login page
+   Moved out of an inline <style> block in Login.tsx so the browser
+   caches it. The expensive bits — `filter: blur(60px)` on three orbs,
+   `backdrop-filter: blur(12px)` on the card, `filter: blur(40px)` on
+   the halo — are gone; the same soft-glow look is achieved with
+   radial-gradients that have a translucent center and a transparent
+   outer stop (zero GPU rasterisation cost).
+   ==================================================================== */
+@keyframes login-card-rise {
+  0% { opacity: 0; transform: translateY(40px) scale(0.94); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes login-halo-pulse {
+  0% { opacity: 0; transform: translateZ(0) scale(0.6); }
+  100% { opacity: 0.55; transform: translateZ(0) scale(1); }
+}
+@keyframes login-orb-fade-in {
+  from { opacity: 0; transform: translateZ(0) scale(0.3); }
+  to { opacity: var(--target-opacity, 1); transform: translateZ(0) scale(1); }
+}
+@keyframes login-stagger-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.login-card-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  z-index: 1;
+}
+
+.login-card-halo {
+  position: absolute;
+  inset: -40px;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(99, 102, 241, 0.28) 0%,
+    transparent 70%
+  );
+  opacity: 0;
+  pointer-events: none;
+  animation: login-halo-pulse 1.4s cubic-bezier(0.22, 1, 0.36, 1) 0.1s forwards;
+}
+
+.login-card {
+  position: relative;
+  padding: 36px;
+  border-radius: 16px;
+  /* `--surface-2` is the active theme's elevated surface — white on light,
+     dark navy on dark, near-black on darker. Pairs with antd's `colorText`
+     so the heading and labels stay readable on every palette. */
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4), 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+  opacity: 0;
+  transform: translateZ(0);
+  animation: login-card-rise 0.85s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+[data-theme="light"] .login-card {
+  /* Lighter shadow on white — the dark navy preset would look bruised. */
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.12), 0 1px 0 rgba(0, 0, 0, 0.02) inset;
+}
+
+@media (max-width: 480px) {
+  .login-card {
+    padding: 24px 20px;
+    border-radius: 14px;
+  }
+  .login-bg-orb,
+  .login-card-halo { display: none; }
+}
+
+.login-bg-mobile {
+  display: none;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 60% 40% at 30% 15%, rgba(99, 102, 241, 0.25), transparent 60%),
+    radial-gradient(ellipse 50% 35% at 75% 85%, rgba(139, 92, 246, 0.18), transparent 60%);
+}
+@media (max-width: 480px) {
+  .login-bg-mobile { display: block; }
+}
+@media (max-width: 480px) and (prefers-reduced-motion: no-preference) {
+  .login-card { animation-duration: 0.55s; }
+  .login-anim-stagger { animation-duration: 0.4s; }
+}
+
+.login-anim-stagger {
+  opacity: 0;
+  animation: login-stagger-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: var(--d, 0s);
+  /* Filter intentionally dropped from will-change — none of these animations
+     touch filter, so it was forcing extra GPU layers for nothing. */
+  will-change: transform, opacity;
+}
+
+.login-bg-orb {
+  position: absolute;
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateZ(0);
+}
+.login-bg-orb-1 {
+  width: 480px;
+  height: 480px;
+  left: 12%;
+  top: 8%;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.45) 0%, transparent 65%);
+  --target-opacity: 1;
+  animation: login-orb-fade-in 1.4s ease-out forwards;
+}
+.login-bg-orb-2 {
+  width: 440px;
+  height: 440px;
+  right: 12%;
+  bottom: 8%;
+  background: radial-gradient(circle, rgba(139, 92, 246, 0.45) 0%, transparent 65%);
+  --target-opacity: 1;
+  animation: login-orb-fade-in 1.6s ease-out 0.2s forwards;
+}
+.login-bg-orb-3 {
+  width: 380px;
+  height: 380px;
+  left: 50%;
+  top: 50%;
+  margin-left: -190px;
+  margin-top: -190px;
+  background: radial-gradient(circle, rgba(6, 182, 212, 0.32) 0%, transparent 70%);
+  --target-opacity: 1;
+  animation: login-orb-fade-in 1.8s ease-out 0.4s forwards;
+}
+
+.login-card input:-webkit-autofill,
+.login-card input:-webkit-autofill:hover,
+.login-card input:-webkit-autofill:focus,
+.login-card input:-webkit-autofill:active {
+  -webkit-text-fill-color: #f1f5f9 !important;
+  -webkit-box-shadow: 0 0 0 1000px rgba(26, 36, 56, 0.6) inset !important;
+  caret-color: #f1f5f9 !important;
+  transition: background-color 5000s ease-in-out 0s, color 5000s ease-in-out 0s;
+  border-radius: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-card,
+  .login-anim-stagger,
+  .login-card-halo,
+  .login-bg-orb {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+/* ====================================================================
+   Dashboard typography helpers
+   ==================================================================== */
+.stat-label {
+  font-size: 11px;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 500;
+}
+
+.stat-number {
+  font-size: 30px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ====================================================================
+   Dashboard gauge meta — `ЦП · 16 ядер` inline on tablet+, two-row stack
+   on phones (where the detail string would wrap awkwardly with the · as
+   a leading character).
+   ==================================================================== */
+.app-gauge-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  column-gap: 8px;
+  row-gap: 2px;
+  padding: 0 4px;
+}
+
+.app-gauge-detail::before {
+  content: '· ';
+}
+
+@media (max-width: 575px) {
+  .app-gauge-meta {
+    flex-direction: column;
+    /* `baseline` is a row-axis concept; for a column flex it falls back to
+       `start`, pulling the label and detail to the left of the gauge. */
+    align-items: center;
+    row-gap: 4px;
+  }
+  .app-gauge-detail::before {
+    content: '';
+  }
+}
+
+/* ====================================================================
+   Page transition — fade + tiny rise on tab switch
+   Triggered by `key={current}` on the page wrapper, so React unmounts the
+   previous page and mounts the new one. CSS picks it up from there. The
+   animation is short and translateY is small so the swap feels snappy
+   instead of "loading". `prefers-reduced-motion` skips it entirely.
+   ==================================================================== */
+.app-page-fade {
+  animation: app-page-enter 0.18s ease-out;
+}
+
+@keyframes app-page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-page-fade {
+    animation: none;
+  }
+}
+
+/* ====================================================================
+   Content reveal — applied to the outer wrapper of a page that mounts
+   only once its first data has arrived. Replaces the previous skeleton
+   flash on refresh / first login. Slightly longer than the tab-switch
+   fade because "page contents arriving" reads as a moment, not a snap.
+   ==================================================================== */
+.app-content-reveal {
+  animation: app-content-reveal-enter 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes app-content-reveal-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-content-reveal {
+    animation: none;
+  }
+}
+
+/* Settings page — single long-scroll layout (GitHub-style). Sections
+   stack vertically with hairline dividers in between; no per-section
+   container, no navigation, no tabs. The page reads like one
+   document the operator scrolls through top-to-bottom. */
+.app-settings-page {
+  max-width: 960px;
+}
+
+/* Subtle fade-in for any settings block whose contents arrive after
+   the section header. In production the panel-settings form mounts
+   synchronously (URL-derived initial data), so the animation fires
+   once during the page reveal and is essentially invisible. In dev
+   the form has to wait on /api/settings/panel; without this fade the
+   inputs pop in abruptly. */
+.app-settings-fade-in {
+  animation: app-settings-fade-in 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes app-settings-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-settings-fade-in { animation: none; }
+}
+
+.app-settings-section {
+  /* Generous breathing room around each section so the dividers
+     between them feel like deliberate visual chapters, not just
+     squished rows. */
+  padding: 4px 0 8px;
+}
+.app-settings-divider {
+  border: 0;
+  height: 1px;
+  margin: 32px 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(148, 163, 184, 0.18) 12%,
+    rgba(148, 163, 184, 0.18) 88%,
+    transparent 100%
+  );
+}
+[data-theme='light'] .app-settings-divider {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(15, 23, 42, 0.12) 12%,
+    rgba(15, 23, 42, 0.12) 88%,
+    transparent 100%
+  );
+}
+
+/* "Dirty bar" — page-level action strip that hovers above the
+   rail+content row when ANY section in the settings page has
+   unsaved changes. Lives outside the per-section frame so swapping
+   between sections doesn't unmount it; the wrapper's max-height
+   animation lets it grow/collapse in the document flow without
+   covering the page below. The inner card carries the visible
+   styling so the wrapper's clipping doesn't crop the rounded
+   border or the surrounding shadow. */
+.app-settings-dirtybar {
+  /* Sticky to the top of the scroll container so the operator can edit
+     a section halfway down the page, scroll back up only if they want
+     to — the Save / Discard buttons follow them. `top: 0` rides under
+     the panel's content padding (the AppLayout's main column already
+     supplies the offset from the global header). z-index sits above
+     form controls but below modals/popovers. */
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition:
+    max-height 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.18s ease,
+    margin-bottom 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+  margin-bottom: 0;
+  pointer-events: none;
+}
+.app-settings-dirtybar.is-visible {
+  max-height: 88px;
+  opacity: 1;
+  margin-bottom: 20px;
+  pointer-events: auto;
+}
+.app-settings-dirtybar-inner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 18px;
+  /* Opaque surface fill — needed because the parent now sticks to the
+     top of the scroll container, so form content scrolling underneath
+     must not bleed through. `--surface-2` is the design-system token
+     for "elevated" surfaces, set per theme (dark / darker / light) by
+     `theme/tokens.applyCssVariables`. The primary accent on the left
+     bar + pulsing dot carry the "unsaved" signal; tinting the whole
+     background amber/warning reads as alarm and clashes with the
+     panel's purple palette. */
+  background: var(--surface-2, #1a2438);
+  border: 1px solid var(--border, rgba(148, 163, 184, 0.14));
+  border-left: 3px solid var(--accent, rgb(87, 90, 208));
+  border-radius: 12px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+}
+[data-theme='light'] .app-settings-dirtybar-inner {
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
+}
+/* Pulsing dot on the left signals "this is a state notice", not
+   just a passive label. Slow pulse so it doesn't compete with the
+   form for attention. */
+.app-settings-dirtybar-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-primary, rgb(87, 90, 208));
+  box-shadow: 0 0 0 0 rgba(87, 90, 208, 0.55);
+  animation: app-settings-dirtybar-pulse 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+@keyframes app-settings-dirtybar-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(87, 90, 208, 0.55); }
+  70% { box-shadow: 0 0 0 9px rgba(87, 90, 208, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(87, 90, 208, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-settings-dirtybar { transition: none; }
+  .app-settings-dirtybar-dot { animation: none; }
+}
+
+/* ====================================================================
+   Live status dot (xray running indicator)
+   The green dot in the "Запущен" chip emits an expanding ring once per
+   ~1.8s — a soft heartbeat that says "this is up *right now*", not just
+   "was up when the page loaded". Red (stopped) stays static — a dead
+   service shouldn't look alive.
+   ==================================================================== */
+.app-status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.app-status-dot.live {
+  animation: app-status-pulse 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes app-status-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.6);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(34, 197, 94, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-status-dot.live {
+    animation: none;
+  }
+}
+
+/* Live-row signalling for the Traffic cell. Three coupled effects:
+   * blue text on the ↑/↓ byte totals,
+   * blue glow on the progress bar,
+   * animated diagonal stripes overlaying the bar.
+   `box-shadow` instead of `filter: drop-shadow` so the blur isn't
+   rasterised every animation frame when the ::after stripes repaint.
+   The stripe gradient is painted on `.ant-progress-rail` rather than
+   `.ant-progress-track` because at low usage the fill is only a few
+   pixels wide and the motion cue would be invisible. Track stays
+   visible underneath via z-index ordering. */
+:root {
+  --app-traffic-stripe: 22px;
+}
+.app-traffic-cell-live > span {
+  color: #60a5fa;
+}
+.app-quota-bar-live {
+  box-shadow: 0 0 4px rgba(96, 165, 250, 0.6);
+}
+.app-quota-bar-live .ant-progress-rail {
+  position: relative;
+  overflow: hidden;
+}
+.app-quota-bar-live .ant-progress-rail::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(96, 165, 250, 0.55) 0,
+    rgba(96, 165, 250, 0.55) 6px,
+    rgba(96, 165, 250, 0.12) 6px,
+    rgba(96, 165, 250, 0.12) 11px
+  );
+  background-size: var(--app-traffic-stripe) 100%;
+  animation: app-traffic-flow 0.9s linear infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+@keyframes app-traffic-flow {
+  from { background-position: 0 0; }
+  to   { background-position: var(--app-traffic-stripe) 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-quota-bar-live .ant-progress-rail::after {
+    animation: none;
+  }
+}
+
+/* Subscription-landing app rows — clickable card hover. The border
+   transitions to brand-accent, the row lifts 1 px and a thin shadow
+   appears so the cursor gets a clear "this is a button" hint without
+   changing the static look. */
+.app-sub-row:hover {
+  border-color: var(--ant-color-primary) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px -4px rgba(99, 102, 241, 0.3);
+}
+
+/* Landing-page entrance animation. Cards slide in from below with a
+   tiny stagger via :nth-child delays — feels intentional, not jumpy.
+   prefers-reduced-motion users get the final state with no movement. */
+.app-sub-landing > div > * {
+  animation: app-sub-fade-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+.app-sub-landing > div > *:nth-child(1) { animation-delay: 0.00s; }
+.app-sub-landing > div > *:nth-child(2) { animation-delay: 0.06s; }
+.app-sub-landing > div > *:nth-child(3) { animation-delay: 0.12s; }
+.app-sub-landing > div > *:nth-child(4) { animation-delay: 0.18s; }
+.app-sub-landing > div > *:nth-child(5) { animation-delay: 0.24s; }
+.app-sub-landing > div > *:nth-child(6) { animation-delay: 0.30s; }
+@keyframes app-sub-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-sub-landing > div > * {
+    animation: none;
+  }
+}

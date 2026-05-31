@@ -1,0 +1,92 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id, inbound_id, email, uuid, auth, flow, enabled, note,\n                  traffic_limit_bytes, disabled_reason, sub_token, created_at, updated_at\n           FROM clients WHERE inbound_id = ? AND enabled = 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "inbound_id",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "email",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "uuid",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "auth",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "flow",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "enabled",
+        "ordinal": 6,
+        "type_info": "Integer"
+      },
+      {
+        "name": "note",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "traffic_limit_bytes",
+        "ordinal": 8,
+        "type_info": "Integer"
+      },
+      {
+        "name": "disabled_reason",
+        "ordinal": 9,
+        "type_info": "Text"
+      },
+      {
+        "name": "sub_token",
+        "ordinal": 10,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 11,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 12,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "708141d01c506084ae60b3283b635f9efa529130008d1808380b293d6f27ac61"
+}

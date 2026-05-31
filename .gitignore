@@ -1,0 +1,52 @@
+# Rust
+target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# Frontend / Node
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
+
+# SQLite
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Backend runtime data (DB, xray binary, geofiles, generated config,
+# secrets) — operator-specific, never source. Ignore the whole dir.
+backend/data/
+
+# Integration-test scratch (created by backend/_itest.sh)
+backend/_itest/
+
+# Backend secrets — never commit JWT secrets or .env
+.env
+.env.local
+.env.production
+
+# IDE / editor
+.vscode/
+.idea/
+*.iml
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs / temp
+*.log
+/tmp/
+*.tmp
+
+# Build artifacts / archives — should not be in source tree
+*.zip
+*.tar.gz
+*.tgz
+*.7z
+
+# Claude Code session artifacts
+.claude/

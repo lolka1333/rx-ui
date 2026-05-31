@@ -1,0 +1,92 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id, tag, enabled, listen, port,\n                  protocol_config, transport_config, security_config, sniffing_config,\n                  finalmask_config, sockopt_config, created_at, updated_at\n           FROM inbounds WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "tag",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "enabled",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "listen",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "port",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "protocol_config",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "transport_config",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "security_config",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "sniffing_config",
+        "ordinal": 8,
+        "type_info": "Text"
+      },
+      {
+        "name": "finalmask_config",
+        "ordinal": 9,
+        "type_info": "Text"
+      },
+      {
+        "name": "sockopt_config",
+        "ordinal": 10,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 11,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 12,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "541653b67e05248669bb9a200b43255f06439a7c009ffc850e0f8d00d553ac03"
+}

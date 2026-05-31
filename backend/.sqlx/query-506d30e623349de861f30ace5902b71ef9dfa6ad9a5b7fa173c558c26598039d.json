@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO inbounds (\n            id, tag, enabled, listen, port,\n            protocol_config, transport_config, security_config, sniffing_config,\n            finalmask_config, sockopt_config\n        ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 10
+    },
+    "nullable": []
+  },
+  "hash": "506d30e623349de861f30ace5902b71ef9dfa6ad9a5b7fa173c558c26598039d"
+}

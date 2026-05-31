@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT inbound_id FROM clients WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "inbound_id",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c1d7fc8b03cc914bb902ca77dc739ce9539d15f04bf9bc1708c3e0f453e6d2fe"
+}

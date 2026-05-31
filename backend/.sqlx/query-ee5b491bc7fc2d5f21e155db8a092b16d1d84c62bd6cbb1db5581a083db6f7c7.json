@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO clients (id, inbound_id, email, uuid, auth, flow, enabled, note,\n                                traffic_limit_bytes, disabled_reason, sub_token)\n           VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, NULL, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 9
+    },
+    "nullable": []
+  },
+  "hash": "ee5b491bc7fc2d5f21e155db8a092b16d1d84c62bd6cbb1db5581a083db6f7c7"
+}

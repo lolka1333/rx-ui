@@ -1,0 +1,7 @@
+[env]
+# Use the checked-in .sqlx/ query cache instead of hitting a live database at
+# compile time. Lets `cargo build` work on a fresh checkout (CI, new machine,
+# Linux deploy box) without setting up DATABASE_URL or running migrations.
+# After changing any sqlx::query!/query_as! call, refresh the cache with:
+#   cargo sqlx prepare
+SQLX_OFFLINE = "true"

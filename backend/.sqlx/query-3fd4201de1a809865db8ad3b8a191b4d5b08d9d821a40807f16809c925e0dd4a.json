@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE clients\n           SET uplink_total = 0,\n               downlink_total = 0,\n               traffic_updated_at = datetime('now')\n           WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "3fd4201de1a809865db8ad3b8a191b4d5b08d9d821a40807f16809c925e0dd4a"
+}

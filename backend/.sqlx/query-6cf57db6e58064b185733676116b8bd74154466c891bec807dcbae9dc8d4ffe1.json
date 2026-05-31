@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT token_version FROM users WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "token_version",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6cf57db6e58064b185733676116b8bd74154466c891bec807dcbae9dc8d4ffe1"
+}
