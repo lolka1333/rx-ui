@@ -52,6 +52,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Stub frontend build output
+        # The backend embeds `frontend/dist/` via rust-embed (`#[folder]`),
+        # so the crate won't compile at all if that dir is missing — and it
+        # is .gitignored, absent on a clean checkout. This job only
+        # type-checks/tests the backend (no release build, the SPA isn't
+        # served here), so a placeholder satisfies the macro. The real SPA
+        # is produced by `pnpm build` before an actual release build.
+        run: mkdir -p ../frontend/dist && printf '<!doctype html><title>rx-ui</title>' > ../frontend/dist/index.html
+
       - name: Install Rust toolchain (pinned via rust-toolchain.toml)
         # rustup auto-reads rust-toolchain.toml from the repo root. No
         # version literal here — single source of truth.
