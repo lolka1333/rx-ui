@@ -101,15 +101,24 @@ jobs:
 
       - name: Verify .sqlx cache is up to date
         # If a query!() macro changed without `cargo sqlx prepare` being
-        # re-run, this fails loudly instead of silently using stale data.
-        # Requires sqlx-cli; install it fresh each run (it's small).
+        # re-run, the committed `.sqlx/` cache drifts from the code. This
+        # rebuilds the query metadata against a real schema and diffs it.
+        # Informational for now (|| warning) rather than a hard gate.
         run: |
-          cargo install sqlx-cli --no-default-features --features sqlite,native-tls --locked
-          # We don't have a live DB in CI, but `prepare --check` only needs
-          # to verify that no query changed since the cache snapshot.
-          # The `|| true` is intentional — until the team adopts this as a
-          # hard gate, we surface it as informational rather than blocking.
-          DATABASE_URL="sqlite::memory:" cargo sqlx prepare --check -- --bin rx-ui || \
+          # Pin sqlx-cli to the 0.9.x line — the version the committed
+          # `.sqlx/` cache was generated and verified with, so `prepare
+          # --check` is a byte-identical comparison. (The `sqlx` *crate* is
+          # 0.8, but the on-disk cache format is shared and CI builds 0.9
+          # fine; matching the generating CLI avoids spurious diffs.)
+          cargo install sqlx-cli --version '^0.9' --no-default-features --features sqlite,native-tls --locked
+          # `prepare --check` actually executes each query, so it needs the
+          # real schema — an empty `sqlite::memory:` has no tables and every
+          # query!() would error `no such table`. Apply the embedded
+          # migrations to a throwaway file DB first.
+          export DATABASE_URL="sqlite:${RUNNER_TEMP}/sqlx-check.db"
+          cargo sqlx database create
+          cargo sqlx migrate run
+          cargo sqlx prepare --check -- --bin rx-ui || \
             echo "::warning::sqlx cache may be stale — run 'cargo sqlx prepare' locally"
 
   frontend:
