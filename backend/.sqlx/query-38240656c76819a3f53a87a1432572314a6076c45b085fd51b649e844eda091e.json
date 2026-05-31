@@ -6,12 +6,24 @@
       {
         "name": "inbound_id",
         "ordinal": 0,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "inbound_id"
+          }
+        }
       },
       {
         "name": "disabled_reason",
         "ordinal": 1,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "disabled_reason"
+          }
+        }
       }
     ],
     "parameters": {

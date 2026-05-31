@@ -105,11 +105,9 @@ jobs:
         # rebuilds the query metadata against a real schema and diffs it.
         # Informational for now (|| warning) rather than a hard gate.
         run: |
-          # Pin sqlx-cli to the 0.9.x line — the version the committed
-          # `.sqlx/` cache was generated and verified with, so `prepare
-          # --check` is a byte-identical comparison. (The `sqlx` *crate* is
-          # 0.8, but the on-disk cache format is shared and CI builds 0.9
-          # fine; matching the generating CLI avoids spurious diffs.)
+          # Pin sqlx-cli to the 0.9.x line — matches the `sqlx` crate (0.9)
+          # and the committed `.sqlx/` cache, so `prepare --check` is a
+          # byte-identical comparison.
           cargo install sqlx-cli --version '^0.9' --no-default-features --features sqlite,native-tls --locked
           # `prepare --check` actually executes each query, so it needs the
           # real schema — an empty `sqlite::memory:` has no tables and every

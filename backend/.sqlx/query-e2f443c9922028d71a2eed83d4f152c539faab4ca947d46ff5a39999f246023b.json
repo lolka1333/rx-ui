@@ -6,37 +6,79 @@
       {
         "name": "id!",
         "ordinal": 0,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "id"
+          }
+        }
       },
       {
         "name": "email!",
         "ordinal": 1,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "email"
+          }
+        }
       },
       {
         "name": "inbound_tag!",
         "ordinal": 2,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbounds",
+            "name": "tag"
+          }
+        }
       },
       {
         "name": "uplink_total!",
         "ordinal": 3,
-        "type_info": "Integer"
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "uplink_total"
+          }
+        }
       },
       {
         "name": "downlink_total!",
         "ordinal": 4,
-        "type_info": "Integer"
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "downlink_total"
+          }
+        }
       },
       {
         "name": "enabled!",
         "ordinal": 5,
-        "type_info": "Integer"
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "enabled"
+          }
+        }
       },
       {
         "name": "traffic_limit_bytes",
         "ordinal": 6,
-        "type_info": "Integer"
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "traffic_limit_bytes"
+          }
+        }
       }
     ],
     "parameters": {

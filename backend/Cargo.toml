@@ -18,7 +18,7 @@ tower-http = { version = "0.6", features = ["cors", "trace"] }
 tokio = { version = "1.52", features = ["full"] }
 
 # Database
-sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "migrate", "macros", "chrono", "uuid"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "sqlite", "migrate", "macros", "chrono", "uuid"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

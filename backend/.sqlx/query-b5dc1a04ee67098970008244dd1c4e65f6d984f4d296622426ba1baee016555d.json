@@ -6,72 +6,151 @@
       {
         "name": "id",
         "ordinal": 0,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "id"
+          }
+        }
       },
       {
         "name": "inbound_id",
         "ordinal": 1,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "inbound_id"
+          }
+        }
       },
       {
         "name": "email",
         "ordinal": 2,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "email"
+          }
+        }
       },
       {
         "name": "uuid",
         "ordinal": 3,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "uuid"
+          }
+        }
       },
       {
         "name": "auth",
         "ordinal": 4,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "auth"
+          }
+        }
       },
       {
         "name": "flow",
         "ordinal": 5,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "flow"
+          }
+        }
       },
       {
         "name": "enabled",
         "ordinal": 6,
-        "type_info": "Integer"
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "enabled"
+          }
+        }
       },
       {
         "name": "note",
         "ordinal": 7,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "note"
+          }
+        }
       },
       {
         "name": "traffic_limit_bytes",
         "ordinal": 8,
-        "type_info": "Integer"
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "traffic_limit_bytes"
+          }
+        }
       },
       {
         "name": "disabled_reason",
         "ordinal": 9,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "disabled_reason"
+          }
+        }
       },
       {
         "name": "sub_token",
         "ordinal": 10,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "sub_token"
+          }
+        }
       },
       {
         "name": "created_at",
         "ordinal": 11,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "created_at"
+          }
+        }
       },
       {
         "name": "updated_at",
         "ordinal": 12,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "updated_at"
+          }
+        }
       },
       {
         "name": "used!: i64",
         "ordinal": 13,
-        "type_info": "Null"
+        "type_info": "Integer",
+        "origin": "Expression"
       }
     ],
     "parameters": {
@@ -91,7 +170,7 @@
       false,
       false,
       false,
-      null
+      false
     ]
   },
   "hash": "b5dc1a04ee67098970008244dd1c4e65f6d984f4d296622426ba1baee016555d"

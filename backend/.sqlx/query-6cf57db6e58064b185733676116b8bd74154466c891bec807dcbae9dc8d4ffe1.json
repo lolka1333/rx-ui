@@ -6,7 +6,13 @@
       {
         "name": "token_version",
         "ordinal": 0,
-        "type_info": "Integer"
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "token_version"
+          }
+        }
       }
     ],
     "parameters": {

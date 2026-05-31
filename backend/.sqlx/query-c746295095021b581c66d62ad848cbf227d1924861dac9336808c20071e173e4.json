@@ -6,12 +6,24 @@
       {
         "name": "tag",
         "ordinal": 0,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbounds",
+            "name": "tag"
+          }
+        }
       },
       {
         "name": "enabled",
         "ordinal": 1,
-        "type_info": "Integer"
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "inbounds",
+            "name": "enabled"
+          }
+        }
       }
     ],
     "parameters": {

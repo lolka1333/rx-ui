@@ -6,67 +6,145 @@
       {
         "name": "id",
         "ordinal": 0,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbounds",
+            "name": "id"
+          }
+        }
       },
       {
         "name": "tag",
         "ordinal": 1,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbounds",
+            "name": "tag"
+          }
+        }
       },
       {
         "name": "enabled",
         "ordinal": 2,
-        "type_info": "Integer"
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "inbounds",
+            "name": "enabled"
+          }
+        }
       },
       {
         "name": "listen",
         "ordinal": 3,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbounds",
+            "name": "listen"
+          }
+        }
       },
       {
         "name": "port",
         "ordinal": 4,
-        "type_info": "Integer"
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "inbounds",
+            "name": "port"
+          }
+        }
       },
       {
         "name": "protocol_config",
         "ordinal": 5,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbounds",
+            "name": "protocol_config"
+          }
+        }
       },
       {
         "name": "transport_config",
         "ordinal": 6,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbounds",
+            "name": "transport_config"
+          }
+        }
       },
       {
         "name": "security_config",
         "ordinal": 7,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbounds",
+            "name": "security_config"
+          }
+        }
       },
       {
         "name": "sniffing_config",
         "ordinal": 8,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbounds",
+            "name": "sniffing_config"
+          }
+        }
       },
       {
         "name": "finalmask_config",
         "ordinal": 9,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbounds",
+            "name": "finalmask_config"
+          }
+        }
       },
       {
         "name": "sockopt_config",
         "ordinal": 10,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbounds",
+            "name": "sockopt_config"
+          }
+        }
       },
       {
         "name": "created_at",
         "ordinal": 11,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbounds",
+            "name": "created_at"
+          }
+        }
       },
       {
         "name": "updated_at",
         "ordinal": 12,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbounds",
+            "name": "updated_at"
+          }
+        }
       }
     ],
     "parameters": {
