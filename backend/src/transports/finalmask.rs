@@ -223,6 +223,13 @@ impl FinalMask {
                 let item = fm::noise::Item {
                     rand_min: p.rand_min.unwrap_or(0),
                     rand_max: p.rand_max.unwrap_or(0),
+                    // Byte-value range for the random prefix. Mirror xray's
+                    // conf default (`randRange` → 0..255); the proto default
+                    // (0..0) would make the server emit an all-zero "random"
+                    // prefix — itself a fingerprint, and asymmetric with the
+                    // client, whose `fm=` conf defaults to 0..255.
+                    rand_range_min: 0,
+                    rand_range_max: 255,
                     packet: decode_hex_relaxed(&p.packet_hex),
                     ..Default::default()
                 };
@@ -273,4 +280,31 @@ fn decode_hex_relaxed(s: &str) -> Vec<u8> {
         out.push((h << 4) | l);
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::xray::proto::xray::transport::internet::finalmask as fm;
+    use prost::Message as _;
+
+    /// The server-side noise proto must carry the full 0..255 byte-value
+    /// range (xray's conf default), not the proto's 0..0 — otherwise the
+    /// server's "random" prefix is all zeros, which is both a fingerprint
+    /// and asymmetric with the client (whose `fm=` conf defaults to 0..255).
+    #[test]
+    fn noise_server_uses_full_rand_range() {
+        let (msg, scope) = FinalMask::Noise(NoiseParams {
+            rand_min: Some(1),
+            rand_max: Some(10),
+            ..NoiseParams::default()
+        })
+        .to_typed_message()
+        .expect("noise with a non-zero rand count is active");
+        assert_eq!(scope, FinalMaskScope::Udp);
+        let cfg = fm::noise::Config::decode(msg.value.as_slice()).expect("decode noise config");
+        assert_eq!(cfg.items.len(), 1);
+        assert_eq!(cfg.items[0].rand_range_min, 0);
+        assert_eq!(cfg.items[0].rand_range_max, 255);
+    }
 }

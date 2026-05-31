@@ -110,6 +110,44 @@ fn row_to_inbound(r: Row) -> AppResult<Inbound> {
 // Validation
 // =============================================================================
 
+/// `FinalMask` cross-checks against the chosen security layer. Split out of
+/// `validate_layers` to keep that function readable.
+fn validate_finalmask(security: &SecurityConfig, finalmask: &FinalMask) -> AppResult<()> {
+    // Reality wraps the raw TCP socket and type-asserts the underlying conn
+    // implements `CloseWriteConn`. Sudoku's TCP wrapper doesn't — and, being
+    // a symmetric stateful cipher, it MUST run server-side — so Sudoku+Reality
+    // panics xray on the first handshake (`is not reality.CloseWriteConn`).
+    // Fragment is asymmetric (client-only via `fm=`, never wrapped
+    // server-side — see orchestrator), so Fragment+Reality is safe. Noise is
+    // UDP-only and never touches the TCP socket.
+    if matches!(security, SecurityConfig::Reality(_)) && matches!(finalmask, FinalMask::Sudoku(_)) {
+        return Err(AppError::BadRequest(
+            "Reality is incompatible with Sudoku FinalMask: Sudoku must run \
+             server-side and Reality can't wrap its socket (xray-core panics). \
+             Use Fragment (client-side, Reality-safe) or Noise, or switch \
+             security to TLS / none."
+                .to_owned(),
+        ));
+    }
+
+    // xray's FragmentMask.Build rejects LengthMin == 0 ("LengthMin can't be
+    // 0"). An active Fragment mask with a zero/empty min length ships
+    // `length:"0-N"` in the share-link fm=, the client's xray refuses the
+    // config, and the user simply can't connect — so reject it at the panel.
+    if let FinalMask::Fragment(p) = finalmask
+        && finalmask.is_active()
+        && p.length_min.unwrap_or(0) < 1
+    {
+        return Err(AppError::BadRequest(
+            "Fragment FinalMask needs a chunk length of at least 1 byte — \
+             xray rejects a zero min length. Set the Length min to 1 or more."
+                .to_owned(),
+        ));
+    }
+
+    Ok(())
+}
+
 /// Cross-layer compatibility checks. xray would reject most of these
 /// at `AddInbound` time anyway; doing them up front keeps the panel
 /// and xray from drifting if the gRPC call fails between INSERT and
@@ -163,23 +201,9 @@ fn validate_layers(
         ));
     }
 
-    // Reality wraps the raw TCP socket and type-asserts the underlying conn
-    // implements `CloseWriteConn`. Sudoku's TCP wrapper doesn't — and, being
-    // a symmetric stateful cipher, it MUST run server-side — so Sudoku+Reality
-    // panics xray on the first handshake (`is not reality.CloseWriteConn`) and
-    // stays rejected. Fragment used to be rejected here too, but it is
-    // asymmetric: the panel ships it to the client only (via `fm=`) and never
-    // wraps the server socket with it (see orchestrator), so Fragment+Reality
-    // is safe now. Noise is UDP-only and never touches the TCP socket.
-    if matches!(security, SecurityConfig::Reality(_)) && matches!(finalmask, FinalMask::Sudoku(_)) {
-        return Err(AppError::BadRequest(
-            "Reality is incompatible with Sudoku FinalMask: Sudoku must run \
-             server-side and Reality can't wrap its socket (xray-core panics). \
-             Use Fragment (client-side, Reality-safe) or Noise, or switch \
-             security to TLS / none."
-                .to_owned(),
-        ));
-    }
+    // FinalMask compatibility with the security layer (Reality panics on
+    // Sudoku; zero-length fragment) — grouped in `validate_finalmask`.
+    validate_finalmask(security, finalmask)?;
 
     // VLESS fallbacks — xray-core rejects two combos at startup:
     //   * `fallbacks` + `decryption != "none"` (VLESS Encryption) — they
@@ -1106,6 +1130,29 @@ mod validate_layers_tests {
             }),
         )
         .expect("Fragment + Reality must be allowed (Fragment is client-only)");
+    }
+
+    /// xray rejects `LengthMin` == 0; the panel must reject an active Fragment
+    /// mask with a zero/empty min length before it ships a broken fm=.
+    #[test]
+    fn fragment_zero_length_rejected() {
+        let err = validate_layers(
+            &vless(VlessFlow::None),
+            &TransportConfig::Tcp(TcpTransport {}),
+            &reality_ok(),
+            &FinalMask::Fragment(FragmentParams {
+                packets_from: Some(0),
+                packets_to: Some(1),
+                // min cleared, max set → the mask is active but ships
+                // length "0-80", which xray would reject.
+                length_min: None,
+                length_max: Some(80),
+                ..FragmentParams::default()
+            }),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("length"), "got: {err}");
     }
 
     // ---- VLESS fallbacks validation -------------------------------------
