@@ -93,6 +93,11 @@ export const InboundForm = memo(function InboundForm({
     onError: (err: unknown) =>
       message.error(apiErrorMessage(err) ?? t('inbounds.rotateKeypairError')),
   });
+  // Destructure the bits the tab memo needs: react-query hands back a fresh
+  // `rotate` object every render, so depending on it whole would defeat the
+  // memo (and re-introduce the tab-scroll jump). `mutate` is stable and
+  // `isPending` is the only value the memo actually reacts to.
+  const { isPending: rotatePending, mutate: rotateMutate } = rotate;
 
   const initialValues = useMemo(
     () => (editing != null ? inboundToForm(editing) : DEFAULTS),
@@ -114,8 +119,8 @@ export const InboundForm = memo(function InboundForm({
             children: (
               <RealityTab
                 editing={editing}
-                onRotate={() => editing && rotate.mutate(editing.id)}
-                rotating={rotate.isPending}
+                onRotate={() => editing && rotateMutate(editing.id)}
+                rotating={rotatePending}
               />
             ),
           }]
@@ -181,8 +186,8 @@ export const InboundForm = memo(function InboundForm({
     watchedNetwork,
     watchedSecurity,
     editing,
-    rotate.isPending,
-    rotate.mutate,
+    rotatePending,
+    rotateMutate,
   ]);
 
   return (

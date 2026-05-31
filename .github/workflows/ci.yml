@@ -50,7 +50,7 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Stub frontend build output
         # The backend embeds `frontend/dist/` via rust-embed (`#[folder]`),
@@ -73,7 +73,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -128,12 +128,15 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Node (pinned via .nvmrc)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
+          # We cache the pnpm store ourselves (below) and pnpm is set up in
+          # the next step, so turn off setup-node's own package-manager cache.
+          package-manager-cache: false
 
       - name: Setup pnpm
         # pnpm/action-setup needs the version explicitly — it does NOT read
@@ -141,13 +144,13 @@ jobs:
         # `working-directory`, so it never sees frontend/package.json's
         # `packageManager` either. Keep this in sync with the
         # `packageManager` field in frontend/package.json.
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 11.1.1
           run_install: false
 
       - name: Cache pnpm store
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.local/share/pnpm/store
           key: ${{ runner.os }}-pnpm-${{ hashFiles('frontend/pnpm-lock.yaml') }}
@@ -160,10 +163,9 @@ jobs:
         run: pnpm run typecheck
 
       - name: pnpm lint
-        # `lint` script exists in package.json (eslint . --ext ts,tsx).
-        # If eslint config drifts, surface as warning rather than fail
-        # the build until the rules stabilise.
-        run: pnpm run lint || echo "::warning::eslint reported issues"
+        # ESLint flat config (eslint.config.js): typescript-eslint +
+        # react-hooks + react-refresh. A hard gate now the toolchain exists.
+        run: pnpm run lint
 
       - name: pnpm build
         # Full Vite production build — catches issues `tsc -b` won't,

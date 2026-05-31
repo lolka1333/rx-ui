@@ -914,6 +914,9 @@ function DirtyBar({
   const [mounted, setMounted] = useState(visible);
   useEffect(() => {
     if (visible) {
+      // Mount immediately on show; the delayed unmount below keeps the node
+      // alive for the 220ms exit transition.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMounted(true);
       return undefined;
     }

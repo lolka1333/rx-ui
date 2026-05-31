@@ -50,6 +50,9 @@ export function XrayUpdatesModal({ open, onClose, currentVersion }: Props) {
   });
 
   useEffect(() => {
+    // Deliberate open-triggered seeding of the version picker, not a render
+    // cascade — runs once per open while nothing is selected.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (open && currentVersion && !selected) setSelected(currentVersion);
   }, [open, currentVersion, selected]);
 

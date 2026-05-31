@@ -357,6 +357,8 @@ export function SubscriptionLanding({ token }: { token: string }) {
 
   useEffect(() => {
     const ctrl = new AbortController();
+    // Genuine data-fetch effect — flip to loading, then resolve below.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     fetchSubscription(token, ctrl.signal)
       .then((d) => { if (!ctrl.signal.aborted) setData(d); })
