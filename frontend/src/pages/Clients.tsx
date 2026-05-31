@@ -566,10 +566,15 @@ export function Clients() {
       const body: ClientBulkAssign = {
         email: values.email.trim(),
         inbound_ids: values.inbound_ids,
-        uuid: values.uuid.trim() ? values.uuid.trim() : null,
+        uuid: values.uuid?.trim() ? values.uuid.trim() : null,
         // Empty auth → null. Backend mints one for hysteria inbounds in
-        // the target set; vless inbounds ignore the column.
-        auth: values.auth.trim() ? values.auth.trim() : null,
+        // the target set; vless inbounds ignore the column. `?.` is
+        // load-bearing: ClientAuthField renders the `auth` Form.Item only
+        // for hysteria targets, so on a VLESS-only selection the field is
+        // never registered and `values.auth` is `undefined` — a bare
+        // `.trim()` there threw a TypeError *before* the request was sent,
+        // which surfaced (misleadingly) as "couldn't connect to backend".
+        auth: values.auth?.trim() ? values.auth.trim() : null,
         flow,
         note: values.note || null,
         traffic_limit_bytes: trafficLimitBytes,
