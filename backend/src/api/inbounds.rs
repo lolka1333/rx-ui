@@ -163,17 +163,20 @@ fn validate_layers(
         ));
     }
 
-    // Reality wraps the raw TCP socket itself and depends on the
-    // underlying conn implementing `CloseWriteConn`. xray-core's Fragment
-    // and Sudoku TCP wrappers don't expose that method, so combining
-    // either with Reality panics xray on first client handshake. Noise
-    // is UDP-only and never touches the TCP socket, so it's still safe.
-    if matches!(security, SecurityConfig::Reality(_))
-        && matches!(finalmask, FinalMask::Fragment(_) | FinalMask::Sudoku(_))
-    {
+    // Reality wraps the raw TCP socket and type-asserts the underlying conn
+    // implements `CloseWriteConn`. Sudoku's TCP wrapper doesn't — and, being
+    // a symmetric stateful cipher, it MUST run server-side — so Sudoku+Reality
+    // panics xray on the first handshake (`is not reality.CloseWriteConn`) and
+    // stays rejected. Fragment used to be rejected here too, but it is
+    // asymmetric: the panel ships it to the client only (via `fm=`) and never
+    // wraps the server socket with it (see orchestrator), so Fragment+Reality
+    // is safe now. Noise is UDP-only and never touches the TCP socket.
+    if matches!(security, SecurityConfig::Reality(_)) && matches!(finalmask, FinalMask::Sudoku(_)) {
         return Err(AppError::BadRequest(
-            "Reality is incompatible with Fragment / Sudoku FinalMask (xray-core panic). \
-             Use Noise (UDP) or switch security to TLS / none."
+            "Reality is incompatible with Sudoku FinalMask: Sudoku must run \
+             server-side and Reality can't wrap its socket (xray-core panics). \
+             Use Fragment (client-side, Reality-safe) or Noise, or switch \
+             security to TLS / none."
                 .to_owned(),
         ));
     }
@@ -1066,23 +1069,43 @@ mod validate_layers_tests {
         assert!(err.contains("server_names"), "got: {err}");
     }
 
-    /// Regression for the xray-core panic
-    /// `*fragment.fragmentConn is not reality.CloseWriteConn` triggered by
-    /// running Reality on top of a TCP-side `FinalMask` wrapper. Sudoku has
-    /// the same shape and must be rejected too; Noise is UDP-only so it
-    /// stays allowed alongside TCP Reality.
+    /// Sudoku is a symmetric, stateful cipher that must run server-side, and
+    /// Reality can't wrap its TCP conn — xray panics
+    /// `*sudoku... is not reality.CloseWriteConn`. So Sudoku+Reality stays
+    /// rejected.
     #[test]
-    fn reality_with_fragment_err_xray_panic_combo() {
+    fn reality_with_sudoku_err_xray_panic_combo() {
         let err = validate_layers(
             &vless(VlessFlow::None),
             &TransportConfig::Tcp(TcpTransport {}),
             &reality_ok(),
-            &FinalMask::Fragment(FragmentParams::default()),
+            &FinalMask::Sudoku(SudokuParams::default()),
         )
         .unwrap_err()
         .to_string();
         assert!(err.contains("Reality"), "got: {err}");
-        assert!(err.contains("Fragment"), "got: {err}");
+        assert!(err.contains("Sudoku"), "got: {err}");
+    }
+
+    /// Fragment is asymmetric — the panel ships it to the client via `fm=` and
+    /// never wraps the server socket with it (orchestrator skips its tcpmask),
+    /// so it no longer panics under Reality and must be ACCEPTED. This is the
+    /// combo that used to be rejected here.
+    #[test]
+    fn reality_with_fragment_ok() {
+        validate_layers(
+            &vless(VlessFlow::None),
+            &TransportConfig::Tcp(TcpTransport {}),
+            &reality_ok(),
+            &FinalMask::Fragment(FragmentParams {
+                packets_from: Some(0),
+                packets_to: Some(1),
+                length_min: Some(40),
+                length_max: Some(80),
+                ..FragmentParams::default()
+            }),
+        )
+        .expect("Fragment + Reality must be allowed (Fragment is client-only)");
     }
 
     // ---- VLESS fallbacks validation -------------------------------------

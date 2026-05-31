@@ -22,8 +22,12 @@ use crate::xray::proto::xray::common::serial::TypedMessage;
 /// type at handshake time):
 ///   * `Sudoku`   — both TCP and UDP. Same Config goes into both
 ///     `tcpmasks` and `udpmasks`.
-///   * `Fragment` — TCP only. Populates only `tcpmasks`; xray ignores
-///     it for QUIC/Hysteria inbounds.
+///   * `Fragment` — TCP, but CLIENT-ONLY. It's asymmetric (the client
+///     fragments its own `ClientHello`; the server just reassembles over
+///     TCP), so the orchestrator deliberately does NOT add it to the
+///     server's `tcpmasks` — it only rides the share-link's `fm=`. A
+///     server-side fragment wrapper would be pointless and, under Reality,
+///     panics xray (`fragmentConn is not reality.CloseWriteConn`).
 ///   * `Noise`    — UDP only. Populates only `udpmasks`; ignored for
 ///     vless/reality TCP inbounds. Most useful for QUIC/Hysteria
 ///     where a noise prefix breaks fingerprinting.

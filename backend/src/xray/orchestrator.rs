@@ -40,14 +40,21 @@ pub fn inbound_to_handler_config(
         .map(|c| protocol.build_user(c))
         .collect::<anyhow::Result<Vec<_>>>()?;
 
-    // FinalMask wraps the socket bytes AFTER TLS/Reality. Sudoku fills
-    // both slots (xray dispatches by socket type at handshake); Fragment
-    // is TCP-only; Noise is UDP-only. Inactive variants leave both empty.
+    // FinalMask wires the server's socket masks. Sudoku is a symmetric,
+    // stateful cipher → it runs on both sides (fills both slots). Noise is
+    // UDP-only. Fragment (the only Tcp-scope mask) is the odd one out: it is
+    // *asymmetric*. The client fragments its own ClientHello (shipped via the
+    // share-link's `fm=`); the server just reassembles over TCP, so a
+    // server-side fragment wrapper is pointless — and under Reality it is
+    // fatal: xray panics `*fragment.fragmentConn is not reality.CloseWriteConn`
+    // because Reality type-asserts CloseWrite on the un-spliced server conn.
+    // So Fragment never enters the server's tcpmasks; it is client-only.
     let (tcpmasks, udpmasks) = match inb.finalmask.to_typed_message() {
         Some((m, FinalMaskScope::Both)) => (vec![m.clone()], vec![m]),
-        Some((m, FinalMaskScope::Tcp)) => (vec![m], Vec::new()),
         Some((m, FinalMaskScope::Udp)) => (Vec::new(), vec![m]),
-        None => (Vec::new(), Vec::new()),
+        // Fragment (Tcp scope) is client-only — see the note above — so it
+        // contributes no server-side mask, same as an inactive mask.
+        Some((_, FinalMaskScope::Tcp)) | None => (Vec::new(), Vec::new()),
     };
 
     // Stream settings = transport + security composed.
