@@ -571,7 +571,15 @@ async fn write_inbound_layers_tx(
         .await?;
     }
     if let Some(security) = &body.security {
-        let j = serde_json::to_string(security)?;
+        // Reality's x25519 keypair is server-managed — the frontend never
+        // holds the private key, so it submits it blank on every update.
+        // Writing that blank straight through wipes the stored keypair and
+        // leaves the inbound unbuildable ("x25519 key must decode to 32
+        // bytes, got 0"). Carry the existing keypair forward when the
+        // incoming private key is empty; an explicit rotate uses its own
+        // endpoint and arrives with a real key.
+        let security = preserve_reality_keypair_tx(tx, id, security).await?;
+        let j = serde_json::to_string(&security)?;
         sqlx::query!(
             "UPDATE inbounds SET security_config = ?, updated_at = datetime('now') WHERE id = ?",
             j,
@@ -611,6 +619,45 @@ async fn write_inbound_layers_tx(
         .await?;
     }
     Ok(())
+}
+
+/// Preserve the server-managed Reality x25519 keypair across an inbound
+/// update. The frontend can't read the private key, so it always submits
+/// it (and the derived public key) blank; without this, editing any other
+/// field of a Reality inbound overwrites the stored keypair with empty
+/// strings and breaks the inbound. Returns the incoming security unchanged
+/// for every case except "Reality with a blank private key layered over a
+/// stored Reality keypair", where it lifts the existing keypair across.
+async fn preserve_reality_keypair_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    id: &str,
+    incoming: &crate::security::SecurityConfig,
+) -> AppResult<crate::security::SecurityConfig> {
+    use crate::security::SecurityConfig;
+    let SecurityConfig::Reality(new) = incoming else {
+        return Ok(incoming.clone());
+    };
+    if !new.private_key.is_empty() {
+        return Ok(incoming.clone());
+    }
+    let Some(row) = sqlx::query!("SELECT security_config FROM inbounds WHERE id = ?", id)
+        .fetch_optional(&mut **tx)
+        .await?
+    else {
+        return Ok(incoming.clone());
+    };
+    let Ok(SecurityConfig::Reality(old)) =
+        serde_json::from_str::<SecurityConfig>(&row.security_config)
+    else {
+        return Ok(incoming.clone());
+    };
+    if old.private_key.is_empty() {
+        return Ok(incoming.clone());
+    }
+    let mut merged = new.clone();
+    merged.private_key = old.private_key;
+    merged.public_key = old.public_key;
+    Ok(SecurityConfig::Reality(merged))
 }
 
 /// Push the inbound update to xray. Tag / port / listen / layer changes

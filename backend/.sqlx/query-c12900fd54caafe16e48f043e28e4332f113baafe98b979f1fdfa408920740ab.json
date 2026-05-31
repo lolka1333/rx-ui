@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT security_config FROM inbounds WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "security_config",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbounds",
+            "name": "security_config"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c12900fd54caafe16e48f043e28e4332f113baafe98b979f1fdfa408920740ab"
+}
