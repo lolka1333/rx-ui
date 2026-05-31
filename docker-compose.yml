@@ -1,0 +1,44 @@
+# Build and run rx-ui in a container.
+#
+#   docker compose up -d --build     # build the image + start
+#   docker compose logs -f           # follow logs
+#   docker compose down              # stop (the data volume is kept)
+#
+# First run: the panel comes up on :8080 with admin / admin (change it in the
+# UI immediately) and auto-downloads xray-core into the data volume.
+
+services:
+  rx-ui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: rx-ui:latest
+    container_name: rx-ui
+    restart: unless-stopped
+
+    # Host networking is the right mode for an xray panel: VPN inbounds you
+    # create listen on operator-chosen ports (443, 8443, ...), and host mode
+    # makes every one reachable without re-declaring port maps here.
+    # Linux only.
+    #
+    # On Docker Desktop (macOS / Windows), where host networking is limited,
+    # comment out the line below and use the bridge `ports:` block instead —
+    # note that only the panel UI will be reachable that way; VPN inbounds
+    # would each need their own mapping.
+    network_mode: host
+    # ports:
+    #   - "8080:8080"   # panel UI only (bridge-mode fallback)
+
+    # Optional overrides (PANEL_PORT, RUST_LOG, JWT_SECRET,
+    # ADMIN_INITIAL_PASSWORD). Copy .env.example to .env to use it; the file
+    # is optional and image defaults apply when it is absent.
+    env_file:
+      - path: .env
+        required: false
+
+    volumes:
+      # Panel DB, JWT secret, and the downloaded xray binary/config/geofiles.
+      - rx-ui-data:/app/data
+
+volumes:
+  rx-ui-data:

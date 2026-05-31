@@ -1,0 +1,44 @@
+# Keep the build context small and free of secrets/artifacts.
+
+# Rust build output (can be many GB) — rebuilt inside the image.
+target/
+**/target/
+
+# Node deps + Vite output — installed/rebuilt in the frontend stage.
+node_modules/
+**/node_modules/
+frontend/dist/
+frontend/.vite/
+**/*.tsbuildinfo
+
+# Runtime data & secrets — must never enter the build context or image.
+data/
+backend/data/
+backend/_itest/
+**/*.db
+**/*.db-shm
+**/*.db-wal
+.env
+.env.*
+**/.env
+**/.env.*
+
+# VCS / CI / editor / agent files — irrelevant to the build.
+.git/
+.gitignore
+.github/
+.vscode/
+.idea/
+.claude/
+*.log
+
+# Docs / archives.
+*.md
+*.zip
+*.tar.gz
+*.7z
+
+# The Docker assets themselves.
+Dockerfile
+docker-compose.yml
+.dockerignore

@@ -170,3 +170,16 @@ jobs:
         # e.g. unresolvable dynamic imports, asset path problems, or
         # the rolldown manualChunks logic in vite.config.ts.
         run: pnpm run build
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build the production image
+        # End-to-end check of the multi-stage Dockerfile: frontend build →
+        # backend release build (embeds the SPA) → runtime image. BuildKit is
+        # the default on the runner, so the cargo cache mounts in the
+        # Dockerfile are honoured. Build only — nothing is pushed anywhere.
+        run: docker build -t rx-ui:ci .

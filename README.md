@@ -41,6 +41,28 @@ itself and bootstraps everything:
 
 Open `http://localhost:8080` in a browser, log in, you're running.
 
+### Docker (compose)
+
+Build and run everything — frontend, backend, embedded SPA — in a container,
+with no Rust/Node toolchain on the host:
+
+```bash
+docker compose up -d --build     # build image + start
+docker compose logs -f           # follow logs
+docker compose down              # stop (data volume kept)
+```
+
+Same zero-config bootstrap as the release binary (admin / admin, generated
+JWT secret, xray-core fetched on first run). All state lives in the
+`rx-ui-data` Docker volume.
+
+`docker-compose.yml` uses **host networking** — the right mode for a VPN
+panel, since the xray inbounds you create bind operator-chosen ports and host
+mode makes them all reachable. It's Linux-only; on Docker Desktop
+(macOS/Windows) switch to the commented bridge `ports:` fallback (panel UI
+only). Optional tuning (port, log level, `JWT_SECRET`, initial admin password)
+goes in `.env` — copy `.env.example` to `.env`.
+
 ### Dev workflow (running from source)
 
 ```bash
