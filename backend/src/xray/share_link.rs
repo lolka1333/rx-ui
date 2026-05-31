@@ -442,6 +442,51 @@ mod tests {
     }
 
     #[test]
+    fn xhttp_padding_obfs_rides_in_extra_param() {
+        // Padding obfs is symmetric — the client must mirror it or the
+        // connection breaks. It travels in xray's `extra` param.
+        let inb = inbound(
+            TransportConfig::Xhttp(XhttpTransport {
+                path: Some("/x".into()),
+                mode: Some(XhttpMode::Auto),
+                x_padding_obfs_mode: Some(true),
+                x_padding_key: Some("fullbrenched".into()),
+                x_padding_header: Some("includedborders3".into()),
+                x_padding_placement: Some("cookie".into()),
+                x_padding_method: Some("tokenish".into()),
+                ..XhttpTransport::default()
+            }),
+            SecurityConfig::None(NoneSecurity {}),
+        );
+        let link = build_vless_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
+        assert!(link.contains("extra="), "missing extra=: {link}");
+        // Field names + values are url-safe, so they survive verbatim inside
+        // the url-encoded JSON blob.
+        for needle in [
+            "xPaddingObfsMode",
+            "fullbrenched",
+            "includedborders3",
+            "cookie",
+            "tokenish",
+        ] {
+            assert!(link.contains(needle), "extra missing {needle}: {link}");
+        }
+    }
+
+    #[test]
+    fn xhttp_without_padding_obfs_omits_extra() {
+        let inb = inbound(
+            TransportConfig::Xhttp(XhttpTransport {
+                path: Some("/x".into()),
+                ..XhttpTransport::default()
+            }),
+            SecurityConfig::None(NoneSecurity {}),
+        );
+        let link = build_vless_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
+        assert!(!link.contains("extra="), "extra should be absent: {link}");
+    }
+
+    #[test]
     fn tls_security_with_ech_config_list_emits_ech_param() {
         // When ECH config list is set on the inbound, the share-link
         // must carry it so clients can embed it in Client Hello without

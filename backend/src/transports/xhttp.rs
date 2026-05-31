@@ -132,6 +132,31 @@ impl Transport for XhttpTransport {
         if let Some(m) = self.mode {
             params.push(("mode".to_owned(), m.as_db_str().to_owned()));
         }
+        // Padding-obfuscation is a *symmetric* wire feature: the server pads
+        // every request, so a client that doesn't pad identically can't
+        // connect. xray carries the advanced xhttpSettings in the
+        // share-link's `extra` param — a JSON the client merges into its own
+        // xhttpSettings (field names match xray's conf: xPaddingObfsMode,
+        // xPaddingKey, …). Only emitted when obfs is actually on, so plain
+        // inbounds keep a clean link.
+        if self.x_padding_obfs_mode.unwrap_or(false) {
+            let mut extra = serde_json::Map::new();
+            extra.insert("xPaddingObfsMode".to_owned(), serde_json::Value::Bool(true));
+            for (key, val) in [
+                ("xPaddingKey", self.x_padding_key.as_deref()),
+                ("xPaddingHeader", self.x_padding_header.as_deref()),
+                ("xPaddingPlacement", self.x_padding_placement.as_deref()),
+                ("xPaddingMethod", self.x_padding_method.as_deref()),
+            ] {
+                if let Some(v) = val.filter(|s| !s.is_empty()) {
+                    extra.insert(key.to_owned(), serde_json::Value::String(v.to_owned()));
+                }
+            }
+            params.push((
+                "extra".to_owned(),
+                serde_json::Value::Object(extra).to_string(),
+            ));
+        }
         params
     }
     fn build_settings(&self) -> anyhow::Result<TypedMessage> {
