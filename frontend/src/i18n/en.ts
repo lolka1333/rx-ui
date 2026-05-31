@@ -534,6 +534,8 @@ export const en: Dict = {
     empty: 'No clients yet — add the first one',
     email: 'Email',
     emailRequired: 'Email is required',
+    emailLockedTooltip:
+      'Email is the client identifier and cannot be changed while editing. To rename, delete the client and create it again.',
     uuid: 'UUID',
     uuidPlaceholder: 'Leave empty — will be generated',
     flow: 'Flow',

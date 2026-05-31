@@ -532,6 +532,8 @@ export const ru = {
     empty: 'Нет клиентов — добавьте первого',
     email: 'Email',
     emailRequired: 'Введите email',
+    emailLockedTooltip:
+      'Email — идентификатор клиента, его нельзя изменить при редактировании. Чтобы переименовать, удалите клиента и создайте заново.',
     uuid: 'UUID',
     uuidPlaceholder: 'Оставьте пустым — сгенерируется',
     flow: 'Flow',

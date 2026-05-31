@@ -1019,10 +1019,12 @@ export function Clients() {
         ]}
       />
 
-      {/* Create/Edit modal. Inbound select is disabled in edit mode —
-          changing a client's inbound destroys its share-link (UUID gets
-          re-registered on a different xray inbound), too easy a foot-gun
-          for one form. Operator can delete + recreate if needed. */}
+      {/* Create/Edit modal. The inbound multi-select IS editable in edit
+          mode — bulk-assign adds/removes the email's per-inbound rows
+          atomically. The email field, by contrast, is locked in edit mode:
+          it is the client's identity (bulk-assign keys on it), so changing
+          it would spawn a NEW client rather than rename the existing one.
+          Delete + recreate to rename. */}
       <Modal
         destroyOnHidden
         open={modalOpen}
@@ -1050,6 +1052,12 @@ export function Clients() {
             key={formKey}
             form={form}
             layout="vertical"
+            // Clear each field's value from the store when it unmounts.
+            // Without this the controlled `form` instance keeps stale values
+            // across modal opens (and across ClientAuthField/ClientFlowField
+            // toggling), so reopening the create form showed the
+            // previously-edited client's data.
+            preserve={false}
             initialValues={(() => {
               const tl = bytesToTrafficForm(editing?.traffic_limit_bytes);
               return {
@@ -1106,9 +1114,12 @@ export function Clients() {
             <Form.Item
               name="email"
               label={t('clients.email')}
+              tooltip={editing ? t('clients.emailLockedTooltip') : undefined}
               rules={[{ required: true, message: t('clients.emailRequired') }]}
             >
-              <Input placeholder="user@example.com" />
+              {/* Locked in edit mode: bulk-assign keys on email, so changing
+                  it would create a new client instead of renaming. */}
+              <Input placeholder="user@example.com" disabled={!!editing} />
             </Form.Item>
             <Form.Item
               name="uuid"
