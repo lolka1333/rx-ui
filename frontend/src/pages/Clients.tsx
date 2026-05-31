@@ -255,7 +255,6 @@ export function Clients() {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Client | null>(null);
-  const [formKey, setFormKey] = useState(0);
   // Share modal state. `group` is the whole email-aggregate so the
   // Subscription tab can use any row's sub_token (all resolve to the
   // same bundle), and the Share-link tab can offer a Select to switch
@@ -667,12 +666,10 @@ export function Clients() {
 
   const openCreate = () => {
     setEditing(null);
-    setFormKey((k) => k + 1);
     setModalOpen(true);
   };
   const openEdit = (c: Client) => {
     setEditing(c);
-    setFormKey((k) => k + 1);
     setModalOpen(true);
   };
 
@@ -692,6 +689,37 @@ export function Clients() {
     : inbounds.length === 1
       ? [inbounds[0].id]
       : [];
+
+  // Seed the form when the modal opens — and only then. The modal reuses a
+  // single controlled `form` instance whose store outlives each open, and
+  // antd merges that lingering store *on top of* `initialValues` — so the
+  // prop loses, the fields kept stale data, and after a create the next edit
+  // showed a blank form. Writing the values imperatively here sidesteps the
+  // merge entirely. editingInboundIds/defaultCreateInboundIds are read fresh
+  // at open time but kept out of the deps on purpose: they change on
+  // background client-list refetches, and re-seeding mid-edit would clobber
+  // whatever the operator is typing.
+  useEffect(() => {
+    if (!modalOpen) return;
+    const tl = bytesToTrafficForm(editing?.traffic_limit_bytes);
+    form.setFieldsValue({
+      inbound_ids: editingInboundIds ?? defaultCreateInboundIds,
+      email: editing?.email ?? '',
+      uuid: editing?.uuid ?? '',
+      auth: editing?.auth ?? '',
+      flow: editing
+        ? editing.flow == null
+          ? 'inherit'
+          : editing.flow === 'xtls-rprx-vision'
+            ? 'xtls-rprx-vision'
+            : ''
+        : 'inherit',
+      note: editing?.note ?? '',
+      traffic_limit_value: tl.value,
+      traffic_limit_unit: tl.unit,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modalOpen, editing, form]);
 
   // Auto-clear inbound filter if the selected inbound vanishes (deleted
   // from another tab). Otherwise the badge "filtering by [gone inbound]"
@@ -1048,37 +1076,10 @@ export function Clients() {
             {t('clients.noInboundsYet')}
           </Typography.Text>
         ) : (
-          <Form
-            key={formKey}
-            form={form}
-            layout="vertical"
-            // Clear each field's value from the store when it unmounts.
-            // Without this the controlled `form` instance keeps stale values
-            // across modal opens (and across ClientAuthField/ClientFlowField
-            // toggling), so reopening the create form showed the
-            // previously-edited client's data.
-            preserve={false}
-            initialValues={(() => {
-              const tl = bytesToTrafficForm(editing?.traffic_limit_bytes);
-              return {
-                inbound_ids: editingInboundIds ?? defaultCreateInboundIds,
-                email: editing?.email ?? '',
-                uuid: editing?.uuid ?? '',
-                auth: editing?.auth ?? '',
-                flow: editing
-                  ? editing.flow == null
-                    ? 'inherit'
-                    : editing.flow === 'xtls-rprx-vision'
-                      ? 'xtls-rprx-vision'
-                      : ''
-                  : 'inherit',
-                note: editing?.note ?? '',
-                traffic_limit_value: tl.value,
-                traffic_limit_unit: tl.unit,
-              };
-            })()}
-            onFinish={(v) => save.mutate(v)}
-          >
+          // One controlled `form` instance, reused across opens and seeded
+          // imperatively by the effect above — see the note there on why an
+          // `initialValues` prop alone didn't hold.
+          <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)}>
             {/* Multi-select inbounds — the same user gets created in
                 each selected inbound, sharing uuid/auth/flow/limit. On
                 edit, this is pre-populated with every inbound the email
