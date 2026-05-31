@@ -16,7 +16,7 @@ import { useMemo } from 'react';
 import { Alert, Form, Input, InputNumber, Select, Typography } from 'antd';
 import { useTranslation } from 'react-i18next';
 import type { FinalMask } from '@/api/types';
-import { RangePair, Section, SideBySide } from '../widgets';
+import { RangePair, Section, SelectField, SideBySide } from '../widgets';
 import type { FormValues, SudokuAscii } from '../form/types';
 
 /** Sudoku padding is `uint32` on the proto but xray rejects values above
@@ -129,6 +129,11 @@ function SudokuFields() {
 
 function FragmentFields() {
   const { t } = useTranslation();
+  const form = Form.useFormInstance<FormValues>();
+  // The explicit "from..to" segment inputs only matter for the `range` mode;
+  // tlshello / all encode their packets pair internally (0,1 / 0,0), so we
+  // hide the raw inputs to keep the operator out of the magic-numbers trap.
+  const packetsMode = Form.useWatch('finalmask_fragment_packets_mode', form);
   return (
     <Section itemKey="finalmask-fragment" labelKey="inbounds.finalmaskFragmentSection">
       <Typography.Paragraph
@@ -137,17 +142,29 @@ function FragmentFields() {
       >
         {t('inbounds.finalmaskFragmentHint')}
       </Typography.Paragraph>
+      <SelectField
+        name="finalmask_fragment_packets_mode"
+        labelKey="inbounds.finalmaskFragmentPacketsMode"
+        tooltipKey="inbounds.finalmaskFragmentPacketsModeTooltip"
+        options={[
+          { value: 'tlshello', label: t('inbounds.finalmaskFragmentModeTlshello') },
+          { value: 'all', label: t('inbounds.finalmaskFragmentModeAll') },
+          { value: 'range', label: t('inbounds.finalmaskFragmentModeRange') },
+        ]}
+      />
+      {packetsMode === 'range' && (
+        <RangePair
+          labelKey="inbounds.finalmaskFragmentPackets"
+          tooltipKey="inbounds.finalmaskFragmentPacketsTooltip"
+          minName="finalmask_fragment_packets_from"
+          maxName="finalmask_fragment_packets_to"
+        />
+      )}
       <RangePair
         labelKey="inbounds.finalmaskFragmentLength"
         tooltipKey="inbounds.finalmaskFragmentLengthTooltip"
         minName="finalmask_fragment_length_min"
         maxName="finalmask_fragment_length_max"
-      />
-      <RangePair
-        labelKey="inbounds.finalmaskFragmentPackets"
-        tooltipKey="inbounds.finalmaskFragmentPacketsTooltip"
-        minName="finalmask_fragment_packets_from"
-        maxName="finalmask_fragment_packets_to"
       />
       <RangePair
         labelKey="inbounds.finalmaskFragmentDelay"

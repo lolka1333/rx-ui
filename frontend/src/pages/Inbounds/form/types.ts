@@ -224,6 +224,13 @@ export interface FormValues {
   finalmask_sudoku_padding_min: number | null;
   finalmask_sudoku_padding_max: number | null;
   // fragment
+  // UI-only discriminator that maps to the packets_from/to pair xray's conf
+  // parser consumes (see infra/conf/transport_internet.go FragmentMask.Build):
+  //   tlshello → (0,1)  fragment ONLY the TLS ClientHello — beats DPI that
+  //                     severs the handshake by reading the SNI
+  //   all      → (0,0)  segment the whole TCP stream
+  //   range    → (from,to) from the inputs below (from ≥ 1)
+  finalmask_fragment_packets_mode: 'tlshello' | 'all' | 'range';
   finalmask_fragment_packets_from: number | null;
   finalmask_fragment_packets_to: number | null;
   finalmask_fragment_length_min: number | null;

@@ -138,6 +138,9 @@ export const DEFAULTS: FormValues = {
   // (length 100..200 is the documented xray sensible-default; rand 5..10
   // bytes for noise is enough to break common QUIC-fingerprint rules).
   // Operator can override; empty (null) means "use xray's own default".
+  // tlshello is the sensible default: fragmenting the ClientHello is what
+  // defeats handshake-severing DPI; it maps to packets=(0,1) on the wire.
+  finalmask_fragment_packets_mode: 'tlshello',
   finalmask_fragment_packets_from: null,
   finalmask_fragment_packets_to: null,
   finalmask_fragment_length_min: 100,

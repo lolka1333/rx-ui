@@ -182,6 +182,13 @@ export function inboundToForm(inb: Inbound): FormValues {
     v.finalmask_sudoku_padding_max = inb.finalmask.padding_max;
   } else if (inb.finalmask.kind === 'fragment') {
     v.finalmask_kind = 'fragment';
+    // Recover the UI mode from the (from,to) pair xray stores: (0,1) is the
+    // tlshello shortcut, (0,0) is whole-stream segmentation, anything else is
+    // an explicit segment range.
+    const pf = inb.finalmask.packets_from ?? 0;
+    const pt = inb.finalmask.packets_to ?? 0;
+    v.finalmask_fragment_packets_mode =
+      pf === 0 && pt === 1 ? 'tlshello' : pf === 0 && pt === 0 ? 'all' : 'range';
     v.finalmask_fragment_packets_from = inb.finalmask.packets_from;
     v.finalmask_fragment_packets_to = inb.finalmask.packets_to;
     v.finalmask_fragment_length_min = inb.finalmask.length_min;
@@ -496,11 +503,21 @@ export function buildFinalMask(v: FormValues): FinalMask {
         padding_max: v.finalmask_sudoku_padding_max,
         custom_tables: [],
       };
-    case 'fragment':
+    case 'fragment': {
+      // Mode → the (from,to) pair xray's conf parser understands:
+      //   tlshello → (0,1)  share-link emits packets:"tlshello"
+      //   all      → (0,0)  packets:"" (whole-stream TCP segmentation)
+      //   range    → operator's (from,to), from ≥ 1
+      const [packets_from, packets_to]: [number | null, number | null] =
+        v.finalmask_fragment_packets_mode === 'tlshello'
+          ? [0, 1]
+          : v.finalmask_fragment_packets_mode === 'all'
+            ? [0, 0]
+            : [v.finalmask_fragment_packets_from, v.finalmask_fragment_packets_to];
       return {
         kind: 'fragment',
-        packets_from: v.finalmask_fragment_packets_from,
-        packets_to: v.finalmask_fragment_packets_to,
+        packets_from,
+        packets_to,
         length_min: v.finalmask_fragment_length_min,
         length_max: v.finalmask_fragment_length_max,
         delay_min: v.finalmask_fragment_delay_min,
@@ -508,6 +525,7 @@ export function buildFinalMask(v: FormValues): FinalMask {
         max_split_min: null,
         max_split_max: null,
       };
+    }
     case 'noise':
       return {
         kind: 'noise',
