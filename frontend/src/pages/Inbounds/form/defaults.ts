@@ -64,6 +64,8 @@ export const DEFAULTS: FormValues = {
   reality_short_ids: [],
   reality_fingerprint: 'chrome',
   reality_xver: 0,
+  reality_private_key: '',
+  reality_public_key: '',
   ws_path: '/',
   ws_host: '',
   ws_headers: [],

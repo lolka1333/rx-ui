@@ -25,6 +25,23 @@ export type EchKeyBundle = { ech_server_keys: string, ech_config_list: string, }
  */
 export type NoneSecurity = Record<symbol, never>;
 
+/**
+ * A freshly-generated Reality keypair, both halves encoded as base64-url
+ * without padding (43-char strings, like `xray x25519` output).
+ *
+ * Body-carried like `VlessEncryptionKeypair`: the frontend pre-generates a
+ * pair via `POST /api/keygen/reality-keypair` so the operator sees the
+ * `public_key` the moment they pick Reality on the create form, holds both
+ * halves in form state, and sends them back with the inbound. On save the
+ * server re-derives the public from the private, so a hand-crafted request
+ * can't slip in a mismatched pair.
+ */
+export type RealityKeypair = { 
+/**
+ * Server's private half. SECRET — never log.
+ */
+private_key: string, public_key: string, };
+
 export type RealitySecurity = { 
 /**
  * Target site the inbound impersonates ("dest" in xray docs).

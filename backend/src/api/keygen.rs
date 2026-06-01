@@ -9,17 +9,21 @@
 //! and `complete_server_managed_fields` keeps any keys the frontend
 //! already provided.
 //!
-//! Reality keys are NOT exposed here on purpose — the only legitimate
-//! path for them is the inbound's own create/rotate handler, which
-//! also pushes the new key into the running xray. A standalone Reality
-//! keygen would invite operators to paste mismatching material.
+//! Reality keys ARE exposed here (body-carried, like VLESS Encryption) so the
+//! operator sees the `public_key` the moment they pick Reality, instead of
+//! only after the inbound is saved. It stays safe because the endpoint hands
+//! back an atomic pair the operator never edits by hand, and
+//! `complete_server_managed_fields` re-derives the public from the private on
+//! save — a mismatched pair can't take effect. Rotating an existing inbound
+//! still goes through its own `/rotate-reality-keypair` handler (which also
+//! pushes the new key into the running xray).
 
 use crate::{
     AppState,
     auth::AuthUser,
     error::{AppError, AppResult},
     protocols::vless::VlessEncryptionAuth,
-    xray::keygen::{self, EchKeyBundle, VlessEncryptionKeypair},
+    xray::keygen::{self, EchKeyBundle, RealityKeypair, VlessEncryptionKeypair},
 };
 use axum::{
     Json, Router,
@@ -31,7 +35,17 @@ use serde::Deserialize;
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/vless-encryption", post(vless_encryption))
+        .route("/reality-keypair", post(reality_keypair))
         .route("/ech", post(ech))
+}
+
+/// Generate a fresh Reality x25519 keypair. Side-effect-free: nothing is
+/// persisted and no xray handler is touched. The frontend shows `public_key`
+/// immediately on the create form and sends both halves back with the next
+/// `POST /api/inbounds`; `complete_server_managed_fields` re-derives the
+/// public from the private so the stored pair is always consistent.
+async fn reality_keypair(_user: AuthUser) -> Json<RealityKeypair> {
+    Json(keygen::generate_reality_keypair())
 }
 
 #[derive(Debug, Deserialize)]

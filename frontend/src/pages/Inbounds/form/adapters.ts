@@ -134,6 +134,8 @@ export function inboundToForm(inb: Inbound): FormValues {
     v.reality_short_ids = r.short_ids;
     v.reality_fingerprint = r.fingerprint;
     v.reality_xver = r.xver;
+    v.reality_private_key = r.private_key;
+    v.reality_public_key = r.public_key;
   } else if (inb.security.kind === 'tls') {
     const s = inb.security;
     v.tls_certificates = s.certificates;
@@ -427,9 +429,12 @@ export function buildSecurity(v: FormValues): SecurityConfig {
         kind: 'reality',
         dest: v.reality_dest,
         server_names: v.reality_server_names,
-        // Server-managed: backend (re)generates on create / rotate.
-        private_key: '',
-        public_key: '',
+        // Body-carried keypair: the create form pre-generates it via
+        // /api/keygen/reality-keypair so the public key is visible up front.
+        // The backend re-derives the public from the private on save; on edit
+        // it preserves the stored pair (changing it only via explicit rotate).
+        private_key: v.reality_private_key,
+        public_key: v.reality_public_key,
         short_ids: v.reality_short_ids,
         fingerprint: v.reality_fingerprint || 'chrome',
         xver: v.reality_xver,

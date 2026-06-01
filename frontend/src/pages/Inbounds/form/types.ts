@@ -117,6 +117,12 @@ export interface FormValues {
   reality_short_ids: string[];
   reality_fingerprint: string;
   reality_xver: number;
+  // Reality x25519 keypair — body-carried (generated via
+  // POST /api/keygen/reality-keypair) so the public key shows on the create
+  // form immediately. The server re-derives the public from the private on
+  // save, so the stored pair is always consistent.
+  reality_private_key: string;
+  reality_public_key: string;
   ws_path: string;
   ws_host: string;
   ws_headers: { name: string; value: string }[];

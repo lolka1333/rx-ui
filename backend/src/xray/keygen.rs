@@ -23,7 +23,17 @@ use x25519_dalek::{PublicKey, StaticSecret};
 
 /// A freshly-generated Reality keypair, both halves encoded as base64-url
 /// without padding (43-char strings, like `xray x25519` output).
+///
+/// Body-carried like `VlessEncryptionKeypair`: the frontend pre-generates a
+/// pair via `POST /api/keygen/reality-keypair` so the operator sees the
+/// `public_key` the moment they pick Reality on the create form, holds both
+/// halves in form state, and sends them back with the inbound. On save the
+/// server re-derives the public from the private, so a hand-crafted request
+/// can't slip in a mismatched pair.
+#[derive(serde::Serialize, ts_rs::TS)]
+#[ts(export, export_to = "../../frontend/src/api/types/security.ts")]
 pub struct RealityKeypair {
+    /// Server's private half. SECRET — never log.
     pub private_key: String,
     pub public_key: String,
 }
@@ -40,6 +50,22 @@ pub fn generate_reality_keypair() -> RealityKeypair {
         private_key: URL_SAFE_NO_PAD.encode(secret.to_bytes()),
         public_key: URL_SAFE_NO_PAD.encode(public.to_bytes()),
     }
+}
+
+/// Derive the x25519 public key from a base64-url (no-pad) private key.
+///
+/// Lets the server guarantee the public half matches the private one the
+/// frontend sent with a body-carried keypair: a hand-crafted API request that
+/// pastes a mismatched `public_key` would otherwise make Reality silently
+/// reject every client. Returns Err if the private key isn't a valid 32-byte
+/// x25519 scalar.
+pub fn derive_reality_public_key(private_key: &str) -> anyhow::Result<String> {
+    let bytes = decode_x25519_key(private_key)?;
+    let arr: [u8; 32] = bytes
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("x25519 private key must be 32 bytes"))?;
+    let public = PublicKey::from(&StaticSecret::from(arr));
+    Ok(URL_SAFE_NO_PAD.encode(public.to_bytes()))
 }
 
 /// A VLESS Encryption keypair (post-quantum or X25519 variant of
@@ -296,25 +322,31 @@ pub fn decode_x25519_key(encoded: &str) -> anyhow::Result<Vec<u8>> {
     Ok(bytes)
 }
 
-/// Decode a hex-encoded `short_id` (0–16 chars) into raw bytes (0–8 bytes).
-/// Empty string maps to an empty `Vec` — that's the "no shortId" sentinel in
-/// Reality.
+/// Decode a hex-encoded `short_id` (0–16 chars) into **exactly 8 bytes**,
+/// zero-padded on the right. A shorter id like `"324a8e7c"` becomes
+/// `0x324a8e7c` followed by four zero bytes; the empty string becomes all
+/// zeros.
+///
+/// The fixed 8-byte width is mandatory, not cosmetic: xray's runtime Reality
+/// config (`reality/config.go`) builds its shortId set with
+/// `*(*[8]byte)(shortId)`, which reinterprets the slice's backing array as a
+/// fixed `[8]byte`. If the slice is shorter than 8 bytes that read runs past
+/// the allocation and the Go runtime **panics**, killing the whole xray
+/// process the moment the inbound is added over gRPC. xray's own JSON config
+/// path pads identically (`make([]byte, 8)` then `hex.Decode`), so emitting 8
+/// bytes here keeps the two paths byte-for-byte equivalent.
 pub fn decode_short_id(hex_str: &str) -> anyhow::Result<Vec<u8>> {
-    if hex_str.is_empty() {
-        return Ok(Vec::new());
-    }
     if hex_str.len() > 16 || !hex_str.len().is_multiple_of(2) {
         anyhow::bail!(
             "short_id must be 0–16 hex chars (got {} chars)",
             hex_str.len()
         );
     }
-    let mut out = Vec::with_capacity(hex_str.len() / 2);
-    for chunk in hex_str.as_bytes().chunks(2) {
+    let mut out = vec![0u8; 8];
+    for (i, chunk) in hex_str.as_bytes().chunks(2).enumerate() {
         let s = std::str::from_utf8(chunk).map_err(|_| anyhow::anyhow!("non-utf8 short_id"))?;
-        let byte = u8::from_str_radix(s, 16)
+        out[i] = u8::from_str_radix(s, 16)
             .map_err(|e| anyhow::anyhow!("invalid hex in short_id: {e}"))?;
-        out.push(byte);
     }
     Ok(out)
 }
@@ -394,8 +426,9 @@ mod tests {
     // === decode_short_id ==================================================
     #[test]
     fn decode_short_id_empty_is_valid() {
-        // "" = "no shortId requirement" sentinel in Reality.
-        assert_eq!(decode_short_id("").unwrap(), Vec::<u8>::new());
+        // "" is valid and pads to the all-zero 8-byte shortId (matches xray's
+        // JSON path, which also yields 8 zero bytes for an empty string).
+        assert_eq!(decode_short_id("").unwrap(), vec![0u8; 8]);
     }
 
     #[test]
@@ -405,11 +438,14 @@ mod tests {
     }
 
     #[test]
-    fn decode_short_id_partial_4_bytes() {
-        // Shorter short_ids are valid too (xray supports 0–8 bytes).
+    fn decode_short_id_partial_is_zero_padded_to_8() {
+        // Shorter short_ids are valid, but MUST be right-padded to 8 bytes —
+        // xray's runtime Reality config does `*(*[8]byte)(shortId)` and panics
+        // (taking the whole process down) on anything shorter. Regression test
+        // for the gRPC AddInbound crash.
         assert_eq!(
             decode_short_id("01ab23cd").unwrap(),
-            vec![0x01, 0xab, 0x23, 0xcd]
+            vec![0x01, 0xab, 0x23, 0xcd, 0x00, 0x00, 0x00, 0x00]
         );
     }
 
