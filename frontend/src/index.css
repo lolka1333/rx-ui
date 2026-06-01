@@ -714,7 +714,7 @@ button {
   font-weight: 700;
   line-height: 1.2;
   letter-spacing: -0.014em;
-  color: color-mix(in srgb, var(--text, #e7ecf5) 80%, var(--text-2, #94a3b8));
+  color: var(--text, #e7ecf5);
 }
 .app-settings-section-sub {
   max-width: 620px;
@@ -737,10 +737,7 @@ button {
   font-weight: 700;
   line-height: 1.2;
   letter-spacing: -0.014em;
-  /* Softened off-white, not pure --text: at 22px/700 on the near-black
-     "очень тёмная" bg, full-brightness white glares. Mixing ~20% toward the
-     secondary text tones it down while staying clearly a heading. */
-  color: color-mix(in srgb, var(--text, #e7ecf5) 80%, var(--text-2, #94a3b8));
+  color: var(--text, #e7ecf5);
 }
 .app-settings-divider {
   border: 0;

@@ -53,7 +53,11 @@ const PALETTES: Record<ThemeMode, Palette> = {
     surfaceElev: '#141414',
     border: '#1f1f1f',
     borderStrong: '#2d2d2d',
-    text: '#fafafa',
+    // Soft off-white, NOT pure white. Near-white (#fafafa) on the near-black
+    // bg is ~18:1 contrast — technically great, but it glares and tires the
+    // eye on this very-dark palette. ~#d4 keeps it crisply readable (~12:1)
+    // while taking the harsh edge off all primary text app-wide.
+    text: '#d4d4d4',
     textSecondary: '#a1a1a1',
     textTertiary: '#717171',
   },
