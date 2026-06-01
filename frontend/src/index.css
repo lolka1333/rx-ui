@@ -851,7 +851,7 @@ button {
   backdrop-filter: blur(3px);
 }
 .app-settings-overlay.is-open .app-settings-backdrop {
-  animation: app-settings-fade 0.18s ease;
+  animation: app-settings-fade 0.26s ease;
 }
 .app-settings-modal {
   position: relative;
@@ -865,15 +865,19 @@ button {
   box-shadow: 0 28px 80px rgba(0, 0, 0, 0.5);
 }
 .app-settings-overlay.is-open .app-settings-modal {
-  animation: app-settings-modal-in 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  /* Scale from the modal's own center (it's flex-centered in the overlay),
+     so it reads as a zoom-in from the middle of the screen. */
+  transform-origin: center center;
+  animation: app-settings-modal-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 @keyframes app-settings-fade {
   from { opacity: 0; }
   to { opacity: 1; }
 }
 @keyframes app-settings-modal-in {
-  from { opacity: 0; transform: translateY(8px) scale(0.985); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  /* Zoom in from the center while fading in (no slide). */
+  from { opacity: 0; transform: scale(0.9); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 /* Left nav */
