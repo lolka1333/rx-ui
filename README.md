@@ -195,5 +195,8 @@ point — see the same doc for the planned `config_json` blob refactor.
 
 ## License
 
-Personal project; no license has been declared yet. If you fork or
-redistribute, ask first.
+[GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0). You may use,
+modify, fork, and self-host this project — including commercially — as long as
+it stays under the AGPL. The network clause is the important part for a panel:
+if you run a modified version as a service for others, you must make its source
+available to them. See [NOTICE](NOTICE) for copyright and attribution.
