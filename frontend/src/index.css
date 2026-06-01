@@ -837,7 +837,8 @@ button {
   justify-content: center;
   padding: 24px;
 }
-.app-settings-overlay.is-open {
+.app-settings-overlay.is-open,
+.app-settings-overlay.is-closing {
   display: flex;
 }
 .app-settings-backdrop {
@@ -870,14 +871,33 @@ button {
   transform-origin: center center;
   animation: app-settings-modal-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
+/* Reverse on close: zoom back out to the center + fade. `forwards` holds the
+   final (invisible) state until React drops the node a moment later, so it
+   doesn't flash back to full size in the gap before unmount. */
+.app-settings-overlay.is-closing .app-settings-backdrop {
+  animation: app-settings-fade-out 0.2s ease forwards;
+}
+.app-settings-overlay.is-closing .app-settings-modal {
+  transform-origin: center center;
+  animation: app-settings-modal-out 0.2s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
 @keyframes app-settings-fade {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+@keyframes app-settings-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
 }
 @keyframes app-settings-modal-in {
   /* Zoom in from the center while fading in (no slide). */
   from { opacity: 0; transform: scale(0.9); }
   to { opacity: 1; transform: scale(1); }
+}
+@keyframes app-settings-modal-out {
+  /* Zoom back out to the center while fading (reverse of -in). */
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(0.9); }
 }
 
 /* Left nav */
@@ -1039,7 +1059,9 @@ button {
 }
 @media (prefers-reduced-motion: reduce) {
   .app-settings-overlay.is-open .app-settings-modal,
-  .app-settings-overlay.is-open .app-settings-backdrop { animation: none; }
+  .app-settings-overlay.is-open .app-settings-backdrop,
+  .app-settings-overlay.is-closing .app-settings-modal,
+  .app-settings-overlay.is-closing .app-settings-backdrop { animation: none; }
 }
 
 /* ====================================================================

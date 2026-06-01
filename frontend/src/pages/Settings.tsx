@@ -174,8 +174,26 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
+  // Keep the overlay displayed through its close animation: `open` drives the
+  // visible state, `rendered` stays true for the exit zoom-out, then flips
+  // false so the base `display:none` hides it. (Same delayed-unmount trick as
+  // the DirtyBar.) The 230ms timeout sits just past the 200ms out-animation.
+  const [rendered, setRendered] = useState(open);
+  useEffect(() => {
+    if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setRendered(true);
+      return undefined;
+    }
+    const id = window.setTimeout(() => setRendered(false), 230);
+    return () => window.clearTimeout(id);
+  }, [open]);
+
   return (
-    <div className={`app-settings-overlay${open ? ' is-open' : ''}`} aria-hidden={!open}>
+    <div
+      className={`app-settings-overlay${open ? ' is-open' : rendered ? ' is-closing' : ''}`}
+      aria-hidden={!open}
+    >
       <div className="app-settings-backdrop" onClick={onClose} />
       <div
         className="app-settings-modal"
