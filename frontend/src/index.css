@@ -852,7 +852,7 @@ button {
   backdrop-filter: blur(3px);
 }
 .app-settings-overlay.is-open .app-settings-backdrop {
-  animation: app-settings-fade 0.26s ease;
+  animation: app-settings-fade 0.2s ease;
 }
 .app-settings-modal {
   position: relative;
@@ -869,17 +869,17 @@ button {
   /* Scale from the modal's own center (it's flex-centered in the overlay),
      so it reads as a zoom-in from the middle of the screen. */
   transform-origin: center center;
-  animation: app-settings-modal-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: app-settings-modal-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 /* Reverse on close: zoom back out to the center + fade. `forwards` holds the
    final (invisible) state until React drops the node a moment later, so it
    doesn't flash back to full size in the gap before unmount. */
 .app-settings-overlay.is-closing .app-settings-backdrop {
-  animation: app-settings-fade-out 0.2s ease forwards;
+  animation: app-settings-fade-out 0.14s ease forwards;
 }
 .app-settings-overlay.is-closing .app-settings-modal {
   transform-origin: center center;
-  animation: app-settings-modal-out 0.2s cubic-bezier(0.4, 0, 1, 1) forwards;
+  animation: app-settings-modal-out 0.14s cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 @keyframes app-settings-fade {
   from { opacity: 0; }

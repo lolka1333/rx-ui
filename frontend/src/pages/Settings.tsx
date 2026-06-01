@@ -177,7 +177,7 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
   // Keep the overlay displayed through its close animation: `open` drives the
   // visible state, `rendered` stays true for the exit zoom-out, then flips
   // false so the base `display:none` hides it. (Same delayed-unmount trick as
-  // the DirtyBar.) The 230ms timeout sits just past the 200ms out-animation.
+  // the DirtyBar.) The 160ms timeout sits just past the 140ms out-animation.
   const [rendered, setRendered] = useState(open);
   useEffect(() => {
     if (open) {
@@ -185,7 +185,7 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
       setRendered(true);
       return undefined;
     }
-    const id = window.setTimeout(() => setRendered(false), 230);
+    const id = window.setTimeout(() => setRendered(false), 160);
     return () => window.clearTimeout(id);
   }, [open]);
 
