@@ -1,0 +1,21 @@
+rx-ui — a self-hosted control panel for Xray-core.
+Copyright (C) 2026 lolka1333
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE.  See the GNU Affero General Public License (the LICENSE
+file) for more details.
+
+--------------------------------------------------------------------------------
+THIRD-PARTY COMPONENTS
+
+This repository includes Protocol Buffer definitions and related material
+derived from Xray-core (https://github.com/XTLS/Xray-core), licensed under the
+Mozilla Public License 2.0 (MPL-2.0). Those files remain governed by the
+MPL-2.0; MPL-2.0 is compatible with the GNU AGPL-3.0 used by the rest of this
+project.
