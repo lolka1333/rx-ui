@@ -51,6 +51,13 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # against matches. xray-core's Linux release is a static Go binary and runs
 # here as-is.
 FROM debian:bookworm-slim AS runtime
+
+# Image metadata (surfaced on registries; links the image back to its source).
+LABEL org.opencontainers.image.title="rx-ui" \
+      org.opencontainers.image.description="Self-hosted control panel for Xray-core: a single binary (Rust backend with an embedded React SPA) that supervises an xray-core child process." \
+      org.opencontainers.image.source="https://github.com/lolka1333/rx-ui" \
+      org.opencontainers.image.licenses="AGPL-3.0-or-later"
+
 # ca-certificates: TLS trust store for the xray child process / general HTTPS.
 # curl: used only by the container HEALTHCHECK below.
 RUN apt-get update \
@@ -76,6 +83,19 @@ EXPOSE 8080
 # The SPA index answers 200 once the HTTP listener is up.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -fsS "http://127.0.0.1:${PANEL_PORT}/" >/dev/null || exit 1
+
+# Runs as root by design. Under host networking the supervised xray-core child
+# binds operator-chosen inbound ports — commonly privileged ones (443, 80,
+# 8443) — that an unprivileged user could not open. This is a single-admin,
+# self-hosted tool where the operator already controls the host, so dropping
+# privileges here would break those inbounds without meaningfully sandboxing
+# what is, by design, a network-proxy manager.
+
+# rx-ui's graceful-shutdown path is wired to SIGINT, not SIGTERM, so tell Docker
+# to stop the container with SIGINT. `docker stop` / `compose down` then shut
+# the HTTP listeners down cleanly and exit at once, instead of hanging for the
+# full ~10s stop-timeout and being SIGKILLed.
+STOPSIGNAL SIGINT
 
 # rx-ui is on PATH; WORKDIR /app makes it create/use ./data = /app/data.
 ENTRYPOINT ["rx-ui"]
