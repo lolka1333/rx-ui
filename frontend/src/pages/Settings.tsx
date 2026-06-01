@@ -346,18 +346,15 @@ function AccessSection({
   const [form] = Form.useForm<PanelAccessFormValues>();
   const [dirty, setDirty] = useState(false);
 
-  // `initialData` derived from the current URL so the form renders
-  // synchronously on the first paint — in production the backend
-  // serves the SPA itself, so `window.location` IS the current panel
-  // settings. Only valid in prod: under `vite dev` the frontend runs
-  // on 5173 and proxies /api to the backend on a different port, so
-  // window.location.port would lie about the panel's real port. In
-  // dev we fall back to a normal in-flight query and render the form
-  // when the response lands.
+  // Always read the panel's real port/prefix from the backend. We used to
+  // seed `initialData` from `window.location` for a synchronous first paint,
+  // but the URL lies whenever the panel is reached through a reverse proxy or
+  // an SSH tunnel — the browser's port is the tunnel's, not the panel's — so
+  // the form showed e.g. the SSH-forwarded port instead of the configured
+  // one. The form just waits the ~50ms for the real response instead.
   const settingsQuery = useQuery<PanelSettings>({
     queryKey: ['panel-settings'],
     queryFn: async () => (await apiClient.get<PanelSettings>('/settings/panel')).data,
-    initialData: import.meta.env.DEV ? undefined : deriveSettingsFromUrl,
   });
 
   const mutation = useMutation({
@@ -385,26 +382,45 @@ function AccessSection({
       return values;
     },
     onSuccess: (values) => {
+      // Compare against the panel's real old port (from the backend), not the
+      // browser's — under a proxy/tunnel they differ, and using the browser
+      // port made an unchanged save look like a port change.
+      const oldPort = settingsQuery.data?.panel_port;
+      const oldPath = settingsQuery.data?.panel_base_path ?? '';
       qc.invalidateQueries({ queryKey: ['panel-settings'] });
       setDirty(false);
-      const oldPort = window.location.port
+      const normalisedPath = normaliseClientPrefix(values.panel_base_path);
+      const portChanged = oldPort != null && values.panel_port !== oldPort;
+      const pathChanged = normalisedPath !== oldPath;
+      // The browser's port differs from the panel's when we're reached via a
+      // reverse proxy or SSH tunnel. A `localhost:<new-port>` redirect would
+      // then point at an address the browser can't reach, so only auto-redirect
+      // on direct access; behind a proxy just tell the operator where it moved.
+      const browserPort = window.location.port
         ? Number(window.location.port)
         : window.location.protocol === 'https:'
           ? 443
           : 80;
-      const oldPath = settingsQuery.data?.panel_base_path ?? '';
-      const normalisedPath = normaliseClientPrefix(values.panel_base_path);
-      const portChanged = values.panel_port !== oldPort;
-      const pathChanged = normalisedPath !== oldPath;
+      const behindProxy = oldPort != null && browserPort !== oldPort;
       if (portChanged || pathChanged) {
-        const newUrl = `${window.location.protocol}//${window.location.hostname}:${values.panel_port}${normalisedPath}/`;
-        message.success({
-          content: t('settings.panelSavedHotRedirect', { url: newUrl }),
-          duration: 6,
-        });
-        window.setTimeout(() => {
-          window.location.href = newUrl;
-        }, 2500);
+        if (behindProxy) {
+          message.success({
+            content: t('settings.panelSavedProxyNote', {
+              port: values.panel_port,
+              path: normalisedPath || '/',
+            }),
+            duration: 8,
+          });
+        } else {
+          const newUrl = `${window.location.protocol}//${window.location.hostname}:${values.panel_port}${normalisedPath}/`;
+          message.success({
+            content: t('settings.panelSavedHotRedirect', { url: newUrl }),
+            duration: 6,
+          });
+          window.setTimeout(() => {
+            window.location.href = newUrl;
+          }, 2500);
+        }
       } else {
         message.success(t('settings.panelSaved'));
       }
@@ -428,10 +444,9 @@ function AccessSection({
     );
   }, [dirty, mutation.isPending, form, onDirtyChange]);
 
-  // In prod `settingsQuery.data` is non-null on the first render
-  // thanks to `initialData`; in dev it lands a moment after the
-  // /api/settings/panel response. Skip the form entirely until then
-  // — no skeleton, no placeholder, just empty space for ~50ms.
+  // `settingsQuery.data` lands a moment after the /api/settings/panel
+  // response. Skip the form entirely until then — no skeleton, no
+  // placeholder, just empty space for ~50ms (and never a wrong port).
   const data = settingsQuery.data;
   return (
     <SectionFrame
@@ -970,30 +985,4 @@ function normaliseClientPrefix(raw: string): string {
   if (!trimmed || trimmed === '/') return '';
   const inner = trimmed.replace(/^\/+|\/+$/g, '');
   return inner ? `/${inner}` : '';
-}
-
-/** Read the current URL and produce the same `PanelSettings` shape the
- *  backend would return. Used as React Query's `initialData` so the
- *  Access form renders synchronously instead of waiting on the
- *  `/api/settings/panel` round-trip — the URL we're currently loaded
- *  from is, by definition, the port/prefix the backend is bound to. */
-function deriveSettingsFromUrl(): PanelSettings {
-  const port = window.location.port
-    ? Number(window.location.port)
-    : window.location.protocol === 'https:'
-      ? 443
-      : 80;
-  // No client-side routing in this SPA, so pathname is the base prefix
-  // plus an optional trailing slash. Strip the slash to match the
-  // backend's stored shape ('' for root, '/foo' for a prefix).
-  const basePath = window.location.pathname.replace(/\/+$/, '');
-  // Subscription fields don't have a URL-derivable equivalent — fall
-  // back to backend defaults via the shared constant. The Subscription
-  // section waits on the real query, so these placeholders are only
-  // ever seen by the Access section (which doesn't read them anyway).
-  return {
-    panel_port: port,
-    panel_base_path: basePath,
-    ...SUBSCRIPTION_DEFAULTS,
-  };
 }

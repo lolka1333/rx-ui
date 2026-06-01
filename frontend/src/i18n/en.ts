@@ -55,6 +55,8 @@ export const en: Dict = {
     panelSaved: 'Settings saved',
     panelSavedHotRedirect:
       'Settings applied. Redirecting to {{url}}…',
+    panelSavedProxyNote:
+      'Saved. The panel now listens on port {{port}} (path {{path}}). You are connected through a proxy/tunnel — update your access address manually; auto-redirect will not work.',
     panelSaveError: 'Failed to save panel settings',
     // Session section
     sectionSession: 'Session',
