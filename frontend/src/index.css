@@ -683,23 +683,6 @@ button {
   max-width: 960px;
 }
 
-/* Subtle fade-in for any settings block whose contents arrive after
-   the section header. In production the panel-settings form mounts
-   synchronously (URL-derived initial data), so the animation fires
-   once during the page reveal and is essentially invisible. In dev
-   the form has to wait on /api/settings/panel; without this fade the
-   inputs pop in abruptly. */
-.app-settings-fade-in {
-  animation: app-settings-fade-in 0.28s cubic-bezier(0.22, 1, 0.36, 1);
-}
-@keyframes app-settings-fade-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .app-settings-fade-in { animation: none; }
-}
-
 .app-settings-section {
   /* Fill the content pane up to a comfortable reading width so values
      and controls align to the right edge of the column instead of

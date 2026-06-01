@@ -589,7 +589,6 @@ function AccessSection({
           form={form}
           layout="vertical"
           autoComplete="off"
-          className="app-settings-fade-in"
           key={`${data.panel_port}-${data.panel_base_path}`}
           initialValues={{
             panel_port: data.panel_port,
@@ -771,7 +770,6 @@ function SubscriptionSection({
           form={form}
           layout="vertical"
           autoComplete="off"
-          className="app-settings-fade-in"
           key={`${data.sub_enabled}-${data.sub_host_override}-${data.sub_update_interval_hours}-${data.sub_brand_name}-${data.sub_service_url}-${data.sub_port}`}
           initialValues={{
             sub_enabled: data.sub_enabled,
