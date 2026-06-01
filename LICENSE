@@ -1,0 +1,30 @@
+Copyright (c) 2026 lolka1333 (rx-ui). All rights reserved.
+
+This software and its source code are proprietary and confidential.
+
+NO LICENSE IS GRANTED. You may view this source code where it is published,
+but no right is granted to use, run, copy, modify, merge, publish, distribute,
+sublicense, or sell any part of it, or to create derivative works, without the
+prior written permission of the copyright holder.
+
+No patent rights are granted. The public availability of this source code does
+not constitute, and shall not be construed as, a license to any patent.
+
+--------------------------------------------------------------------------------
+THIRD-PARTY COMPONENTS
+
+This repository includes Protocol Buffer definitions and related material
+derived from Xray-core (https://github.com/XTLS/Xray-core), which is licensed
+under the Mozilla Public License 2.0 (MPL-2.0). Those files remain governed by
+the MPL-2.0 and are not covered by the proprietary terms above.
+
+Third-party dependencies fetched at build time are governed by their own
+respective licenses.
+--------------------------------------------------------------------------------
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE COPYRIGHT
+HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
