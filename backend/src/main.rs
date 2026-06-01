@@ -324,7 +324,7 @@ pub fn build_sub_router(state: AppState) -> axum::Router {
 /// session tokens are immediately invalidated (next API call → 401 →
 /// frontend logs out gracefully).
 fn resolve_or_generate_jwt_secret(data_dir: &std::path::Path) -> anyhow::Result<String> {
-    use rand::RngCore as _;
+    use rand::TryRngCore as _;
     use std::fmt::Write as _;
 
     const MIN_LEN: usize = 32;
@@ -364,7 +364,9 @@ fn resolve_or_generate_jwt_secret(data_dir: &std::path::Path) -> anyhow::Result<
     // into a pre-sized `String` via `write!` avoids the 32 transient
     // `String` allocations a `.map(format!).collect()` would produce.
     let mut bytes = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    rand::rngs::OsRng
+        .try_fill_bytes(&mut bytes)
+        .expect("OS RNG unavailable");
     let mut hex = String::with_capacity(bytes.len() * 2);
     for b in &bytes {
         let _ = write!(hex, "{b:02x}");

@@ -13,8 +13,12 @@
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use rand::RngCore;
-use rand::rngs::OsRng;
+// `OsRng` from rand_core (not the `rand` crate): x25519-dalek 2.x's
+// `random_from_rng` requires rand_core 0.6's RngCore + CryptoRng, and the same
+// OsRng fills the short_id bytes. rand_core 0.6's fill_bytes is infallible, so
+// these call sites stay exactly as before — no behaviour change in key/short_id
+// generation, we just stop routing through the (now newer) `rand` facade.
+use rand_core::{OsRng, RngCore};
 use x25519_dalek::{PublicKey, StaticSecret};
 
 /// A freshly-generated Reality keypair, both halves encoded as base64-url

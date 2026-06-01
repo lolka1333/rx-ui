@@ -25,8 +25,14 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ts-rs = { version = "12", features = ["serde-compat", "chrono-impl", "uuid-impl"] }
 
-# Auth
-jsonwebtoken = { version = "10", features = ["rust_crypto"] }
+# Auth.
+# We only sign HS256 (HMAC-SHA256) tokens via `from_secret`, so we pick the
+# `aws_lc_rs` crypto backend instead of `rust_crypto`: aws-lc-rs is already in
+# the tree (rustls/reqwest use it) and does HMAC, while `rust_crypto` would drag
+# in a pure-Rust RSA/EC stack (rsa, num-bigint-dig, p256, p384, ed25519-dalek)
+# we never use — and which keeps the old rand 0.8 / rand_core 0.6 alive.
+# `default-features = false` also drops the unused PEM key-parsing features.
+jsonwebtoken = { version = "10", default-features = false, features = ["aws_lc_rs"] }
 argon2 = { version = "0.5", features = ["std"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
 
@@ -61,7 +67,11 @@ prost = "0.14"
 
 # Reality x25519 keypair generation (server-side)
 x25519-dalek = { version = "2", features = ["static_secrets"] }
-rand = "0.8"
+# OS-entropy random bytes for the JWT secret + public subscription tokens.
+# x25519-dalek 2.x and argon2/password-hash still require rand_core 0.6, so the
+# Reality keypair + salt source their OsRng from `rand_core` (below); only the
+# standalone secrets pull the current `rand`.
+rand = "0.9"
 base64 = "0.22"
 
 # Percent-encoding for share-link query/fragment components
