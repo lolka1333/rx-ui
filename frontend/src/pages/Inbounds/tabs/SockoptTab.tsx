@@ -18,6 +18,7 @@ export function SockoptTab() {
         name="sockopt_trusted_x_forwarded_for"
         label={t('inbounds.sockoptTrustedXff')}
         tooltip={t('inbounds.sockoptTrustedXffTooltip')}
+        style={{ marginBottom: 12 }}
       >
         <Select
           mode="tags"
@@ -30,6 +31,7 @@ export function SockoptTab() {
         label={t('inbounds.sockoptAcceptProxyProtocol')}
         tooltip={t('inbounds.sockoptAcceptProxyProtocolTooltip')}
         valuePropName="checked"
+        style={{ marginBottom: 12 }}
       >
         <Switch />
       </Form.Item>
@@ -37,6 +39,7 @@ export function SockoptTab() {
         name="sockopt_tcp_keep_alive_interval"
         label={t('inbounds.sockoptKeepAliveInterval')}
         tooltip={t('inbounds.sockoptKeepAliveIntervalTooltip')}
+        style={{ marginBottom: 12 }}
       >
         <InputNumber min={0} style={{ width: '100%' }} placeholder="0" />
       </Form.Item>
@@ -44,6 +47,7 @@ export function SockoptTab() {
         name="sockopt_tcp_keep_alive_idle"
         label={t('inbounds.sockoptKeepAliveIdle')}
         tooltip={t('inbounds.sockoptKeepAliveIdleTooltip')}
+        style={{ marginBottom: 12 }}
       >
         <InputNumber min={0} style={{ width: '100%' }} placeholder="0" />
       </Form.Item>
@@ -51,6 +55,7 @@ export function SockoptTab() {
         name="sockopt_tcp_fast_open"
         label={t('inbounds.sockoptTfo')}
         tooltip={t('inbounds.sockoptTfoTooltip')}
+        style={{ marginBottom: 12 }}
       >
         <Select
           allowClear
@@ -66,6 +71,7 @@ export function SockoptTab() {
         label={t('inbounds.sockoptMptcp')}
         tooltip={t('inbounds.sockoptMptcpTooltip')}
         valuePropName="checked"
+        style={{ marginBottom: 12 }}
       >
         <Switch />
       </Form.Item>
@@ -74,6 +80,7 @@ export function SockoptTab() {
         label={t('inbounds.sockoptV6only')}
         tooltip={t('inbounds.sockoptV6onlyTooltip')}
         valuePropName="checked"
+        style={{ marginBottom: 0 }}
       >
         <Switch />
       </Form.Item>
