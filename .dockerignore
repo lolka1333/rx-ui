@@ -14,7 +14,6 @@ frontend/.vite/
 # Runtime data & secrets — must never enter the build context or image.
 data/
 backend/data/
-backend/_itest/
 **/*.db
 **/*.db-shm
 **/*.db-wal

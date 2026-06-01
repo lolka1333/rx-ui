@@ -21,9 +21,6 @@ frontend/.vite/
 # secrets) — operator-specific, never source. Ignore the whole dir.
 backend/data/
 
-# Integration-test scratch (created by backend/_itest.sh)
-backend/_itest/
-
 # Backend secrets — never commit JWT secrets or .env
 .env
 .env.local
