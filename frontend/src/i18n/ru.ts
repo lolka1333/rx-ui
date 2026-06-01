@@ -6,6 +6,8 @@ export const ru = {
     cancel: 'Отмена',
     delete: 'Удалить',
     close: 'Закрыть',
+    edit: 'Изменить',
+    done: 'Готово',
     confirm: 'Подтвердить',
     install: 'Установить',
     error: 'Ошибка',
@@ -21,13 +23,16 @@ export const ru = {
     themeDark: 'Тёмная',
     themeDarker: 'Очень тёмная',
     language: 'Язык интерфейса',
-    // Account section
-    accountSection: 'Учётная запись администратора',
-    accountHint:
-      'Смените логин и/или пароль. Для подтверждения нужно ввести текущий пароль. После сохранения все активные сессии будут разлогинены — потребуется войти заново с новыми данными.',
-    colCurrent: 'ТЕКУЩЕЕ',
-    colNew: 'НОВОЕ',
-    currentUsername: 'Текущий логин',
+    // Modal nav (settings)
+    groupAccount: 'Пользователь',
+    groupPanel: 'Панель',
+    navAccount: 'Учётная запись',
+    navAccess: 'Основное',
+    navSubscription: 'Подписка',
+    // Account section — field groups
+    groupInfo: 'Информация об учётной записи',
+    groupSecurity: 'Пароль и безопасность',
+    currentUsername: 'Логин',
     currentPassword: 'Текущий пароль',
     currentPasswordRequired: 'Введите текущий пароль',
     newUsername: 'Новый логин',
@@ -37,6 +42,11 @@ export const ru = {
     newPasswordTooShort: 'Минимум 4 символа',
     newPasswordConfirm: 'Подтвердите новый пароль',
     newPasswordMismatch: 'Пароли не совпадают',
+    passwordLabel: 'Пароль',
+    editLoginTitle: 'Изменить логин',
+    editPasswordTitle: 'Изменить пароль',
+    newUsernameRequired: 'Введите новый логин',
+    newPasswordRequired: 'Введите новый пароль',
     credentialsUpdated: 'Учётные данные обновлены, войдите заново',
     credentialsError: 'Не удалось обновить учётные данные',
     // Panel access section
@@ -56,16 +66,11 @@ export const ru = {
     panelSavedHotRedirect:
       'Настройки применены. Переходим на {{url}}…',
     panelSaveError: 'Не удалось сохранить настройки панели',
-    // Session section
-    sectionSession: 'Сессия',
-    sessionHint: 'Информация о текущей сессии входа и выход из неё.',
-    sessionStatusLabel: 'СТАТУС',
-    sessionExpiryLabel: 'СРОК ДЕЙСТВИЯ',
-    sessionStatusActive: 'Активна',
-    sessionStatusInactive: 'Истекла',
-    sessionExpiryDescription: 'Токен действует ещё ~{{hours}} ч',
-    sessionExpiryDescriptionInactive: 'Войдите заново',
-    sessionSignOut: 'Выйти из панели',
+    // Active session row (lives under "Пароль и безопасность")
+    sectionSession: 'Текущая сессия',
+    sessionExpiryDescription: 'Активна · токен действует ещё ~{{hours}} ч',
+    sessionExpiryDescriptionInactive: 'Истекла — войдите заново',
+    sessionSignOut: 'Выйти',
     // Subscription section
     sectionSubscription: 'Подписка',
     subscriptionHint: 'Параметры, которыми клиентские приложения (v2rayN, Hiddify, sing-box) получают share-link\'и через /sub/{token}.',

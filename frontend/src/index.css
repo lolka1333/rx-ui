@@ -701,10 +701,46 @@ button {
 }
 
 .app-settings-section {
-  /* Generous breathing room around each section so the dividers
-     between them feel like deliberate visual chapters, not just
-     squished rows. */
+  /* Fill the content pane up to a comfortable reading width so values
+     and controls align to the right edge of the column instead of
+     leaving a dead gap. */
+  max-width: 720px;
   padding: 4px 0 8px;
+}
+/* Big section heading + one-line muted subtitle. */
+.app-settings-section-title {
+  margin: 0 0 6px;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.014em;
+  color: color-mix(in srgb, var(--text, #e7ecf5) 80%, var(--text-2, #94a3b8));
+}
+.app-settings-section-sub {
+  max-width: 620px;
+  margin: 0 0 26px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text-3, #7c899e);
+}
+/* Titled row groups within a section ("Account information", "Password &
+   security"). Consecutive groups get a hairline divider + even spacing
+   above/below it, so a short first group doesn't leave a yawning gap. */
+.app-settings-fieldgroup + .app-settings-fieldgroup {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border, rgba(148, 163, 184, 0.12));
+}
+.app-settings-fieldgroup-title {
+  margin: 0 0 16px;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.014em;
+  /* Softened off-white, not pure --text: at 22px/700 on the near-black
+     "очень тёмная" bg, full-brightness white glares. Mixing ~20% toward the
+     secondary text tones it down while staying clearly a heading. */
+  color: color-mix(in srgb, var(--text, #e7ecf5) 80%, var(--text-2, #94a3b8));
 }
 .app-settings-divider {
   border: 0;
@@ -804,6 +840,222 @@ button {
 @media (prefers-reduced-motion: reduce) {
   .app-settings-dirtybar { transition: none; }
   .app-settings-dirtybar-dot { animation: none; }
+}
+
+/* ====================================================================
+   Settings modal — full-window overlay with a categorized
+   left nav and a scrollable content column. Always mounted; revealed by
+   the `is-open` class so form state + the dirty registry survive
+   close/reopen.
+   ==================================================================== */
+.app-settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.app-settings-overlay.is-open {
+  display: flex;
+}
+.app-settings-backdrop {
+  position: absolute;
+  inset: 0;
+  /* Neutral black dim — NOT a blue-tinted slate. The "очень тёмная" theme
+     is pure grayscale, so any blue here (the old rgba(2,6,23,…) is slate-950)
+     casts a blue ring around the modal that the eye reads as "синит". */
+  background: rgba(0, 0, 0, 0.55);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+.app-settings-overlay.is-open .app-settings-backdrop {
+  animation: app-settings-fade 0.18s ease;
+}
+.app-settings-modal {
+  position: relative;
+  display: flex;
+  width: min(1060px, 96vw);
+  height: min(740px, 92vh);
+  background: var(--surface, #131a2b);
+  border: 1px solid var(--border, rgba(148, 163, 184, 0.14));
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.5);
+}
+.app-settings-overlay.is-open .app-settings-modal {
+  animation: app-settings-modal-in 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes app-settings-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes app-settings-modal-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Left nav */
+.app-settings-nav {
+  flex: 0 0 232px;
+  display: flex;
+  flex-direction: column;
+  padding: 18px 12px;
+  background: var(--sidebar, #0e1422);
+  border-right: 1px solid var(--border, rgba(148, 163, 184, 0.12));
+  overflow-y: auto;
+}
+.app-settings-nav-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text, #e7ecf5);
+  padding: 2px 12px 14px;
+}
+.app-settings-nav-group {
+  margin-bottom: 8px;
+}
+.app-settings-nav-grouptitle {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3, #7c899e);
+  padding: 8px 12px 4px;
+}
+.app-settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 1px 0;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2, #aab4c5);
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+.app-settings-nav-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text, #e7ecf5);
+}
+.app-settings-nav-item.is-active {
+  background: rgba(99, 102, 241, 0.16);
+  color: var(--text, #fff);
+}
+.app-settings-nav-icon {
+  display: inline-flex;
+  font-size: 15px;
+  opacity: 0.9;
+}
+
+/* Right content column */
+.app-settings-content-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--surface, #131a2b);
+}
+.app-settings-close {
+  position: absolute;
+  top: 16px;
+  right: 18px;
+  z-index: 2;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border, rgba(148, 163, 184, 0.16));
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-2, #aab4c5);
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+}
+.app-settings-close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text, #fff);
+  border-color: var(--border-strong, rgba(148, 163, 184, 0.3));
+}
+.app-settings-content-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 34px 48px 16px;
+}
+/* Account rows: readable label on the left, value pushed to
+   the right next to the action control. Hairline divider only between rows
+   within a group (not after the last one). */
+.app-settings-inforow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 44px;
+  padding: 12px 0;
+}
+.app-settings-inforow + .app-settings-inforow {
+  border-top: 1px solid var(--border, rgba(148, 163, 184, 0.1));
+}
+.app-settings-inforow-label {
+  flex: 0 0 auto;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text, #e7ecf5);
+}
+.app-settings-inforow-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: right;
+  font-size: 15px;
+  color: var(--text-2, #aab4c5);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Neutral filled "Edit" button (antd variant=filled color=default), nudged
+   to read like a neutral grey secondary action. */
+.app-settings-editbtn {
+  flex: 0 0 auto;
+}
+/* DirtyBar relocated to a modal footer (overrides the page sticky-top
+   variant defined above). */
+.app-settings-content-wrap .app-settings-dirtybar {
+  position: static;
+  top: auto;
+  flex: 0 0 auto;
+}
+.app-settings-content-wrap .app-settings-dirtybar.is-visible {
+  max-height: 96px;
+  margin-bottom: 0;
+}
+.app-settings-content-wrap .app-settings-dirtybar-inner {
+  margin: 0 24px 20px;
+  box-shadow: 0 -4px 18px rgba(0, 0, 0, 0.22);
+}
+
+@media (max-width: 640px) {
+  .app-settings-overlay { padding: 0; }
+  .app-settings-modal {
+    width: 100vw;
+    height: 100vh;
+    border-radius: 0;
+    border: 0;
+  }
+  .app-settings-nav { flex-basis: 158px; padding: 14px 8px; }
+  .app-settings-nav-title { font-size: 15px; }
+  .app-settings-content-scroll { padding: 28px 18px 12px; }
+  .app-settings-content-wrap .app-settings-dirtybar-inner { margin: 0 14px 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-settings-overlay.is-open .app-settings-modal,
+  .app-settings-overlay.is-open .app-settings-backdrop { animation: none; }
 }
 
 /* ====================================================================

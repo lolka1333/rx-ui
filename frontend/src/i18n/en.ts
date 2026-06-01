@@ -6,6 +6,8 @@ export const en: Dict = {
     cancel: 'Cancel',
     delete: 'Delete',
     close: 'Close',
+    edit: 'Edit',
+    done: 'Done',
     confirm: 'Confirm',
     install: 'Install',
     error: 'Error',
@@ -21,13 +23,16 @@ export const en: Dict = {
     themeDark: 'Dark',
     themeDarker: 'Darker',
     language: 'Interface language',
-    // Account section
-    accountSection: 'Admin account',
-    accountHint:
-      'Change the username and/or password. The current password is required to confirm the change. After saving, all active sessions are signed out — you will need to log in again with the new credentials.',
-    colCurrent: 'CURRENT',
-    colNew: 'NEW',
-    currentUsername: 'Current username',
+    // Modal nav (settings)
+    groupAccount: 'User',
+    groupPanel: 'Panel',
+    navAccount: 'Account',
+    navAccess: 'General',
+    navSubscription: 'Subscription',
+    // Account section — field groups
+    groupInfo: 'Account information',
+    groupSecurity: 'Password & security',
+    currentUsername: 'Username',
     currentPassword: 'Current password',
     currentPasswordRequired: 'Enter the current password',
     newUsername: 'New username',
@@ -37,6 +42,11 @@ export const en: Dict = {
     newPasswordTooShort: 'At least 4 characters',
     newPasswordConfirm: 'Confirm new password',
     newPasswordMismatch: 'Passwords do not match',
+    passwordLabel: 'Password',
+    editLoginTitle: 'Change username',
+    editPasswordTitle: 'Change password',
+    newUsernameRequired: 'Enter a new username',
+    newPasswordRequired: 'Enter a new password',
     credentialsUpdated: 'Credentials updated, please sign in again',
     credentialsError: 'Failed to update credentials',
     // Panel access section
@@ -56,15 +66,10 @@ export const en: Dict = {
     panelSavedHotRedirect:
       'Settings applied. Redirecting to {{url}}…',
     panelSaveError: 'Failed to save panel settings',
-    // Session section
-    sectionSession: 'Session',
-    sessionHint: 'Information about the current login session and sign-out.',
-    sessionStatusLabel: 'STATUS',
-    sessionExpiryLabel: 'EXPIRY',
-    sessionStatusActive: 'Active',
-    sessionStatusInactive: 'Expired',
-    sessionExpiryDescription: 'Token valid for ~{{hours}}h',
-    sessionExpiryDescriptionInactive: 'Please sign in again',
+    // Active session row (lives under "Password & security")
+    sectionSession: 'Current session',
+    sessionExpiryDescription: 'Active · token valid for ~{{hours}}h',
+    sessionExpiryDescriptionInactive: 'Expired — sign in again',
     sessionSignOut: 'Sign out',
     // Subscription section
     sectionSubscription: 'Subscription',

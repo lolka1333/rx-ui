@@ -66,7 +66,11 @@ function build(mode: ThemeMode): ThemeConfig {
   const menuDark = {
     darkItemBg: 'transparent',
     darkSubMenuItemBg: 'transparent',
-    darkItemSelectedBg: '#6366f1',
+    // The vivid solid accent reads fine on the bluish "тёмная" bg, but on the
+    // near-black "очень тёмная" bg (#050505) it glares. There the selected
+    // item gets a muted, translucent indigo fill instead of the full-bright
+    // solid, so it still reads as "selected" without burning.
+    darkItemSelectedBg: mode === 'darker' ? 'rgba(99, 102, 241, 0.55)' : '#6366f1',
     darkItemSelectedColor: '#ffffff',
     darkItemHoverBg: 'rgba(255, 255, 255, 0.06)',
     darkItemActiveBg: 'rgba(255, 255, 255, 0.06)',

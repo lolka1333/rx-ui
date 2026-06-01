@@ -42,7 +42,16 @@ export function Root() {
   }, [locale]);
 
   return (
-    <ConfigProvider locale={ANTD_LOCALES[locale]} theme={THEMES[mode]}>
+    <ConfigProvider
+      locale={ANTD_LOCALES[locale]}
+      theme={{
+        ...THEMES[mode],
+        // Lift antd popups (Select dropdowns, tooltips, toasts) above the
+        // settings modal overlay (z-index 1100) — otherwise they open behind
+        // it and look broken (the language dropdown wouldn't show).
+        token: { ...THEMES[mode].token, zIndexPopupBase: 1200 },
+      }}
+    >
       {/* <AntdApp> provides a context-aware message/notification/modal so
           static `message.success(...)` calls pick up the current theme and
           locale instead of antd's global fallback. Components should switch

@@ -54,6 +54,9 @@ function AdminApp() {
   const setCurrent = useNav((s) => s.setCurrent);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  // Settings is a modal overlay, not a nav page — it opens
+  // over whatever page you're on and closes back to it.
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [animX, setAnimX] = useState(0);
   const [animate, setAnimate] = useState(true);
   const screens = Grid.useBreakpoint();
@@ -126,14 +129,11 @@ function AdminApp() {
   const handleNavigate = useCallback(
     (key: string) => {
       // Sidebar's menu items may include keys for things that aren't
-      // top-level pages (e.g. logout). Narrow to known NavPages here;
-      // anything else is dispatched by Sidebar itself.
-      if (
-        key === 'dashboard'
-        || key === 'inbounds'
-        || key === 'clients'
-        || key === 'settings'
-      ) {
+      // top-level pages (e.g. logout). Settings opens as a modal overlay
+      // rather than switching the page; the rest narrow to known NavPages.
+      if (key === 'settings') {
+        setSettingsOpen(true);
+      } else if (key === 'dashboard' || key === 'inbounds' || key === 'clients') {
         setCurrent(key satisfies NavPage);
       }
       setDrawerOpen(false);
@@ -189,12 +189,6 @@ function AdminApp() {
             style={{ display: current === 'clients' ? 'block' : 'none' }}
           >
             <Clients />
-          </div>
-          <div
-            className="app-page-fade"
-            style={{ display: current === 'settings' ? 'block' : 'none' }}
-          >
-            <Settings />
           </div>
         </Content>
       </Layout>
@@ -265,6 +259,8 @@ function AdminApp() {
           </span>
         </button>
       )}
+
+      <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </Layout>
   );
 }

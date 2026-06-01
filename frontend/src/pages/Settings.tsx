@@ -1,27 +1,31 @@
 /**
- * Settings page — single long scroll, GitHub-style.
+ * Settings — a full-window modal.
  *
- * Every section lives on the page at the same time, stacked
- * vertically with hairline dividers between them. There is no
- * navigation: the operator reads top-to-bottom (or jumps with the
- * browser scrollbar) and edits in place. The page-level DirtyBar
- * floats at the top while any section has unsaved changes, so the
- * operator can scroll, edit several sections, then save them all
- * in one click.
+ * A left rail lists the categories (Account, Session, Access,
+ * Subscription); the selected one renders in the content pane on the
+ * right. All sections stay mounted and are toggled with `display` so
+ * unsaved edits survive switching between them. A DirtyBar pinned to
+ * the modal footer appears while any section has pending changes, so
+ * the operator can edit across categories and save in one click.
  */
 import {
   App,
   Button,
-  Col,
   Form,
   Input,
   InputNumber,
-  Row,
+  Modal,
   Select,
   Switch,
   Typography,
 } from 'antd';
-import { LogoutOutlined } from '@ant-design/icons';
+import {
+  CloseOutlined,
+  ControlOutlined,
+  LinkOutlined,
+  LogoutOutlined,
+  UserOutlined,
+} from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -80,7 +84,40 @@ interface DirtyHandle {
   onDiscard: () => void;
 }
 
-export function Settings() {
+type CategoryKey = 'account' | 'access' | 'subscription';
+
+/** Left-nav structure for the settings modal. Short labels here; the
+ *  per-section headings live inside each section. The account page bundles
+ *  profile info + password + the active session under one entry, so there's a single item in the
+ *  first group. */
+const SETTINGS_GROUPS: {
+  titleKey: string;
+  items: { key: CategoryKey; labelKey: string; icon: ReactNode }[];
+}[] = [
+  {
+    titleKey: 'settings.groupAccount',
+    items: [
+      { key: 'account', labelKey: 'settings.navAccount', icon: <UserOutlined /> },
+    ],
+  },
+  {
+    titleKey: 'settings.groupPanel',
+    items: [
+      { key: 'access', labelKey: 'settings.navAccess', icon: <ControlOutlined /> },
+      { key: 'subscription', labelKey: 'settings.navSubscription', icon: <LinkOutlined /> },
+    ],
+  },
+];
+
+/**
+ * Settings — a full-window modal. A categorized left nav
+ * switches the visible section; every section stays mounted, so the
+ * form state and the cross-section "save all" dirty registry survive
+ * category switches (and closing/reopening the modal). Rendered
+ * always-mounted by AdminApp and revealed via `open`.
+ */
+export function Settings({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { t } = useTranslation();
   // Page-level dirty registry. Sections publish handles by key so
   // the bar can save / discard everything at once with a single
   // click, no matter how many sections the operator has touched.
@@ -116,10 +153,6 @@ export function Settings() {
   // their useEffect → republishes the handle → infinite loop.
   // useCallback locks the reference until `setDirty` itself changes
   // (which it doesn't — it's already useCallback'd above with [] deps).
-  const onAccountDirty = useCallback(
-    (h: DirtyHandle | null) => setDirty('account', h),
-    [setDirty],
-  );
   const onAccessDirty = useCallback(
     (h: DirtyHandle | null) => setDirty('access', h),
     [setDirty],
@@ -129,32 +162,86 @@ export function Settings() {
     [setDirty],
   );
 
-  return (
-    <div className="app-content-reveal app-settings-page">
-      <DirtyBar
-        visible={dirtyCount > 0}
-        saving={anySaving}
-        count={dirtyCount}
-        onSave={saveAll}
-        onDiscard={discardAll}
-      />
+  const [active, setActive] = useState<CategoryKey>('account');
 
-      <AccountSection onDirtyChange={onAccountDirty} />
-      <hr className="app-settings-divider" />
-      <AccessSection onDirtyChange={onAccessDirty} />
-      <hr className="app-settings-divider" />
-      <SubscriptionSection onDirtyChange={onSubscriptionDirty} />
-      <hr className="app-settings-divider" />
-      <SessionSection />
+  // Esc closes the modal — only wired while it's open.
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
+  return (
+    <div className={`app-settings-overlay${open ? ' is-open' : ''}`} aria-hidden={!open}>
+      <div className="app-settings-backdrop" onClick={onClose} />
+      <div
+        className="app-settings-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('settings.title')}
+      >
+        <nav className="app-settings-nav">
+          <div className="app-settings-nav-title">{t('settings.title')}</div>
+          {SETTINGS_GROUPS.map((group) => (
+            <div key={group.titleKey} className="app-settings-nav-group">
+              <div className="app-settings-nav-grouptitle">{t(group.titleKey)}</div>
+              {group.items.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={`app-settings-nav-item${active === item.key ? ' is-active' : ''}`}
+                  onClick={() => setActive(item.key)}
+                >
+                  <span className="app-settings-nav-icon">{item.icon}</span>
+                  {t(item.labelKey)}
+                </button>
+              ))}
+            </div>
+          ))}
+        </nav>
+
+        <div className="app-settings-content-wrap">
+          <button
+            type="button"
+            className="app-settings-close"
+            onClick={onClose}
+            aria-label={t('common.close')}
+          >
+            <CloseOutlined />
+          </button>
+          <div className="app-settings-content-scroll">
+            <div style={{ display: active === 'account' ? 'block' : 'none' }}>
+              <AccountSection />
+            </div>
+            <div style={{ display: active === 'access' ? 'block' : 'none' }}>
+              <AccessSection onDirtyChange={onAccessDirty} />
+            </div>
+            <div style={{ display: active === 'subscription' ? 'block' : 'none' }}>
+              <SubscriptionSection onDirtyChange={onSubscriptionDirty} />
+            </div>
+          </div>
+          <DirtyBar
+            visible={dirtyCount > 0}
+            saving={anySaving}
+            count={dirtyCount}
+            onSave={saveAll}
+            onDiscard={discardAll}
+          />
+        </div>
+      </div>
     </div>
   );
 }
 
 /**
- * Vertical-flow section header + body wrapper. Title sits at H3,
- * description below in muted secondary text, then the body (form,
- * info block, etc.) underneath. Max-width on the form column so
- * inputs don't stretch into "punch-card" territory on wide displays.
+ * Section wrapper: a big heading, an optional one-paragraph subtitle in
+ * muted text, then the body (form, field groups). The column width is
+ * capped in CSS (`.app-settings-section`) so it fills the content pane on
+ * wide displays without leaving a dead gap on the right — values and
+ * controls align to the column edge.
  */
 function SectionFrame({
   title,
@@ -167,16 +254,22 @@ function SectionFrame({
 }) {
   return (
     <section className="app-settings-section">
-      <Typography.Title level={3} style={{ marginTop: 0, marginBottom: 4 }}>
-        {title}
-      </Typography.Title>
-      {description && (
-        <Typography.Paragraph type="secondary" style={{ marginBottom: 20 }}>
-          {description}
-        </Typography.Paragraph>
-      )}
-      <div style={{ maxWidth: 760 }}>{children}</div>
+      <h1 className="app-settings-section-title">{title}</h1>
+      {description && <p className="app-settings-section-sub">{description}</p>}
+      <div>{children}</div>
     </section>
+  );
+}
+
+/** A titled block of rows within a section — the "Account information" /
+ *  "Password & security" headings grouping related rows. Consecutive
+ *  groups get a hairline divider above them (see CSS). */
+function FieldGroup({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="app-settings-fieldgroup">
+      <h2 className="app-settings-fieldgroup-title">{title}</h2>
+      <div>{children}</div>
+    </div>
   );
 }
 
@@ -184,26 +277,38 @@ function SectionFrame({
 // Account — change username / password
 // =============================================================================
 
-function AccountSection({
-  onDirtyChange,
-}: {
-  onDirtyChange: (h: DirtyHandle | null) => void;
-}) {
+function AccountSection() {
   const { t } = useTranslation();
   const { message } = App.useApp();
   const logout = useAuth((s) => s.logout);
   const currentUsername = useAuth((s) => s.user?.username ?? '');
+  const authToken = useAuth((s) => s.token);
+  const qc = useQueryClient();
   const [form] = Form.useForm<CredentialsFormValues>();
-  const [dirty, setDirty] = useState(false);
+  // Each field is a compact read-only row with an "Edit"
+  // button; clicking it opens a focused modal dialog for just that field.
+  const [editing, setEditing] = useState<'login' | 'password' | null>(null);
+
+  // Active-session info (JWT expiry) lives on this same page under the
+  // "Password & security" group — sessions sit alongside the password
+  // controls, so we merged the old standalone Session section in.
+  const sessionInfo = useMemo(() => decodeSessionInfo(authToken), [authToken]);
+  // Re-render once a minute so the "valid for ~Nh" copy stays fresh.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((n) => n + 1), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const mutation = useMutation({
     mutationFn: async (values: CredentialsFormValues) => {
-      const newUsername = values.new_username.trim();
-      const newPassword = values.new_password;
+      // The backend changes username + password through one endpoint
+      // (either may be null). `editing` decides which one this submit
+      // touches; the other is left untouched.
       await apiClient.post('/auth/credentials', {
         current_password: values.current_password,
-        new_username: newUsername || null,
-        new_password: newPassword || null,
+        new_username: editing === 'login' ? values.new_username?.trim() || null : null,
+        new_password: editing === 'password' ? values.new_password || null : null,
       });
     },
     onSuccess: () => {
@@ -214,120 +319,166 @@ function AccountSection({
       message.error(apiErrorMessage(err) ?? t('settings.credentialsError')),
   });
 
-  useEffect(() => {
-    onDirtyChange(
-      dirty
-        ? {
-            saving: mutation.isPending,
-            onSave: () => form.submit(),
-            onDiscard: () => {
-              form.resetFields();
-              setDirty(false);
-            },
-          }
-        : null,
-    );
-  }, [dirty, mutation.isPending, form, onDirtyChange]);
+  const close = () => {
+    if (!mutation.isPending) setEditing(null);
+  };
 
   return (
-    <SectionFrame
-      title={t('settings.accountSection')}
-      description={t('settings.accountHint')}
-    >
-      <Form<CredentialsFormValues>
-        form={form}
-        layout="vertical"
-        autoComplete="off"
-        onFinish={(v) => mutation.mutate(v)}
-        onValuesChange={() => setDirty(true)}
-        initialValues={{
-          current_password: '',
-          new_username: '',
-          new_password: '',
-          new_password_confirm: '',
-        }}
-        disabled={mutation.isPending}
-      >
-        <Row gutter={24}>
-          <Col xs={24} sm={12}>
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              {t('settings.colCurrent')}
-            </Typography.Text>
-            <div style={{ height: 8 }} />
-            {/* Read-only "current username" line. Not wrapped in Form.Item
-                because the field isn't registered with the form (no `name=`):
-                antd's generated <label> ends up orphan and the disabled
-                <Input> ends up id-less, both of which Chrome's accessibility
-                audit flags. Plain <label htmlFor> + a regular <Input id>
-                gives the same visual and a valid label-to-control link. */}
-            <div style={{ marginBottom: 24 }}>
-              <label
-                htmlFor="settings-current-username"
-                style={{ display: 'block', marginBottom: 8 }}
-              >
-                {t('settings.currentUsername')}
-              </label>
-              <Input
-                id="settings-current-username"
-                value={currentUsername}
-                disabled
-              />
-            </div>
-            <Form.Item
-              name="current_password"
-              label={t('settings.currentPassword')}
-              rules={[
-                { required: true, message: t('settings.currentPasswordRequired') },
-              ]}
-              style={{ marginBottom: 0 }}
+    <section className="app-settings-section">
+      <FieldGroup title={t('settings.groupInfo')}>
+        <InfoRow
+          label={t('settings.currentUsername')}
+          value={currentUsername}
+          action={
+            <Button
+              variant="filled"
+              color="default"
+              className="app-settings-editbtn"
+              onClick={() => setEditing('login')}
             >
-              <Input.Password autoComplete="current-password" />
-            </Form.Item>
-          </Col>
-          <Col xs={24} sm={12}>
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              {t('settings.colNew')}
-            </Typography.Text>
-            <div style={{ height: 8 }} />
+              {t('common.edit')}
+            </Button>
+          }
+        />
+      </FieldGroup>
+
+      <FieldGroup title={t('settings.groupSecurity')}>
+        <InfoRow
+          label={t('settings.passwordLabel')}
+          value="••••••••••"
+          action={
+            <Button
+              variant="filled"
+              color="default"
+              className="app-settings-editbtn"
+              onClick={() => setEditing('password')}
+            >
+              {t('common.edit')}
+            </Button>
+          }
+        />
+        <InfoRow
+          label={t('settings.sectionSession')}
+          value={
+            sessionInfo
+              ? t('settings.sessionExpiryDescription', { hours: sessionInfo.hoursLeft })
+              : t('settings.sessionExpiryDescriptionInactive')
+          }
+          action={
+            <Button
+              danger
+              icon={<LogoutOutlined />}
+              onClick={() => {
+                logout();
+                qc.clear();
+              }}
+            >
+              {t('settings.sessionSignOut')}
+            </Button>
+          }
+        />
+      </FieldGroup>
+
+      {/* Edit dialog — opens over the settings modal (antd popups sit above
+          the overlay thanks to the raised zIndexPopupBase). New value first,
+          current password to confirm. */}
+      <Modal
+        open={editing !== null}
+        title={
+          editing === 'password'
+            ? t('settings.editPasswordTitle')
+            : t('settings.editLoginTitle')
+        }
+        width={440}
+        okText={t('common.done')}
+        cancelText={t('common.cancel')}
+        confirmLoading={mutation.isPending}
+        maskClosable={!mutation.isPending}
+        keyboard={!mutation.isPending}
+        onCancel={close}
+        onOk={() => form.submit()}
+        afterOpenChange={(o) => {
+          if (o) form.resetFields();
+        }}
+        destroyOnHidden
+      >
+        <Form
+          form={form}
+          layout="vertical"
+          autoComplete="off"
+          disabled={mutation.isPending}
+          onFinish={(v) => mutation.mutate(v)}
+        >
+          {editing === 'password' ? (
+            <>
+              <Form.Item
+                name="new_password"
+                label={t('settings.newPassword')}
+                rules={[
+                  { required: true, message: t('settings.newPasswordRequired') },
+                  { min: 4, message: t('settings.newPasswordTooShort') },
+                ]}
+              >
+                <Input.Password autoComplete="new-password" />
+              </Form.Item>
+              <Form.Item
+                name="new_password_confirm"
+                label={t('settings.newPasswordConfirm')}
+                dependencies={['new_password']}
+                rules={[
+                  ({ getFieldValue }) => ({
+                    validator(_, value) {
+                      if (getFieldValue('new_password') === value) return Promise.resolve();
+                      return Promise.reject(new Error(t('settings.newPasswordMismatch')));
+                    },
+                  }),
+                ]}
+              >
+                <Input.Password autoComplete="new-password" />
+              </Form.Item>
+            </>
+          ) : (
             <Form.Item
               name="new_username"
               label={t('settings.newUsername')}
-              tooltip={t('settings.newUsernameHint')}
+              rules={[{ required: true, message: t('settings.newUsernameRequired') }]}
             >
               <Input autoComplete="off" placeholder={currentUsername} />
             </Form.Item>
-            <Form.Item
-              name="new_password"
-              label={t('settings.newPassword')}
-              tooltip={t('settings.newPasswordHint')}
-              rules={[{ min: 4, message: t('settings.newPasswordTooShort') }]}
-            >
-              <Input.Password autoComplete="new-password" />
-            </Form.Item>
-            <Form.Item
-              name="new_password_confirm"
-              label={t('settings.newPasswordConfirm')}
-              dependencies={['new_password']}
-              rules={[
-                ({ getFieldValue }) => ({
-                  validator(_, value) {
-                    const pw = getFieldValue('new_password') as string;
-                    if (!pw && !value) return Promise.resolve();
-                    if (pw === value) return Promise.resolve();
-                    return Promise.reject(
-                      new Error(t('settings.newPasswordMismatch')),
-                    );
-                  },
-                }),
-              ]}
-              style={{ marginBottom: 0 }}
-            >
-              <Input.Password autoComplete="new-password" />
-            </Form.Item>
-          </Col>
-        </Row>
-      </Form>
-    </SectionFrame>
+          )}
+          <Form.Item
+            name="current_password"
+            label={t('settings.currentPassword')}
+            rules={[{ required: true, message: t('settings.currentPasswordRequired') }]}
+            style={{ marginBottom: 0 }}
+          >
+            <Input.Password autoComplete="current-password" />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </section>
+  );
+}
+
+/** One account row: label on the left, value pushed to the
+ *  right, and an action control (Edit / Sign-out) at the far edge. The big
+ *  gap between label and value is the "spacious" look — it's intentional,
+ *  not empty space. */
+function InfoRow({
+  label,
+  value,
+  action,
+}: {
+  label: string;
+  value: ReactNode;
+  action: ReactNode;
+}) {
+  return (
+    <div className="app-settings-inforow">
+      <div className="app-settings-inforow-label">{label}</div>
+      <div className="app-settings-inforow-value">{value}</div>
+      {action}
+    </div>
   );
 }
 
@@ -448,37 +599,30 @@ function AccessSection({
           onValuesChange={() => setDirty(true)}
           onFinish={(v) => mutation.mutate(v)}
         >
-          <Row gutter={24}>
-            <Col xs={24} sm={12}>
-              <Form.Item
-                name="panel_port"
-                label={t('settings.panelPort')}
-                tooltip={t('settings.panelPortHint')}
-                rules={[
-                  { required: true, message: t('settings.panelPortRequired') },
-                  {
-                    type: 'number',
-                    min: 1,
-                    max: 65535,
-                    message: t('settings.panelPortRange'),
-                  },
-                ]}
-                style={{ marginBottom: 0 }}
-              >
-                <InputNumber min={1} max={65535} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item
-                name="panel_base_path"
-                label={t('settings.panelBasePath')}
-                tooltip={t('settings.panelBasePathHint')}
-                style={{ marginBottom: 0 }}
-              >
-                <Input placeholder={t('settings.panelBasePathPlaceholder')} />
-              </Form.Item>
-            </Col>
-          </Row>
+          <Form.Item
+            name="panel_port"
+            label={t('settings.panelPort')}
+            tooltip={t('settings.panelPortHint')}
+            rules={[
+              { required: true, message: t('settings.panelPortRequired') },
+              {
+                type: 'number',
+                min: 1,
+                max: 65535,
+                message: t('settings.panelPortRange'),
+              },
+            ]}
+          >
+            <InputNumber min={1} max={65535} style={{ width: 200 }} />
+          </Form.Item>
+          <Form.Item
+            name="panel_base_path"
+            label={t('settings.panelBasePath')}
+            tooltip={t('settings.panelBasePathHint')}
+            style={{ marginBottom: 0 }}
+          >
+            <Input placeholder={t('settings.panelBasePathPlaceholder')} />
+          </Form.Item>
         </Form>
       )}
       {/* Language picker lives in the same section but OUTSIDE the form:
@@ -544,97 +688,6 @@ function LanguagePicker() {
         style={{ width: '100%' }}
       />
     </div>
-  );
-}
-
-// =============================================================================
-// Session — show JWT expiry, sign-out button
-// =============================================================================
-
-function SessionSection() {
-  const { t } = useTranslation();
-  const logout = useAuth((s) => s.logout);
-  const authToken = useAuth((s) => s.token);
-  const qc = useQueryClient();
-  const sessionInfo = useMemo(() => decodeSessionInfo(authToken), [authToken]);
-
-  // Re-render once a minute so the "valid for ~Nh" copy stays fresh
-  // without us having to subscribe to a global ticker for what is
-  // effectively a static-ish display.
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    const id = window.setInterval(() => setTick((n) => n + 1), 60_000);
-    return () => window.clearInterval(id);
-  }, []);
-
-  return (
-    <SectionFrame
-      title={t('settings.sectionSession')}
-      description={t('settings.sessionHint')}
-    >
-      <Row gutter={[24, 12]} style={{ marginBottom: 20 }}>
-        <Col xs={12} sm={6}>
-          <SessionField
-            label={t('settings.sessionStatusLabel')}
-            value={
-              sessionInfo
-                ? t('settings.sessionStatusActive')
-                : t('settings.sessionStatusInactive')
-            }
-            valueStrong
-          />
-        </Col>
-        <Col xs={12} sm={6}>
-          <SessionField
-            label={t('settings.sessionExpiryLabel')}
-            value={
-              sessionInfo
-                ? t('settings.sessionExpiryDescription', {
-                    hours: sessionInfo.hoursLeft,
-                  })
-                : t('settings.sessionExpiryDescriptionInactive')
-            }
-          />
-        </Col>
-      </Row>
-      <Button
-        icon={<LogoutOutlined />}
-        danger
-        onClick={() => {
-          logout();
-          qc.clear();
-        }}
-      >
-        {t('settings.sessionSignOut')}
-      </Button>
-    </SectionFrame>
-  );
-}
-
-/** Compact "small caps label / large value" pair used inside the
- *  session section. Kept as a tiny named component so the parent's
- *  JSX reads as a list of fields instead of a soup of nested
- *  Typography elements with identical styling props. */
-function SessionField({
-  label,
-  value,
-  valueStrong,
-}: {
-  label: string;
-  value: ReactNode;
-  valueStrong?: boolean;
-}) {
-  return (
-    <>
-      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-        {label}
-      </Typography.Text>
-      <div>
-        <Typography.Text strong={valueStrong} style={{ fontSize: 16 }}>
-          {value}
-        </Typography.Text>
-      </div>
-    </>
   );
 }
 
@@ -750,58 +803,49 @@ function SubscriptionSection({
             {({ getFieldValue }) => {
               const enabled = getFieldValue('sub_enabled') as boolean;
               return (
-                <Row gutter={24}>
-                  <Col xs={24} sm={14}>
-                    <Form.Item
-                      name="sub_host_override"
-                      label={t('settings.subHostOverride')}
-                      tooltip={t('settings.subHostOverrideHint')}
-                      rules={[
-                        {
-                          // Bare hostname / IPv4 / bracketed-IPv6 only — no
-                          // scheme, path, or whitespace. Same constraint the
-                          // backend enforces server-side; surfacing it as a
-                          // form rule shows the error inline before submit.
-                          pattern: /^(?:[A-Za-z0-9.\-:[\]]+)?$/,
-                          message: t('settings.subHostOverrideInvalid'),
-                        },
-                      ]}
-                      style={{ marginBottom: 0 }}
-                    >
-                      <Input
-                        placeholder={t('settings.subHostOverridePlaceholder')}
-                        disabled={!enabled}
-                      />
-                    </Form.Item>
-                  </Col>
-                  <Col xs={24} sm={10}>
-                    <Form.Item
-                      name="sub_update_interval_hours"
-                      label={t('settings.subUpdateInterval')}
-                      tooltip={t('settings.subUpdateIntervalHint')}
-                      rules={[
-                        {
-                          required: true,
-                          message: t('settings.subUpdateIntervalRequired'),
-                        },
-                        {
-                          type: 'number',
-                          min: 1,
-                          max: 168,
-                          message: t('settings.subUpdateIntervalRange'),
-                        },
-                      ]}
-                      style={{ marginBottom: 0 }}
-                    >
-                      <InputNumber
-                        min={1}
-                        max={168}
-                        disabled={!enabled}
-                        style={{ width: '100%' }}
-                      />
-                    </Form.Item>
-                  </Col>
-                </Row>
+                <>
+                  <Form.Item
+                    name="sub_host_override"
+                    label={t('settings.subHostOverride')}
+                    tooltip={t('settings.subHostOverrideHint')}
+                    rules={[
+                      {
+                        // Bare hostname / IPv4 / bracketed-IPv6 only — no
+                        // scheme, path, or whitespace. Same constraint the
+                        // backend enforces server-side; surfacing it as a
+                        // form rule shows the error inline before submit.
+                        pattern: /^(?:[A-Za-z0-9.\-:[\]]+)?$/,
+                        message: t('settings.subHostOverrideInvalid'),
+                      },
+                    ]}
+                    style={{ marginBottom: 20 }}
+                  >
+                    <Input
+                      placeholder={t('settings.subHostOverridePlaceholder')}
+                      disabled={!enabled}
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    name="sub_update_interval_hours"
+                    label={t('settings.subUpdateInterval')}
+                    tooltip={t('settings.subUpdateIntervalHint')}
+                    rules={[
+                      {
+                        required: true,
+                        message: t('settings.subUpdateIntervalRequired'),
+                      },
+                      {
+                        type: 'number',
+                        min: 1,
+                        max: 168,
+                        message: t('settings.subUpdateIntervalRange'),
+                      },
+                    ]}
+                    style={{ marginBottom: 0 }}
+                  >
+                    <InputNumber min={1} max={168} disabled={!enabled} style={{ width: 200 }} />
+                  </Form.Item>
+                </>
               );
             }}
           </Form.Item>
