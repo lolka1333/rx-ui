@@ -124,37 +124,51 @@ Optional `.env` file in the binary's CWD is auto-loaded via `dotenvy`.
 
 ```
 rx-ui/
-├── backend/                    # Rust workspace member (binary)
+├── backend/                     # Rust workspace member (the binary)
 │   ├── src/
-│   │   ├── api/                # axum routes: auth, inbounds, clients, dashboard, ...
-│   │   ├── models/             # shared data types (Inbound, Client, ...) — ts-rs exported
-│   │   ├── xray/               # everything xray-related
-│   │   │   ├── control.rs        # spawn/attach/stop the xray process
-│   │   │   ├── client.rs         # gRPC HandlerService wrapper
-│   │   │   ├── inbound_proto.rs  # panel-model → xray protobuf
-│   │   │   ├── share_link.rs     # build vless:// URLs
-│   │   │   ├── keygen.rs         # Reality x25519 + short_id
-│   │   │   ├── installer.rs      # download xray binary from GitHub
-│   │   │   └── proto.rs          # tonic-generated proto module tree
-│   │   ├── error.rs            # AppError + IntoResponse
-│   │   └── main.rs             # bootstrap + reconcile-on-startup
-│   ├── migrations/             # sqlx migrations (numeric prefix = order)
-│   ├── proto/                  # vendored xray-core .proto files
-│   ├── data/                   # runtime: DB, xray binary, xray config
-│   └── .sqlx/                  # sqlx offline query cache (commit to source)
-├── frontend/                   # Vite + React + Antd
+│   │   ├── main.rs              # bootstrap + reconcile-on-startup
+│   │   ├── db.rs                # SQLite pool + embedded-migration runner
+│   │   ├── auth.rs              # JWT (HS256) keys + argon2 password hashing
+│   │   ├── error.rs             # AppError + IntoResponse
+│   │   ├── traffic.rs           # per-client traffic accounting
+│   │   ├── host.rs              # host CPU / memory sampler (dashboard)
+│   │   ├── logs.rs              # in-memory log ring buffer (GET /api/logs)
+│   │   ├── static_assets.rs     # serve the embedded React SPA
+│   │   ├── api/                 # axum routes: auth, inbounds, clients, dashboard, settings, subscription, xray, logs
+│   │   ├── models/              # shared data types (Inbound, Client, ...) — ts-rs exported
+│   │   ├── protocols/           # per-protocol config (vless, hysteria)
+│   │   ├── transports/          # per-transport config (tcp, ws, xhttp, quic, hysteria, sockopt, finalmask)
+│   │   ├── security/            # security layer (none / tls / reality)
+│   │   └── xray/                # everything xray-related
+│   │       ├── control.rs       # spawn / attach / stop the xray process
+│   │       ├── grpc.rs          # gRPC HandlerService client wrapper
+│   │       ├── orchestrator.rs  # reconcile panel state → xray (add/remove inbounds)
+│   │       ├── config_gen.rs    # build the xray config.json
+│   │       ├── reload.rs        # live-reload inbound/config changes
+│   │       ├── share_link.rs    # build share-link / vless:// URLs
+│   │       ├── keygen.rs        # Reality x25519 + short_id
+│   │       ├── installer.rs     # download the xray binary from GitHub
+│   │       └── proto.rs         # tonic-generated proto module tree
+│   ├── migrations/              # sqlx migrations (numeric prefix = order)
+│   ├── proto/                   # vendored xray-core .proto files
+│   ├── data/                    # runtime: DB, xray binary + config (gitignored)
+│   └── .sqlx/                   # sqlx offline query cache (committed to source)
+├── frontend/                    # Vite + React + Antd
 │   ├── src/
-│   │   ├── pages/              # top-level routes (Inbounds, Dashboard, Login)
-│   │   ├── components/         # shared (Sidebar, Settings, XrayUpdates, ...)
-│   │   ├── api/                # axios client + auto-generated TS types
-│   │   ├── i18n/               # ru.ts (source) + en.ts (mirror)
-│   │   ├── stores/             # zustand: auth, theme, locale, ...
-│   │   └── theme/              # Antd theme tokens
+│   │   ├── App.tsx, Root.tsx    # app shell + providers
+│   │   ├── pages/               # views: Dashboard, Inbounds, Clients, Settings, Login, SubscriptionLanding
+│   │   ├── components/          # shared UI: Sidebar, LogsModal, XrayUpdatesModal, ServerInfoCard, QrCard, ...
+│   │   ├── api/                 # axios client + auto-generated TS types
+│   │   ├── stores/              # zustand: auth, theme, locale, nav
+│   │   ├── i18n/                # ru.ts (source) + en.ts (mirror)
+│   │   ├── theme/               # Antd theme tokens
+│   │   └── lib/                 # shared helpers
 │   └── package.json
-├── .github/workflows/ci.yml    # CI: cargo fmt+clippy+test, pnpm typecheck+build
-├── rust-toolchain.toml         # Rust 1.95 pin
-├── .nvmrc                      # Node 22 pin
-└── Cargo.toml                  # workspace root
+├── Dockerfile, docker-compose.yml   # container build + run
+├── .github/workflows/ci.yml     # CI: cargo fmt+clippy+test, pnpm typecheck+build
+├── rust-toolchain.toml          # Rust 1.95 pin
+├── .nvmrc                       # Node 22 pin
+└── Cargo.toml                   # workspace root
 ```
 
 ## Development workflow
