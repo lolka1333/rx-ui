@@ -55,8 +55,6 @@ export const ru = {
     panelSaved: 'Настройки сохранены',
     panelSavedHotRedirect:
       'Настройки применены. Переходим на {{url}}…',
-    panelSavedProxyNote:
-      'Сохранено. Панель теперь на порту {{port}} (путь {{path}}). Вы подключены через прокси/туннель — обновите адрес доступа вручную, автопереход не сработает.',
     panelSaveError: 'Не удалось сохранить настройки панели',
     // Session section
     sectionSession: 'Сессия',

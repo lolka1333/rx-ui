@@ -392,35 +392,15 @@ function AccessSection({
       const normalisedPath = normaliseClientPrefix(values.panel_base_path);
       const portChanged = oldPort != null && values.panel_port !== oldPort;
       const pathChanged = normalisedPath !== oldPath;
-      // The browser's port differs from the panel's when we're reached via a
-      // reverse proxy or SSH tunnel. A `localhost:<new-port>` redirect would
-      // then point at an address the browser can't reach, so only auto-redirect
-      // on direct access; behind a proxy just tell the operator where it moved.
-      const browserPort = window.location.port
-        ? Number(window.location.port)
-        : window.location.protocol === 'https:'
-          ? 443
-          : 80;
-      const behindProxy = oldPort != null && browserPort !== oldPort;
       if (portChanged || pathChanged) {
-        if (behindProxy) {
-          message.success({
-            content: t('settings.panelSavedProxyNote', {
-              port: values.panel_port,
-              path: normalisedPath || '/',
-            }),
-            duration: 8,
-          });
-        } else {
-          const newUrl = `${window.location.protocol}//${window.location.hostname}:${values.panel_port}${normalisedPath}/`;
-          message.success({
-            content: t('settings.panelSavedHotRedirect', { url: newUrl }),
-            duration: 6,
-          });
-          window.setTimeout(() => {
-            window.location.href = newUrl;
-          }, 2500);
-        }
+        const newUrl = `${window.location.protocol}//${window.location.hostname}:${values.panel_port}${normalisedPath}/`;
+        message.success({
+          content: t('settings.panelSavedHotRedirect', { url: newUrl }),
+          duration: 6,
+        });
+        window.setTimeout(() => {
+          window.location.href = newUrl;
+        }, 2500);
       } else {
         message.success(t('settings.panelSaved'));
       }
