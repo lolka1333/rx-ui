@@ -79,7 +79,13 @@ export function RealityTab({ editing, onRotate, rotating }: RealityTabProps) {
     if (didInit.current) return;
     didInit.current = true;
     if (!editing && !form.getFieldValue('reality_public_key')) {
-      void generateKeypair();
+      // Defer to a microtask: generateKeypair calls setState (the loading
+      // flag), and calling setState synchronously inside an effect body trips
+      // react-hooks/set-state-in-effect. The microtask runs right after the
+      // effect commits, so the spinner still shows immediately.
+      queueMicrotask(() => {
+        void generateKeypair();
+      });
     }
   }, [editing, form, generateKeypair]);
 
