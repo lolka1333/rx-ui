@@ -44,50 +44,45 @@ export function RealityTab({ editing, onRotate, rotating }: RealityTabProps) {
   const publicKey = (Form.useWatch('reality_public_key', form) ?? '') as string;
   const [generating, setGenerating] = useState(false);
 
-  // Side-effect-free server keygen. The atomic private+public pair is held in
-  // the form and round-trips on save; the backend re-derives the public from
-  // the private, so the stored pair can't drift.
-  //
-  // Plain async + local `generating` flag rather than react-query's
-  // useMutation: under React 19 StrictMode a *second* `mutate()` (the
-  // "regenerate" button after the mount-time auto-gen) never ran its
-  // mutationFn — the spinner stuck on forever with no request sent. A direct
-  // call always fires, and `finally` always clears the flag.
-  const generateKeypair = useCallback(async () => {
-    setGenerating(true);
-    try {
-      const { data } = await apiClient.post<{ private_key: string; public_key: string }>(
-        '/keygen/reality-keypair',
-      );
-      form.setFieldsValue({
-        reality_private_key: data.private_key,
-        reality_public_key: data.public_key,
-      });
-    } catch (err) {
-      message.error(apiErrorMessage(err) ?? t('inbounds.realityKeygenError'));
-    } finally {
-      setGenerating(false);
-    }
-  }, [form, message, t]);
+  // Side-effect-free server keygen; the atomic private+public pair is held in
+  // the form and round-trips on save (the backend re-derives the public from
+  // the private so the stored pair can't drift). Writes land in antd's form
+  // store rather than React state, so calling this from the mount effect below
+  // doesn't trip react-hooks/set-state-in-effect.
+  const fetchKeypair = useCallback(async () => {
+    const { data } = await apiClient.post<{ private_key: string; public_key: string }>(
+      '/keygen/reality-keypair',
+    );
+    form.setFieldsValue({
+      reality_private_key: data.private_key,
+      reality_public_key: data.public_key,
+    });
+  }, [form]);
 
-  // Generate a pair the first time the tab mounts for a NEW inbound (none
-  // carried yet). Editing reuses the inbound's stored key. The ref guard makes
-  // this fire exactly once — React 19 StrictMode double-invokes mount effects
-  // in dev, and the ref survives that remount (same instance).
+  // Manual "regenerate" button. The spinner state is React state, but it's set
+  // from a click handler (allowed) — not from an effect.
+  const regenerate = useCallback(() => {
+    setGenerating(true);
+    fetchKeypair()
+      .catch((err: unknown) =>
+        message.error(apiErrorMessage(err) ?? t('inbounds.realityKeygenError')),
+      )
+      .finally(() => setGenerating(false));
+  }, [fetchKeypair, message, t]);
+
+  // Auto-generate on a fresh inbound so the public key shows straight away;
+  // editing reuses the inbound's stored key. The ref keeps StrictMode's
+  // double-invoked mount effect (dev) from firing a second keygen.
   const didInit = useRef(false);
   useEffect(() => {
-    if (didInit.current) return;
-    didInit.current = true;
-    if (!editing && !form.getFieldValue('reality_public_key')) {
-      // Defer to a microtask: generateKeypair calls setState (the loading
-      // flag), and calling setState synchronously inside an effect body trips
-      // react-hooks/set-state-in-effect. The microtask runs right after the
-      // effect commits, so the spinner still shows immediately.
-      queueMicrotask(() => {
-        void generateKeypair();
-      });
+    if (editing || didInit.current) return;
+    if (!form.getFieldValue('reality_public_key')) {
+      didInit.current = true;
+      fetchKeypair().catch((err: unknown) =>
+        message.error(apiErrorMessage(err) ?? t('inbounds.realityKeygenError')),
+      );
     }
-  }, [editing, form, generateKeypair]);
+  }, [editing, form, fetchKeypair, message, t]);
 
   return (
     <>
@@ -162,10 +157,8 @@ export function RealityTab({ editing, onRotate, rotating }: RealityTabProps) {
         <Input />
       </Form.Item>
 
-      {/* Skip Antd's label prop entirely — the parent `<label>` element it
-          renders is inline-width and won't stretch our flex-spacer. Render the
-          label row ourselves as a block-level flex so `space-between` pushes
-          the action button to the right edge. */}
+      {/* Label row holds just the title + help; the (re)generate action lives
+          inside the field as a suffix. */}
       <Form.Item style={{ marginBottom: 0 }}>
         <div
           style={{
@@ -181,9 +174,8 @@ export function RealityTab({ editing, onRotate, rotating }: RealityTabProps) {
             <QuestionCircleOutlined style={{ opacity: 0.45, fontSize: 13, cursor: 'help' }} />
           </Tooltip>
         </div>
-        {/* The (re)generate action sits inside the field as a suffix. On a new
-            inbound it generates a fresh local pair; when editing it rotates the
-            stored key server-side (guarded by a confirm). */}
+        {/* New inbound: generate a fresh local pair. Editing: rotate the stored
+            key server-side (guarded by a confirm). */}
         <Input
           readOnly
           value={publicKey}
@@ -221,7 +213,7 @@ export function RealityTab({ editing, onRotate, rotating }: RealityTabProps) {
                   type="text"
                   icon={<ReloadOutlined />}
                   loading={generating}
-                  onClick={() => void generateKeypair()}
+                  onClick={regenerate}
                   style={{ marginInlineEnd: -4 }}
                 />
               </Tooltip>
