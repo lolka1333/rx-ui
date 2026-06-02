@@ -252,7 +252,9 @@ export function VlessEncryption() {
                 ]}
               />
             </Form.Item>
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            {/* align-items:flex-end keeps both inputs on one line even when a
+                label wraps to two rows on a narrow (mobile) viewport. */}
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
               <Form.Item
                 name="vless_encryption_seconds_from"
                 label={t('inbounds.vlessEncSecondsFrom')}

@@ -384,7 +384,7 @@ export const en: Dict = {
     vlessEncXorXorpub: 'xorpub (XOR public-key)',
     vlessEncXorRandom: 'random (random XOR)',
     vlessEncSecondsFrom: 'Session TTL (sec)',
-    vlessEncSecondsTo: 'TTL max (sec, optional)',
+    vlessEncSecondsTo: 'TTL max (sec)',
     vlessEncSecondsTooltip: 'Session token validity window in seconds. Single value, or a from-to range for randomisation.',
     vlessEncSecondsToPlaceholder: 'range (optional)',
     vlessEncPadding: 'Padding (optional)',

@@ -474,7 +474,7 @@ export const ru = {
     vlessEncXorXorpub: 'xorpub (XOR public-key)',
     vlessEncXorRandom: 'random (случайный XOR)',
     vlessEncSecondsFrom: 'Session TTL (сек)',
-    vlessEncSecondsTo: 'TTL макс. (сек, опц.)',
+    vlessEncSecondsTo: 'TTL макс. (сек)',
     vlessEncSecondsTooltip: 'Окно валидности session-токена в секундах. Можно одно значение или диапазон from-to для рандомизации.',
     vlessEncSecondsToPlaceholder: 'диапазон (опц.)',
     vlessEncPadding: 'Padding (опц.)',
