@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, inbound_id, email, uuid, auth, flow, enabled, note,\n                  traffic_limit_bytes, disabled_reason, sub_token, created_at, updated_at\n           FROM clients\n           WHERE inbound_id = ? AND enabled = 1\n           ORDER BY created_at ASC",
+  "query": "SELECT id, inbound_id, email, uuid, auth, flow, enabled, note,\n                  traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at,\n                  (uplink_total + downlink_total) AS \"used!: i64\"\n           FROM clients WHERE id = ? AND inbound_id = ?",
   "describe": {
     "columns": [
       {
@@ -114,8 +114,19 @@
         }
       },
       {
-        "name": "sub_token",
+        "name": "expires_at",
         "ordinal": 10,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "expires_at"
+          }
+        }
+      },
+      {
+        "name": "sub_token",
+        "ordinal": 11,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -126,7 +137,7 @@
       },
       {
         "name": "created_at",
-        "ordinal": 11,
+        "ordinal": 12,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -137,7 +148,7 @@
       },
       {
         "name": "updated_at",
-        "ordinal": 12,
+        "ordinal": 13,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -145,10 +156,16 @@
             "name": "updated_at"
           }
         }
+      },
+      {
+        "name": "used!: i64",
+        "ordinal": 14,
+        "type_info": "Integer",
+        "origin": "Expression"
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 2
     },
     "nullable": [
       false,
@@ -161,10 +178,12 @@
       true,
       true,
       true,
+      true,
+      false,
       false,
       false,
       false
     ]
   },
-  "hash": "aa76eee86ae16c408a321b5dfc664eabac1f91c8237286ce775cae0b9d497718"
+  "hash": "3e7a9a57c9f956f307449d8862b9d107ea0b85d5ecf6329ff49a125e845485b7"
 }

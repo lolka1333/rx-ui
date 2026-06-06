@@ -46,10 +46,17 @@ pub struct Client {
     /// for rows that have never been disabled). The operator-visible values:
     ///   * `"manual"` — operator clicked the toggle / saved with off
     ///   * `"quota"` — the poller hit `traffic_limit_bytes`
+    ///   * `"expired"` — the poller passed `expires_at`
     ///
     /// The split lets "reset traffic" re-enable a quota client while
     /// leaving manually-disabled ones alone.
     pub disabled_reason: Option<String>,
+    /// Absolute expiry instant as a UTC `YYYY-MM-DD HH:MM:SS` string (the
+    /// `datetime('now')` shape). `None` / `NULL` ≡ never expires. When it
+    /// passes, the stats poller flips `enabled` off with
+    /// `disabled_reason = "expired"` and tells xray to drop the user;
+    /// clearing or extending it re-enables the row.
+    pub expires_at: Option<String>,
     /// Per-row subscription token. The public `GET /sub/{token}` endpoint
     /// resolves it to the client, then aggregates every share-link for
     /// rows with the same `email` across all inbounds — that's how one
@@ -92,6 +99,10 @@ pub struct ClientCreate {
     #[serde(default)]
     #[ts(type = "number | null")]
     pub traffic_limit_bytes: Option<i64>,
+    /// Optional absolute expiry, ISO-8601 from the client; normalized to the
+    /// `datetime('now')` shape on write. `None` ≡ never expires.
+    #[serde(default)]
+    pub expires_at: Option<String>,
 }
 
 /// Body for `PATCH /api/inbounds/{inbound_id}/clients/{client_id}`
@@ -117,6 +128,12 @@ pub struct ClientUpdate {
     #[serde(default)]
     #[ts(type = "number | null | undefined")]
     pub traffic_limit_bytes: PatchField<i64>,
+    /// Tri-state PATCH for the expiry instant. Same semantics as
+    /// `traffic_limit_bytes`: `Set` writes, `Clear` (explicit null) drops to
+    /// never-expires, `Unchanged` leaves it. ISO-8601 in, normalized on write.
+    #[serde(default)]
+    #[ts(type = "string | null | undefined")]
+    pub expires_at: PatchField<String>,
 }
 
 /// Body for the top-level `POST /api/clients`.
@@ -137,6 +154,8 @@ pub struct ClientCreateGlobal {
     #[serde(default)]
     #[ts(type = "number | null")]
     pub traffic_limit_bytes: Option<i64>,
+    #[serde(default)]
+    pub expires_at: Option<String>,
 }
 
 /// Body for `POST /api/clients/bulk-assign` — the "give this user access
@@ -162,6 +181,8 @@ pub struct ClientBulkAssign {
     #[serde(default)]
     #[ts(type = "number | null")]
     pub traffic_limit_bytes: Option<i64>,
+    #[serde(default)]
+    pub expires_at: Option<String>,
 }
 
 /// Result of a `POST /api/clients/bulk-assign`. Three sets so the

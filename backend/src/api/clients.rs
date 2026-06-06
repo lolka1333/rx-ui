@@ -255,6 +255,7 @@ async fn commit_bulk_assign_tx(
 ) -> AppResult<Vec<(String, bool)>> {
     let mut tx = state.db.begin().await?;
     let mut applied: Vec<(String, bool)> = Vec::with_capacity(target.len());
+    let expires_at = normalize_expiry(body.expires_at.clone())?;
     for inbound_id in target {
         let inbound = &target_inbounds[inbound_id];
         let is_hysteria = matches!(
@@ -276,13 +277,14 @@ async fn commit_bulk_assign_tx(
             let res = sqlx::query!(
                 r#"UPDATE clients
                    SET uuid = ?, auth = ?, flow = ?, note = ?, traffic_limit_bytes = ?,
-                       updated_at = datetime('now')
+                       expires_at = ?, updated_at = datetime('now')
                    WHERE id = ?"#,
                 creds.uuid,
                 auth,
                 body.flow,
                 body.note,
                 body.traffic_limit_bytes,
+                expires_at.clone(),
                 existing_id,
             )
             .execute(&mut *tx)
@@ -299,8 +301,8 @@ async fn commit_bulk_assign_tx(
             let sub_token = crate::api::subscription::generate_unique_token(&state.db).await?;
             sqlx::query!(
                 r#"INSERT INTO clients (id, inbound_id, email, uuid, auth, flow, enabled,
-                                        note, traffic_limit_bytes, disabled_reason, sub_token)
-                   VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, NULL, ?)"#,
+                                        note, traffic_limit_bytes, disabled_reason, expires_at, sub_token)
+                   VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, NULL, ?, ?)"#,
                 new_id,
                 inbound_id,
                 body.email,
@@ -309,6 +311,7 @@ async fn commit_bulk_assign_tx(
                 body.flow,
                 body.note,
                 body.traffic_limit_bytes,
+                expires_at.clone(),
                 sub_token,
             )
             .execute(&mut *tx)
@@ -405,7 +408,7 @@ async fn sync_xray_applied(
     }
     let mut qb = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
         "SELECT id, inbound_id, email, uuid, auth, flow, enabled, note, \
-         traffic_limit_bytes, disabled_reason, sub_token, created_at, updated_at \
+         traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at \
          FROM clients WHERE email = ",
     );
     qb.push_bind(email);
@@ -621,6 +624,7 @@ struct Row {
     note: Option<String>,
     traffic_limit_bytes: Option<i64>,
     disabled_reason: Option<String>,
+    expires_at: Option<String>,
     sub_token: String,
     created_at: String,
     updated_at: String,
@@ -638,9 +642,28 @@ fn row_to_client(r: Row) -> Client {
         note: r.note,
         traffic_limit_bytes: r.traffic_limit_bytes,
         disabled_reason: r.disabled_reason,
+        expires_at: r.expires_at,
         sub_token: r.sub_token,
         created_at: r.created_at,
         updated_at: r.updated_at,
+    }
+}
+
+/// Normalize a client-supplied ISO-8601 expiry to the DB's UTC
+/// `YYYY-MM-DD HH:MM:SS` shape (the `datetime('now')` format the poller
+/// compares against). `None` passes through; unparsable input is a 400.
+fn normalize_expiry(raw: Option<String>) -> AppResult<Option<String>> {
+    match raw {
+        None => Ok(None),
+        Some(s) => {
+            let dt = chrono::DateTime::parse_from_rfc3339(&s)
+                .map_err(|e| AppError::BadRequest(format!("invalid expires_at: {e}")))?;
+            Ok(Some(
+                dt.with_timezone(&chrono::Utc)
+                    .format("%Y-%m-%d %H:%M:%S")
+                    .to_string(),
+            ))
+        }
     }
 }
 
@@ -676,7 +699,7 @@ async fn list(
     let rows = sqlx::query_as!(
         Row,
         r#"SELECT id, inbound_id, email, uuid, auth, flow, enabled, note,
-                  traffic_limit_bytes, disabled_reason, sub_token, created_at, updated_at
+                  traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at
            FROM clients WHERE inbound_id = ?
            ORDER BY created_at"#,
         inbound_id
@@ -694,7 +717,7 @@ async fn get_one(
     let row = sqlx::query_as!(
         Row,
         r#"SELECT id, inbound_id, email, uuid, auth, flow, enabled, note,
-                  traffic_limit_bytes, disabled_reason, sub_token, created_at, updated_at
+                  traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at
            FROM clients WHERE id = ? AND inbound_id = ?"#,
         id,
         inbound_id
@@ -751,10 +774,11 @@ async fn create(
 
     let id = Uuid::new_v4().to_string();
     let sub_token = crate::api::subscription::generate_token();
+    let expires_at = normalize_expiry(body.expires_at.clone())?;
     sqlx::query!(
         r#"INSERT INTO clients (id, inbound_id, email, uuid, auth, flow, enabled, note,
-                                traffic_limit_bytes, disabled_reason, sub_token)
-           VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, NULL, ?)"#,
+                                traffic_limit_bytes, disabled_reason, expires_at, sub_token)
+           VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, NULL, ?, ?)"#,
         id,
         inbound_id,
         body.email,
@@ -763,6 +787,7 @@ async fn create(
         body.flow,
         body.note,
         body.traffic_limit_bytes,
+        expires_at,
         sub_token,
     )
     .execute(&state.db)
@@ -886,6 +911,11 @@ async fn write_client_update_tx(state: &AppState, id: &str, body: &ClientUpdate)
         qb.push(", traffic_limit_bytes = ").push_bind(opt.copied());
         has_change = true;
     }
+    if let Some(opt) = body.expires_at.as_change() {
+        let normalized = normalize_expiry(opt.cloned())?;
+        qb.push(", expires_at = ").push_bind(normalized);
+        has_change = true;
+    }
     if has_change {
         qb.push(" WHERE id = ").push_bind(id);
         qb.build().execute(&mut *tx).await?;
@@ -905,7 +935,7 @@ async fn refetch_with_quota_recheck(
 ) -> AppResult<Client> {
     let row = sqlx::query!(
         r#"SELECT id, inbound_id, email, uuid, auth, flow, enabled, note,
-                  traffic_limit_bytes, disabled_reason, sub_token, created_at, updated_at,
+                  traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at,
                   (uplink_total + downlink_total) AS "used!: i64"
            FROM clients WHERE id = ? AND inbound_id = ?"#,
         id,
@@ -926,6 +956,7 @@ async fn refetch_with_quota_recheck(
         note: row.note,
         traffic_limit_bytes: row.traffic_limit_bytes,
         disabled_reason: row.disabled_reason,
+        expires_at: row.expires_at,
         sub_token: row.sub_token,
         created_at: row.created_at,
         updated_at: row.updated_at,
@@ -945,6 +976,28 @@ async fn refetch_with_quota_recheck(
             // learn what we already know. `updated_at` stays sub-second
             // stale; the operator's PATCH-response uses it for ordering
             // at best, not microsecond-precision auditing.
+            after.enabled = true;
+            after.disabled_reason = None;
+        }
+    }
+    // Sibling of the quota recheck: an expired row whose date was cleared
+    // or pushed into the future comes back on. `expires_at` is the stored
+    // UTC `YYYY-MM-DD HH:MM:SS`; a string compare against the same-shaped
+    // `now` is chronological.
+    if after.disabled_reason.as_deref() == Some("expired") {
+        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let not_expired = after
+            .expires_at
+            .as_deref()
+            .is_none_or(|exp| exp > now.as_str());
+        if not_expired {
+            sqlx::query!(
+                "UPDATE clients SET enabled = 1, disabled_reason = NULL,
+                        updated_at = datetime('now') WHERE id = ?",
+                id
+            )
+            .execute(&state.db)
+            .await?;
             after.enabled = true;
             after.disabled_reason = None;
         }
@@ -1074,7 +1127,7 @@ async fn read_row(state: &AppState, inbound_id: &str, id: &str) -> AppResult<Row
     sqlx::query_as!(
         Row,
         r#"SELECT id, inbound_id, email, uuid, auth, flow, enabled, note,
-                  traffic_limit_bytes, disabled_reason, sub_token, created_at, updated_at
+                  traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at
            FROM clients WHERE id = ? AND inbound_id = ?"#,
         id,
         inbound_id
@@ -1125,7 +1178,7 @@ async fn list_global(
     let rows = sqlx::query_as!(
         Row,
         r#"SELECT id, inbound_id, email, uuid, auth, flow, enabled, note,
-                  traffic_limit_bytes, disabled_reason, sub_token, created_at, updated_at
+                  traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at
            FROM clients ORDER BY created_at DESC"#
     )
     .fetch_all(&state.db)
@@ -1186,6 +1239,7 @@ async fn create_global(
             flow: body.flow,
             note: body.note,
             traffic_limit_bytes: body.traffic_limit_bytes,
+            expires_at: body.expires_at,
         }),
     )
     .await

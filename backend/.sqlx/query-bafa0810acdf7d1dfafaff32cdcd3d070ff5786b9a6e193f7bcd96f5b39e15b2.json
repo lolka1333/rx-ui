@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, inbound_id, email, uuid, auth, flow, enabled, note,\n                  traffic_limit_bytes, disabled_reason, sub_token, created_at, updated_at,\n                  (uplink_total + downlink_total) AS \"used!: i64\"\n           FROM clients WHERE id = ? AND inbound_id = ?",
+  "query": "SELECT id, inbound_id, email, uuid, auth, flow, enabled, note,\n                  traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at\n           FROM clients WHERE id = ? AND inbound_id = ?",
   "describe": {
     "columns": [
       {
@@ -114,8 +114,19 @@
         }
       },
       {
-        "name": "sub_token",
+        "name": "expires_at",
         "ordinal": 10,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "expires_at"
+          }
+        }
+      },
+      {
+        "name": "sub_token",
+        "ordinal": 11,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -126,7 +137,7 @@
       },
       {
         "name": "created_at",
-        "ordinal": 11,
+        "ordinal": 12,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -137,7 +148,7 @@
       },
       {
         "name": "updated_at",
-        "ordinal": 12,
+        "ordinal": 13,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -145,12 +156,6 @@
             "name": "updated_at"
           }
         }
-      },
-      {
-        "name": "used!: i64",
-        "ordinal": 13,
-        "type_info": "Integer",
-        "origin": "Expression"
       }
     ],
     "parameters": {
@@ -167,11 +172,11 @@
       true,
       true,
       true,
-      false,
+      true,
       false,
       false,
       false
     ]
   },
-  "hash": "b5dc1a04ee67098970008244dd1c4e65f6d984f4d296622426ba1baee016555d"
+  "hash": "bafa0810acdf7d1dfafaff32cdcd3d070ff5786b9a6e193f7bcd96f5b39e15b2"
 }

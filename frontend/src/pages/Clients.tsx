@@ -33,6 +33,7 @@ import {
   Tag,
   Typography,
   App,
+  DatePicker,
 } from 'antd';
 import {
   DeleteOutlined,
@@ -50,6 +51,8 @@ import {
 } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import dayjs, { type Dayjs } from 'dayjs';
+import utc from 'dayjs/plugin/utc';
 import { apiClient } from '@/api/client';
 import { apiErrorMessage } from '@/api/errors';
 import { QrCard } from '@/components/QrCard';
@@ -65,6 +68,10 @@ import type {
   PanelSettings,
   ShareLinkResponse,
 } from '@/api/types';
+
+// Expiry timestamps are stored UTC; parse/format them in UTC and let the
+// DatePicker localize for display.
+dayjs.extend(utc);
 
 /**
  * Map of `email → live stats`, polled every 5s from
@@ -118,6 +125,10 @@ interface ClientGroup {
   allEnabled: boolean;
   anyEnabled: boolean;
   anyDisabledByQuota: boolean;
+  anyDisabledByExpiry: boolean;
+  /** Earliest non-null expires_at across rows (UTC string), or null if
+   *  no row has an expiry. */
+  expiresAt: string | null;
   /** Sum of per-row traffic_limit_bytes, or null if any row is
    *  unlimited (an unlimited quota at the group level swallows the
    *  others — the user gets unlimited overall). */
@@ -145,6 +156,9 @@ interface ClientFormValues {
   /** `null` ≡ no quota. The number is in `traffic_limit_unit` units. */
   traffic_limit_value: number | null;
   traffic_limit_unit: TrafficUnit;
+  /** `null` ≡ never expires. Absolute datetime; localized in the picker,
+   *  sent to the backend as ISO-8601 (UTC). */
+  expires_at: Dayjs | null;
 }
 
 type TrafficUnit = 'MB' | 'GB' | 'TB';
@@ -250,7 +264,7 @@ export function Clients() {
   const setEmailFilter = useClientsFilter((s) => s.setEmail);
 
   const [enabledFilter, setEnabledFilter] = useState<
-    'all' | 'online' | 'enabled' | 'disabled' | 'quota'
+    'all' | 'online' | 'enabled' | 'disabled' | 'quota' | 'expired'
   >('all');
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -371,6 +385,15 @@ export function Clients() {
       const anyDisabledByQuota = rows.some(
         (r) => !r.enabled && r.disabled_reason === 'quota',
       );
+      const anyDisabledByExpiry = rows.some(
+        (r) => !r.enabled && r.disabled_reason === 'expired',
+      );
+      // Earliest expiry across the group; UTC strings sort chronologically.
+      const expiresAt =
+        rows
+          .map((r) => r.expires_at)
+          .filter((e): e is string => e != null)
+          .sort()[0] ?? null;
       const limits = rows.map((r) => r.traffic_limit_bytes);
       const anyUnlimited = limits.some((l) => l == null);
       const totalLimit: number | null = anyUnlimited
@@ -380,6 +403,7 @@ export function Clients() {
       if (enabledFilter === 'enabled' && !allEnabled) continue;
       if (enabledFilter === 'disabled' && anyEnabled) continue;
       if (enabledFilter === 'quota' && !anyDisabledByQuota) continue;
+      if (enabledFilter === 'expired' && !anyDisabledByExpiry) continue;
       // `stats` is keyed by email; `online` per the TrafficSnapshot doc
       // is true when xray reports any active TCP connection OR any
       // bytes moved during the last poll window. Missing entry (group
@@ -391,6 +415,8 @@ export function Clients() {
         allEnabled,
         anyEnabled,
         anyDisabledByQuota,
+        anyDisabledByExpiry,
+        expiresAt,
         totalLimit,
         inboundIds,
         note: rows.find((r) => r.note)?.note ?? null,
@@ -577,6 +603,7 @@ export function Clients() {
         flow,
         note: values.note || null,
         traffic_limit_bytes: trafficLimitBytes,
+        expires_at: values.expires_at ? values.expires_at.toISOString() : null,
       };
       return (await apiClient.post<ClientBulkAssignResult>('/clients/bulk-assign', body))
         .data;
@@ -717,6 +744,7 @@ export function Clients() {
       note: editing?.note ?? '',
       traffic_limit_value: tl.value,
       traffic_limit_unit: tl.unit,
+      expires_at: editing?.expires_at ? dayjs.utc(editing.expires_at).local() : null,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modalOpen, editing, form]);
@@ -802,6 +830,7 @@ export function Clients() {
             { value: 'enabled', label: t('clients.filterStatusEnabled') },
             { value: 'disabled', label: t('clients.filterStatusDisabled') },
             { value: 'quota', label: t('clients.filterStatusQuota') },
+            { value: 'expired', label: t('clients.filterStatusExpired') },
           ]}
         />
       </div>
@@ -864,6 +893,21 @@ export function Clients() {
                     style={{ fontSize: 11, lineHeight: '14px' }}
                   >
                     {g.note}
+                  </Typography.Text>
+                )}
+                {g.expiresAt && (
+                  <Typography.Text
+                    type={g.anyDisabledByExpiry ? 'danger' : 'secondary'}
+                    style={{ fontSize: 11, lineHeight: '14px' }}
+                  >
+                    {g.anyDisabledByExpiry
+                      ? t('clients.expired')
+                      : t('clients.expiresOn', {
+                          date: dayjs
+                            .utc(g.expiresAt)
+                            .local()
+                            .format('YYYY-MM-DD HH:mm'),
+                        })}
                   </Typography.Text>
                 )}
               </div>
@@ -1178,6 +1222,22 @@ export function Clients() {
                   />
                 </Form.Item>
               </Space.Compact>
+            </Form.Item>
+            {/* Expiry: empty = never. showTime because the cutoff is a
+                datetime, not a date. Stored UTC, shown in local. */}
+            <Form.Item
+              name="expires_at"
+              label={t('clients.expiry')}
+              tooltip={t('clients.expiryTooltip')}
+            >
+              <DatePicker
+                showTime
+                format="YYYY-MM-DD HH:mm:ss"
+                inputReadOnly
+                style={{ width: '100%' }}
+                placeholder={t('clients.expiryNever')}
+                popupClassName="expiry-picker-dropdown"
+              />
             </Form.Item>
             {/* Enabled state is operated from the inline switch in the
                 table row instead — keeping both controls drifted in

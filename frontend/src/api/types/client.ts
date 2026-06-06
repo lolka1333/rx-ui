@@ -32,11 +32,20 @@ traffic_limit_bytes: number | null,
  * for rows that have never been disabled). The operator-visible values:
  *   * `"manual"` — operator clicked the toggle / saved with off
  *   * `"quota"` — the poller hit `traffic_limit_bytes`
+ *   * `"expired"` — the poller passed `expires_at`
  *
  * The split lets "reset traffic" re-enable a quota client while
  * leaving manually-disabled ones alone.
  */
 disabled_reason: string | null, 
+/**
+ * Absolute expiry instant as a UTC `YYYY-MM-DD HH:MM:SS` string (the
+ * `datetime('now')` shape). `None` / `NULL` ≡ never expires. When it
+ * passes, the stats poller flips `enabled` off with
+ * `disabled_reason = "expired"` and tells xray to drop the user;
+ * clearing or extending it re-enables the row.
+ */
+expires_at: string | null, 
 /**
  * Per-row subscription token. The public `GET /sub/{token}` endpoint
  * resolves it to the client, then aggregates every share-link for
@@ -63,7 +72,7 @@ export type ClientBulkAssign = { email: string,
  * op never deletes the user entirely (use the per-row DELETE for
  * that, which is more explicit about what's being removed).
  */
-inbound_ids: Array<string>, uuid: string | null, auth: string | null, flow: string | null, note: string | null, traffic_limit_bytes: number | null, };
+inbound_ids: Array<string>, uuid: string | null, auth: string | null, flow: string | null, note: string | null, traffic_limit_bytes: number | null, expires_at: string | null, };
 
 /**
  * Result of a `POST /api/clients/bulk-assign`. Three sets so the
@@ -119,7 +128,12 @@ auth: string | null, flow: string | null, note: string | null,
  * Optional traffic cap in bytes. `None` ≡ no cap; the field can be
  * added later via PATCH if the operator decides to enforce one.
  */
-traffic_limit_bytes: number | null, };
+traffic_limit_bytes: number | null, 
+/**
+ * Optional absolute expiry, ISO-8601 from the client; normalized to the
+ * `datetime('now')` shape on write. `None` ≡ never expires.
+ */
+expires_at: string | null, };
 
 /**
  * Body for the top-level `POST /api/clients`.
@@ -129,7 +143,7 @@ traffic_limit_bytes: number | null, };
  * global route needs it explicitly in the body. Field shape is otherwise
  * identical so the frontend can reuse most of its create-form logic.
  */
-export type ClientCreateGlobal = { inbound_id: string, email: string, uuid: string | null, auth: string | null, flow: string | null, note: string | null, traffic_limit_bytes: number | null, };
+export type ClientCreateGlobal = { inbound_id: string, email: string, uuid: string | null, auth: string | null, flow: string | null, note: string | null, traffic_limit_bytes: number | null, expires_at: string | null, };
 
 /**
  * Body for `PATCH /api/inbounds/{inbound_id}/clients/{client_id}`
@@ -150,7 +164,13 @@ auth: string | null, flow: string | null, enabled: boolean | null, note: string 
  * `Unchanged`; an explicit `null` from the wire becomes `Clear` via
  * `PatchField`'s own deserializer.
  */
-traffic_limit_bytes: number | null | undefined, };
+traffic_limit_bytes: number | null | undefined, 
+/**
+ * Tri-state PATCH for the expiry instant. Same semantics as
+ * `traffic_limit_bytes`: `Set` writes, `Clear` (explicit null) drops to
+ * never-expires, `Unchanged` leaves it. ISO-8601 in, normalized on write.
+ */
+expires_at: string | null | undefined, };
 
 export type ShareLinkResponse = { link: string, 
 /**

@@ -165,7 +165,7 @@ async fn subscription(
     // app's profile list doesn't reshuffle on every poll.
     let raw_rows = sqlx::query!(
         r#"SELECT id, inbound_id, email, uuid, auth, flow, enabled, note,
-                  traffic_limit_bytes, disabled_reason, sub_token, created_at, updated_at,
+                  traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at,
                   uplink_total, downlink_total
            FROM clients
            WHERE email = ?
@@ -189,6 +189,7 @@ async fn subscription(
             note: r.note,
             traffic_limit_bytes: r.traffic_limit_bytes,
             disabled_reason: r.disabled_reason,
+            expires_at: r.expires_at,
             sub_token: r.sub_token,
             created_at: r.created_at,
             updated_at: r.updated_at,
@@ -291,6 +292,9 @@ struct Bundle {
     /// `0` ≡ unlimited (any row had `traffic_limit_bytes = NULL`, or
     /// the email has no rows at all).
     header_total: i64,
+    /// Earliest `expires_at` across the bundle as a unix timestamp, or
+    /// `0` ≡ no expiry (every row never-expires, or no rows).
+    header_expire: i64,
 }
 
 /// Walk the email's rows once: sum byte totals for the userinfo header
@@ -308,12 +312,19 @@ fn build_bundle(
     let mut download: i64 = 0;
     let mut total: i64 = 0;
     let mut has_unlimited = false;
+    let mut earliest_expire: Option<i64> = None;
     for row in rows {
         upload = upload.saturating_add(row.uplink_total);
         download = download.saturating_add(row.downlink_total);
         match row.traffic_limit_bytes {
             Some(cap) => total = total.saturating_add(cap),
             None => has_unlimited = true,
+        }
+        if let Some(ref exp) = row.expires_at
+            && let Ok(dt) = chrono::NaiveDateTime::parse_from_str(exp, "%Y-%m-%d %H:%M:%S")
+        {
+            let ts = dt.and_utc().timestamp();
+            earliest_expire = Some(earliest_expire.map_or(ts, |e| e.min(ts)));
         }
         if !row.enabled {
             continue;
@@ -344,6 +355,7 @@ fn build_bundle(
         upload,
         download,
         header_total,
+        header_expire: earliest_expire.unwrap_or(0),
     }
 }
 
@@ -363,8 +375,8 @@ fn build_response_headers(
     // was eating quota; the wire shape `upload=...; download=...` is
     // the convention every client app reads.
     let userinfo = format!(
-        "upload={}; download={}; total={}; expire=0",
-        bundle.upload, bundle.download, bundle.header_total,
+        "upload={}; download={}; total={}; expire={}",
+        bundle.upload, bundle.download, bundle.header_total, bundle.header_expire,
     );
     headers.insert(
         "subscription-userinfo",
@@ -453,6 +465,7 @@ struct SubscriptionRow {
     note: Option<String>,
     traffic_limit_bytes: Option<i64>,
     disabled_reason: Option<String>,
+    expires_at: Option<String>,
     sub_token: String,
     created_at: String,
     updated_at: String,
@@ -475,6 +488,7 @@ impl SubscriptionRow {
             note: self.note.clone(),
             traffic_limit_bytes: self.traffic_limit_bytes,
             disabled_reason: self.disabled_reason.clone(),
+            expires_at: self.expires_at.clone(),
             sub_token: self.sub_token.clone(),
             created_at: self.created_at.clone(),
             updated_at: self.updated_at.clone(),

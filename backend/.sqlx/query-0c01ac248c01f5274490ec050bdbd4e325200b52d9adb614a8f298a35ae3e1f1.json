@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT c.id           AS \"id!\",\n                  c.email        AS \"email!\",\n                  i.tag          AS \"inbound_tag!\",\n                  c.uplink_total AS \"uplink_total!\",\n                  c.downlink_total AS \"downlink_total!\",\n                  c.enabled      AS \"enabled!\",\n                  c.traffic_limit_bytes\n           FROM clients c\n           JOIN inbounds i ON i.id = c.inbound_id",
+  "query": "SELECT c.id           AS \"id!\",\n                  c.email        AS \"email!\",\n                  i.tag          AS \"inbound_tag!\",\n                  c.uplink_total AS \"uplink_total!\",\n                  c.downlink_total AS \"downlink_total!\",\n                  c.enabled      AS \"enabled!\",\n                  c.traffic_limit_bytes,\n                  c.expires_at\n           FROM clients c\n           JOIN inbounds i ON i.id = c.inbound_id",
   "describe": {
     "columns": [
       {
@@ -79,6 +79,17 @@
             "name": "traffic_limit_bytes"
           }
         }
+      },
+      {
+        "name": "expires_at",
+        "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "expires_at"
+          }
+        }
       }
     ],
     "parameters": {
@@ -91,8 +102,9 @@
       false,
       false,
       false,
+      true,
       true
     ]
   },
-  "hash": "e2f443c9922028d71a2eed83d4f152c539faab4ca947d46ff5a39999f246023b"
+  "hash": "0c01ac248c01f5274490ec050bdbd4e325200b52d9adb614a8f298a35ae3e1f1"
 }

@@ -500,6 +500,37 @@ button {
   .login-anim-stagger { animation-duration: 0.4s; }
 }
 
+/* Expiry DatePicker popup (Clients form): with showTime the calendar and the
+   time columns sit side-by-side, which overflows a phone screen. On narrow
+   viewports stack them vertically and cap the width so the popup fits. */
+@media (max-width: 480px) {
+  /* Stack the calendar over the time columns. The time panel spans the
+     calendar width and the columns share it evenly with centered numbers, so
+     the row is filled instead of leaving empty gaps on the sides. */
+  .expiry-picker-dropdown .ant-picker-datetime-panel {
+    flex-direction: column;
+  }
+  .expiry-picker-dropdown .ant-picker-time-panel {
+    border-inline-start: none;
+    border-block-start: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  .expiry-picker-dropdown .ant-picker-time-panel-column {
+    flex: 1;
+  }
+  /* Centre each number cell (and its selection highlight) within the stretched
+     column so the digits and the highlighted box line up instead of hugging
+     the left edge. */
+  .expiry-picker-dropdown .ant-picker-time-panel-cell {
+    display: flex;
+    justify-content: center;
+  }
+  .expiry-picker-dropdown .ant-picker-time-panel-cell-inner {
+    flex: none;
+    padding-inline: 0;
+    text-align: center;
+  }
+}
+
 .login-anim-stagger {
   opacity: 0;
   animation: login-stagger-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;

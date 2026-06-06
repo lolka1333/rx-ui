@@ -233,6 +233,7 @@ async fn poll_once(
         let meta = db_totals.get(email);
         maybe_drift_correct(client, email, meta, &online_set, up_delta, down_delta).await;
         maybe_enforce_quota(client, db, email, meta, up_delta, down_delta).await;
+        maybe_enforce_expiry(client, db, email, meta).await;
 
         // Only track `prev` for emails xray has actually reported. For
         // DB-only emails we'd cache (0, 0) — the moment xray starts
@@ -410,6 +411,52 @@ async fn maybe_enforce_quota(
     }
 }
 
+/// Time-driven sibling of `maybe_enforce_quota`: if the client has an
+/// `expires_at` in the past, flip it disabled with `disabled_reason =
+/// "expired"` and drop the user from xray. The `enabled` gate stops
+/// re-tripping an already-off client every tick; clearing or extending
+/// the date re-enables it from the API side (see `clients.rs`).
+async fn maybe_enforce_expiry(
+    client: &XrayClient,
+    db: &DbPool,
+    email: &str,
+    meta: Option<&ClientMeta>,
+) {
+    let Some(meta) = meta else { return };
+    if !meta.enabled {
+        return;
+    }
+    let Some(ref expires_at) = meta.expires_at else {
+        return;
+    };
+    // Stored as fixed-width UTC `YYYY-MM-DD HH:MM:SS`; parse with chrono to
+    // compare unambiguously against now.
+    let Ok(exp) = chrono::NaiveDateTime::parse_from_str(expires_at, "%Y-%m-%d %H:%M:%S") else {
+        tracing::warn!("traffic poller: unparsable expires_at {expires_at:?} for {email}");
+        return;
+    };
+    if exp > chrono::Utc::now().naive_utc() {
+        return;
+    }
+    let client_id = meta.id.clone();
+    if let Err(e) = sqlx::query!(
+        "UPDATE clients SET enabled = 0, disabled_reason = 'expired',
+                updated_at = datetime('now') WHERE id = ?",
+        client_id,
+    )
+    .execute(db)
+    .await
+    {
+        tracing::warn!("traffic poller expiry flip failed for {email}: {e}");
+    } else if let Err(e) = client.remove_user(&meta.inbound_tag, email).await {
+        // DB is source of truth; if xray lags, the client shows expired in
+        // the UI but bytes flow until the next inbound reload.
+        tracing::warn!("traffic poller expiry RemoveUser failed for {email}: {e}");
+    } else {
+        tracing::info!("traffic poller: {email} expired (at {expires_at}), removed from xray");
+    }
+}
+
 /// Compose the per-email `TrafficSnapshot` served to the operator's
 /// page. Adds the just-observed delta on top of the DB total so the
 /// UI reflects the current tick's bytes without round-tripping back
@@ -515,6 +562,8 @@ struct ClientMeta {
     enabled: bool,
     /// `None` ≡ no quota set.
     limit_bytes: Option<u64>,
+    /// UTC `YYYY-MM-DD HH:MM:SS` expiry instant; `None` ≡ never expires.
+    expires_at: Option<String>,
 }
 
 /// Pull per-client persisted state for every enabled-inbound client. The
@@ -531,7 +580,8 @@ async fn load_db_totals(db: &DbPool) -> sqlx::Result<HashMap<String, ClientMeta>
                   c.uplink_total AS "uplink_total!",
                   c.downlink_total AS "downlink_total!",
                   c.enabled      AS "enabled!",
-                  c.traffic_limit_bytes
+                  c.traffic_limit_bytes,
+                  c.expires_at
            FROM clients c
            JOIN inbounds i ON i.id = c.inbound_id"#
     )
@@ -554,6 +604,7 @@ async fn load_db_totals(db: &DbPool) -> sqlx::Result<HashMap<String, ClientMeta>
                     downlink_total: down,
                     enabled: r.enabled != 0,
                     limit_bytes: limit,
+                    expires_at: r.expires_at,
                 },
             )
         })

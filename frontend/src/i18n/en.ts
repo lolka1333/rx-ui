@@ -567,6 +567,12 @@ export const en: Dict = {
     trafficLimitTooltip:
       'Empty = no cap. When exceeded the client is disabled automatically and xray stops accepting their traffic. Resetting or raising the limit re-enables it.',
     limitUnlimited: 'Unlimited',
+    expiry: 'Expiry',
+    expiryTooltip:
+      'Empty = never expires. When the date passes the client is disabled automatically and xray stops accepting their traffic. Clearing or extending the date re-enables it.',
+    expiryNever: 'Never',
+    expired: 'Expired',
+    expiresOn: 'Expires {{date}}',
     note: 'Note',
     notePlaceholder: "E.g. Alice's laptop",
     actions: 'Actions',
@@ -597,6 +603,7 @@ export const en: Dict = {
     filterStatusEnabled: 'Enabled only',
     filterStatusDisabled: 'Disabled only',
     filterStatusQuota: 'Quota exceeded',
+    filterStatusExpired: 'Expired',
     filterByThisInbound: 'Filter by this inbound',
     emptyFiltered: 'No clients match the current filters',
     noInboundsYet: 'Create at least one inbound on the Inbounds page first.',

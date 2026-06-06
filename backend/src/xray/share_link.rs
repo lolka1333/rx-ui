@@ -329,6 +329,7 @@ mod tests {
             note: None,
             traffic_limit_bytes: None,
             disabled_reason: None,
+            expires_at: None,
             sub_token: "0000000000000000000000000000000a".into(),
             created_at: "now".into(),
             updated_at: "now".into(),

@@ -946,7 +946,7 @@ pub async fn load_enabled_clients(
 ) -> AppResult<Vec<crate::models::Client>> {
     let rows = sqlx::query!(
         r#"SELECT id, inbound_id, email, uuid, auth, flow, enabled, note,
-                  traffic_limit_bytes, disabled_reason, sub_token, created_at, updated_at
+                  traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at
            FROM clients
            WHERE inbound_id = ? AND enabled = 1
            ORDER BY created_at ASC"#,
@@ -967,6 +967,7 @@ pub async fn load_enabled_clients(
             note: r.note,
             traffic_limit_bytes: r.traffic_limit_bytes,
             disabled_reason: r.disabled_reason,
+            expires_at: r.expires_at,
             sub_token: r.sub_token,
             created_at: r.created_at,
             updated_at: r.updated_at,

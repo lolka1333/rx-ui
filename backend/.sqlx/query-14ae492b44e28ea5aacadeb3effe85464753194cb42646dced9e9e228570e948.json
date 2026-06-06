@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, inbound_id, email, uuid, auth, flow, enabled, note,\n                  traffic_limit_bytes, disabled_reason, sub_token, created_at, updated_at,\n                  uplink_total, downlink_total\n           FROM clients\n           WHERE email = ?\n           ORDER BY inbound_id, created_at",
+  "query": "SELECT id, inbound_id, email, uuid, auth, flow, enabled, note,\n                  traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at,\n                  uplink_total, downlink_total\n           FROM clients\n           WHERE email = ?\n           ORDER BY inbound_id, created_at",
   "describe": {
     "columns": [
       {
@@ -114,8 +114,19 @@
         }
       },
       {
-        "name": "sub_token",
+        "name": "expires_at",
         "ordinal": 10,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "expires_at"
+          }
+        }
+      },
+      {
+        "name": "sub_token",
+        "ordinal": 11,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -126,7 +137,7 @@
       },
       {
         "name": "created_at",
-        "ordinal": 11,
+        "ordinal": 12,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -137,7 +148,7 @@
       },
       {
         "name": "updated_at",
-        "ordinal": 12,
+        "ordinal": 13,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -148,7 +159,7 @@
       },
       {
         "name": "uplink_total",
-        "ordinal": 13,
+        "ordinal": 14,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -159,7 +170,7 @@
       },
       {
         "name": "downlink_total",
-        "ordinal": 14,
+        "ordinal": 15,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -183,6 +194,7 @@
       true,
       true,
       true,
+      true,
       false,
       false,
       false,
@@ -190,5 +202,5 @@
       false
     ]
   },
-  "hash": "4612846efc8bf5ef5d688c3ca157ee4efaa3b4cd1cfa2d73a63b697844c1de54"
+  "hash": "14ae492b44e28ea5aacadeb3effe85464753194cb42646dced9e9e228570e948"
 }
