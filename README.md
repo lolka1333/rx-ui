@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="rx-ui-banner-1280.png" alt="rx-ui — Xray-core admin panel" width="100%">
+</p>
+
 # rx-ui
 
 Self-hosted admin panel for [Xray-core](https://github.com/XTLS/Xray-core).
