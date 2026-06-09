@@ -3,12 +3,12 @@
 # on the maintainer's box, breaks on a fresh checkout or CI runner that
 # happens to default to an older toolchain.
 #
-# Why "1.95" specifically: we use the `2024` edition + `std::env::set_var`
+# Why "1.96" specifically: we use the `2024` edition + `std::env::set_var`
 # inside `build.rs` (gated behind `#[allow(unsafe_code)]`) — both require
-# 1.85+. 1.95 is the current stable as of this commit and gets us recent
+# 1.85+. 1.96 is the current stable as of this commit and gets us recent
 # borrow-checker fixes used by the prost-generated code.
 
 [toolchain]
-channel = "1.95"
+channel = "1.96"
 profile = "minimal"
 components = ["rustfmt", "clippy"]

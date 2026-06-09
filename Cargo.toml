@@ -10,7 +10,7 @@ authors = ["panel"]
 # MSRV pinned to the current latest stable so builds use a known-tested
 # toolchain. Bump when a new stable comes out and the workspace is
 # re-verified against it. Edition = "2024" requires at least 1.85.
-rust-version = "1.95"
+rust-version = "1.96"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
