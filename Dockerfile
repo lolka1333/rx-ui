@@ -21,7 +21,7 @@ COPY frontend/ ./
 RUN pnpm run build
 
 # ---- Stage 2: build the backend (embeds frontend/dist) ----------------------
-FROM rust:1.95-bookworm AS backend
+FROM rust:1.96-bookworm AS backend
 # aws-lc-rs (rustls' crypto provider, pulled in via reqwest) needs cmake to
 # build; the rust image already provides gcc/make. protoc is vendored by the
 # protoc-bin-vendored crate, so no system protobuf install is required.
