@@ -79,7 +79,24 @@ dest_override: Array<string>,
  * predates this field deserializing to `false`, preserving their
  * existing on-wire behaviour.
  */
-route_only: boolean, };
+route_only: boolean, 
+/**
+ * When true, sniff from connection metadata without waiting for the
+ * client's first payload packet (xray's `metadataOnly`). Needed for
+ * server-speaks-first protocols; off by default.
+ */
+metadata_only: boolean, 
+/**
+ * Domains excluded from sniff-based destination override — traffic to
+ * these is never rewritten to the sniffed host (e.g. exclude your own
+ * decoy/dest domain). Empty = exclude nothing.
+ */
+domains_excluded: Array<string>, 
+/**
+ * IPs / CIDRs excluded from sniff-based destination override. Empty =
+ * exclude nothing.
+ */
+ips_excluded: Array<string>, };
 
 /**
  * Operator-facing socket options. Every field is optional; an instance

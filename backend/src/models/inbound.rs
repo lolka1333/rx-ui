@@ -71,6 +71,20 @@ pub struct Sniffing {
     /// existing on-wire behaviour.
     #[serde(default)]
     pub route_only: bool,
+    /// When true, sniff from connection metadata without waiting for the
+    /// client's first payload packet (xray's `metadataOnly`). Needed for
+    /// server-speaks-first protocols; off by default.
+    #[serde(default)]
+    pub metadata_only: bool,
+    /// Domains excluded from sniff-based destination override — traffic to
+    /// these is never rewritten to the sniffed host (e.g. exclude your own
+    /// decoy/dest domain). Empty = exclude nothing.
+    #[serde(default)]
+    pub domains_excluded: Vec<String>,
+    /// IPs / CIDRs excluded from sniff-based destination override. Empty =
+    /// exclude nothing.
+    #[serde(default)]
+    pub ips_excluded: Vec<String>,
 }
 
 impl Default for Sniffing {
@@ -85,6 +99,11 @@ impl Default for Sniffing {
             // sniffed domain. Operators flip this on from the UI when they
             // want the original destination kept on the wire.
             route_only: false,
+            // Wait for the first payload (default) and exclude nothing —
+            // operators opt into these from the UI.
+            metadata_only: false,
+            domains_excluded: Vec::new(),
+            ips_excluded: Vec::new(),
         }
     }
 }

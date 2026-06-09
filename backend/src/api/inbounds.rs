@@ -434,6 +434,10 @@ async fn create(
     let id = Uuid::new_v4().to_string();
     let listen = listen.unwrap_or_else(|| "0.0.0.0".to_owned());
     let sniffing = sniffing.unwrap_or_default();
+    // Reject bad sniffing exclusions (e.g. a malformed CIDR) before the
+    // INSERT so a conversion failure can't leave a half-created row.
+    crate::xray::orchestrator::validate_sniffing(&sniffing)
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
     let protocol_json = serde_json::to_string(&protocol)?;
     let transport_json = serde_json::to_string(&transport)?;
@@ -507,6 +511,9 @@ async fn update(
     let next_security = body.security.as_ref().unwrap_or(&before.security);
     let next_finalmask = body.finalmask.as_ref().unwrap_or(&before.finalmask);
     validate_layers(next_protocol, next_transport, next_security, next_finalmask)?;
+    let next_sniffing = body.sniffing.as_ref().unwrap_or(&before.sniffing);
+    crate::xray::orchestrator::validate_sniffing(next_sniffing)
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
     write_inbound_update_tx(&state, &id, &body).await?;
     let after = row_to_inbound(read_row(&state, &id).await?)?;

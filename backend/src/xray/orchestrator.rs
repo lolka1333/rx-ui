@@ -9,9 +9,12 @@
 //! anywhere in the protocol/transport/security trees doesn't require
 //! changes here.
 
-use crate::models::{Client, Inbound};
+use crate::models::{Client, Inbound, Sniffing};
 use crate::transports::finalmask::FinalMaskScope;
 use crate::xray::proto::xray::app::proxyman::{ReceiverConfig, SniffingConfig};
+use crate::xray::proto::xray::common::geodata::{
+    Cidr, CidrRule, Domain, DomainRule, IpRule, domain::Type as DomainType, domain_rule, ip_rule,
+};
 use crate::xray::proto::xray::common::net::{IpOrDomain, PortList, PortRange, ip_or_domain};
 use crate::xray::proto::xray::common::serial::TypedMessage;
 use crate::xray::proto::xray::core::InboundHandlerConfig;
@@ -90,9 +93,9 @@ pub fn inbound_to_handler_config(
         sniffing_settings: Some(SniffingConfig {
             enabled: inb.sniffing.enabled,
             destination_override: inb.sniffing.dest_override.clone(),
-            domains_excluded: Vec::new(),
-            ips_excluded: Vec::new(),
-            metadata_only: false,
+            domains_excluded: build_domain_rules(&inb.sniffing.domains_excluded)?,
+            ips_excluded: build_ip_rules(&inb.sniffing.ips_excluded)?,
+            metadata_only: inb.sniffing.metadata_only,
             route_only: inb.sniffing.route_only,
         }),
     };
@@ -124,6 +127,118 @@ fn parse_listen_address(s: &str) -> IpOrDomain {
     IpOrDomain {
         address: Some(address),
     }
+}
+
+/// Convert operator-entered sniffing domain-exclusion strings into xray
+/// `DomainRule`s, mirroring xray's conf parser (`parseCustomDomainRule`,
+/// default type = Substr). Recognises the `full:` / `domain:` / `regexp:` /
+/// `keyword:` / `dotless:` prefixes; a bare value is a substring match.
+/// `geosite:` / `ext:` external rules are rejected — validating them needs
+/// geosite.dat loaded, which the panel doesn't do for sniffing exclusions.
+fn build_domain_rules(domains: &[String]) -> anyhow::Result<Vec<DomainRule>> {
+    domains.iter().map(|d| build_one_domain_rule(d)).collect()
+}
+
+fn build_one_domain_rule(raw: &str) -> anyhow::Result<DomainRule> {
+    let r = raw.trim();
+    anyhow::ensure!(!r.is_empty(), "empty domain exclusion");
+    anyhow::ensure!(
+        !(r.starts_with("geosite:") || r.starts_with("ext:") || r.starts_with("ext-domain:")),
+        "geosite/ext domain rules aren't supported in sniffing exclusions: {r}"
+    );
+    let (ty, value) = if let Some(v) = r.strip_prefix("regexp:") {
+        (DomainType::Regex, v.to_owned())
+    } else if let Some(v) = r.strip_prefix("domain:") {
+        (DomainType::Domain, v.to_owned())
+    } else if let Some(v) = r.strip_prefix("full:") {
+        (DomainType::Full, v.to_owned())
+    } else if let Some(v) = r.strip_prefix("keyword:") {
+        (DomainType::Substr, v.to_owned())
+    } else if let Some(v) = r.strip_prefix("dotless:") {
+        let value = if v.is_empty() {
+            "^[^.]*$".to_owned()
+        } else if v.contains('.') {
+            anyhow::bail!("substr in dotless rule should not contain a dot: {r}");
+        } else {
+            format!("^[^.]*{v}[^.]*$")
+        };
+        (DomainType::Regex, value)
+    } else {
+        (DomainType::Substr, r.to_owned())
+    };
+    Ok(DomainRule {
+        value: Some(domain_rule::Value::Custom(Domain {
+            r#type: ty as i32,
+            value,
+            attribute: Vec::new(),
+        })),
+    })
+}
+
+/// Convert operator-entered sniffing IP-exclusion strings into xray `IpRule`s,
+/// mirroring `parseCustomIPRule`: a CIDR (or bare IP, treated as /32 or /128)
+/// with an optional leading `!` toggling reverse-match. `geoip:` / `ext:`
+/// external rules are rejected (same reason as domains).
+fn build_ip_rules(ips: &[String]) -> anyhow::Result<Vec<IpRule>> {
+    ips.iter().map(|s| build_one_ip_rule(s)).collect()
+}
+
+fn build_one_ip_rule(raw: &str) -> anyhow::Result<IpRule> {
+    let mut s = raw.trim();
+    anyhow::ensure!(!s.is_empty(), "empty ip exclusion");
+    // Leading `!`(s) toggle reverse-match — xray's `cutReversePrefix`.
+    let mut reverse = false;
+    while let Some(rest) = s.strip_prefix('!') {
+        reverse = !reverse;
+        s = rest;
+    }
+    anyhow::ensure!(
+        !(s.starts_with("geoip:") || s.starts_with("ext:") || s.starts_with("ext-ip:")),
+        "geoip/ext ip rules aren't supported in sniffing exclusions: {raw}"
+    );
+    Ok(IpRule {
+        value: Some(ip_rule::Value::Custom(CidrRule {
+            cidr: Some(parse_cidr(s)?),
+            reverse_match: reverse,
+        })),
+    })
+}
+
+fn parse_cidr(s: &str) -> anyhow::Result<Cidr> {
+    let (ip_str, prefix_str) = s.split_once('/').map_or((s, None), |(i, p)| (i, Some(p)));
+    let ip: std::net::IpAddr = ip_str
+        .parse()
+        .map_err(|_| anyhow::anyhow!("invalid IP address: {ip_str}"))?;
+    let (bytes, max_prefix) = match ip {
+        std::net::IpAddr::V4(v4) => (v4.octets().to_vec(), 32_u32),
+        std::net::IpAddr::V6(v6) => (v6.octets().to_vec(), 128_u32),
+    };
+    let prefix = match prefix_str {
+        None => max_prefix,
+        Some(p) => {
+            let parsed: u32 = p
+                .parse()
+                .map_err(|_| anyhow::anyhow!("invalid CIDR prefix length: {p}"))?;
+            anyhow::ensure!(
+                parsed <= max_prefix,
+                "CIDR prefix length {parsed} exceeds max {max_prefix}"
+            );
+            parsed
+        }
+    };
+    Ok(Cidr { ip: bytes, prefix })
+}
+
+/// Validate the sniffing exclusion lists without building the whole handler
+/// config. The API layer calls this BEFORE writing the inbound row so a bad
+/// entry (e.g. a malformed CIDR) is rejected with a 4xx up front, instead of
+/// passing the INSERT and only failing later at `AddInbound` — which would
+/// leave a half-created inbound in the DB that breaks every reconcile. Runs
+/// exactly the same conversion `inbound_to_handler_config` does.
+pub fn validate_sniffing(sniffing: &Sniffing) -> anyhow::Result<()> {
+    build_domain_rules(&sniffing.domains_excluded)?;
+    build_ip_rules(&sniffing.ips_excluded)?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -193,25 +308,99 @@ mod tests {
     }
 
     #[test]
-    fn route_only_true_reaches_receiver_config() {
+    fn sniffing_options_reach_receiver_config() {
         let sniff = decoded_sniffing(&inbound_with_sniffing(Sniffing {
             enabled: true,
             dest_override: vec!["tls".to_owned()],
             route_only: true,
+            metadata_only: true,
+            domains_excluded: vec!["dest.example.com".to_owned()],
+            ips_excluded: vec!["10.0.0.0/8".to_owned()],
         }));
         assert!(sniff.enabled);
         assert!(
             sniff.route_only,
             "route_only must propagate into xray's SniffingConfig"
         );
+        assert!(
+            sniff.metadata_only,
+            "metadata_only must propagate into xray's SniffingConfig"
+        );
+        // Bare domain → a custom Substr (keyword) rule.
+        assert_eq!(sniff.domains_excluded.len(), 1);
+        let Some(domain_rule::Value::Custom(d)) = &sniff.domains_excluded[0].value else {
+            panic!("expected a custom domain rule");
+        };
+        assert_eq!(d.value, "dest.example.com");
+        assert_eq!(d.r#type, DomainType::Substr as i32);
+        // CIDR → a custom CidrRule with 4-byte IP + prefix, reverse off.
+        assert_eq!(sniff.ips_excluded.len(), 1);
+        let Some(ip_rule::Value::Custom(c)) = &sniff.ips_excluded[0].value else {
+            panic!("expected a custom ip rule");
+        };
+        let cidr = c.cidr.as_ref().expect("cidr present");
+        assert_eq!(cidr.ip, vec![10, 0, 0, 0]);
+        assert_eq!(cidr.prefix, 8);
+        assert!(!c.reverse_match);
     }
 
     #[test]
-    fn route_only_defaults_to_false() {
+    fn domain_rule_prefixes_map_to_xray_types() {
+        let cases = [
+            ("full:api.example.com", DomainType::Full, "api.example.com"),
+            ("domain:example.com", DomainType::Domain, "example.com"),
+            ("regexp:^x.*$", DomainType::Regex, "^x.*$"),
+            ("keyword:track", DomainType::Substr, "track"),
+            ("plain.example", DomainType::Substr, "plain.example"),
+        ];
+        for (input, want_ty, want_val) in cases {
+            let rule = build_one_domain_rule(input).unwrap();
+            let Some(domain_rule::Value::Custom(d)) = rule.value else {
+                panic!("expected custom rule for {input}");
+            };
+            assert_eq!(d.r#type, want_ty as i32, "type for {input}");
+            assert_eq!(d.value, want_val, "value for {input}");
+        }
+        // geosite/ext are rejected; dotless without a dot becomes a regex.
+        assert!(build_one_domain_rule("geosite:google").is_err());
+        let Some(domain_rule::Value::Custom(d)) =
+            build_one_domain_rule("dotless:cn").unwrap().value
+        else {
+            panic!("expected custom dotless rule");
+        };
+        assert_eq!(d.r#type, DomainType::Regex as i32);
+        assert_eq!(d.value, "^[^.]*cn[^.]*$");
+    }
+
+    #[test]
+    fn ip_rule_parses_cidr_and_reverse() {
+        // IPv6 /64.
+        let Some(ip_rule::Value::Custom(c)) = build_one_ip_rule("2001:db8::/64").unwrap().value
+        else {
+            panic!("expected custom ipv6 rule");
+        };
+        assert_eq!(c.cidr.as_ref().unwrap().prefix, 64);
+        assert_eq!(c.cidr.as_ref().unwrap().ip.len(), 16);
+        // Leading `!` flips reverse-match; bare IP defaults to /32.
+        let Some(ip_rule::Value::Custom(c)) = build_one_ip_rule("!192.168.1.1").unwrap().value
+        else {
+            panic!("expected custom reverse rule");
+        };
+        assert!(c.reverse_match);
+        assert_eq!(c.cidr.as_ref().unwrap().prefix, 32);
+        // Garbage and geoip are rejected.
+        assert!(build_one_ip_rule("not-an-ip").is_err());
+        assert!(build_one_ip_rule("10.0.0.0/40").is_err());
+        assert!(build_one_ip_rule("geoip:cn").is_err());
+    }
+
+    #[test]
+    fn sniffing_options_default_off() {
         let sniff = decoded_sniffing(&inbound_with_sniffing(Sniffing::default()));
         assert!(
-            !sniff.route_only,
-            "default Sniffing must keep route_only=false (behaviour-preserving)"
+            !sniff.route_only && !sniff.metadata_only,
+            "default Sniffing keeps route_only/metadata_only off (behaviour-preserving)"
         );
+        assert!(sniff.domains_excluded.is_empty() && sniff.ips_excluded.is_empty());
     }
 }

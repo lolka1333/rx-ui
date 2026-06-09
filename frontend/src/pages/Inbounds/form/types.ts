@@ -260,6 +260,12 @@ export interface FormValues {
   // rewriting the connection's destination (keeps the original target on
   // the wire). Off preserves xray's dest-rewrite behaviour.
   sniffing_route_only: boolean;
+  // metadataOnly — sniff from connection metadata without waiting for the
+  // client's first payload (server-speaks-first protocols). Off by default.
+  sniffing_metadata_only: boolean;
+  // Domains / IPs (CIDRs) excluded from sniff-based dest override.
+  sniffing_domains_excluded: string[];
+  sniffing_ips_excluded: string[];
   // Sockopt — socket-level options (streamSettings.sockopt). Kept flat
   // like the rest of the form; `buildSockopt` collapses them back into
   // the typed `SocketOpt` at the boundary.

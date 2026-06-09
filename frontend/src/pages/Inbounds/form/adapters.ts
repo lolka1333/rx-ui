@@ -159,6 +159,9 @@ export function inboundToForm(inb: Inbound): FormValues {
   v.sniffing_enabled = inb.sniffing.enabled;
   v.sniffing_dest_override = inb.sniffing.dest_override;
   v.sniffing_route_only = inb.sniffing.route_only;
+  v.sniffing_metadata_only = inb.sniffing.metadata_only;
+  v.sniffing_domains_excluded = inb.sniffing.domains_excluded;
+  v.sniffing_ips_excluded = inb.sniffing.ips_excluded;
 
   // Sockopt is always present on the typed inbound (defaults to an empty
   // SocketOpt). Peel each field into its flat form slot; empty/null stay
@@ -476,6 +479,11 @@ export function buildSniffing(v: FormValues): Sniffing {
     enabled: v.sniffing_enabled,
     dest_override: v.sniffing_dest_override,
     route_only: v.sniffing_route_only,
+    metadata_only: v.sniffing_metadata_only,
+    domains_excluded: v.sniffing_domains_excluded
+      .map((s) => s.trim())
+      .filter(Boolean),
+    ips_excluded: v.sniffing_ips_excluded.map((s) => s.trim()).filter(Boolean),
   };
 }
 

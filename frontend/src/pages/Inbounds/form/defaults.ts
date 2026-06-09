@@ -129,6 +129,9 @@ export const DEFAULTS: FormValues = {
   sniffing_enabled: false,
   sniffing_dest_override: ['http', 'tls', 'fakedns'],
   sniffing_route_only: false,
+  sniffing_metadata_only: false,
+  sniffing_domains_excluded: [],
+  sniffing_ips_excluded: [],
   // FinalMask off by default — adding obfuscation only makes sense
   // when the operator has a concrete reason (active DPI, censorship).
   // The sudoku sub-fields are pre-filled with xray's documented

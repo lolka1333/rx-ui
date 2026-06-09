@@ -210,9 +210,42 @@ export function GeneralTab() {
           label={t('inbounds.sniffingRouteOnly')}
           tooltip={t('inbounds.sniffingRouteOnlyHint')}
           valuePropName="checked"
-          style={{ marginBottom: 0 }}
+          style={{ marginBottom: 12 }}
         >
           <Switch />
+        </Form.Item>
+        <Form.Item
+          name="sniffing_metadata_only"
+          label={t('inbounds.sniffingMetadataOnly')}
+          tooltip={t('inbounds.sniffingMetadataOnlyHint')}
+          valuePropName="checked"
+          style={{ marginBottom: 12 }}
+        >
+          <Switch />
+        </Form.Item>
+        <Form.Item
+          name="sniffing_domains_excluded"
+          label={t('inbounds.sniffingDomainsExcluded')}
+          tooltip={t('inbounds.sniffingDomainsExcludedHint')}
+          style={{ marginBottom: 12 }}
+        >
+          <Select
+            mode="tags"
+            tokenSeparators={[',', ' ']}
+            placeholder={t('inbounds.sniffingDomainsExcludedPlaceholder')}
+          />
+        </Form.Item>
+        <Form.Item
+          name="sniffing_ips_excluded"
+          label={t('inbounds.sniffingIpsExcluded')}
+          tooltip={t('inbounds.sniffingIpsExcludedHint')}
+          style={{ marginBottom: 0 }}
+        >
+          <Select
+            mode="tags"
+            tokenSeparators={[',', ' ']}
+            placeholder={t('inbounds.sniffingIpsExcludedPlaceholder')}
+          />
         </Form.Item>
       </Section>
     </>
