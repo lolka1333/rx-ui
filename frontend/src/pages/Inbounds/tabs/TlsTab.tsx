@@ -233,7 +233,7 @@ export function TlsTab() {
         tooltip={t('inbounds.tlsFingerprintTooltip')}
         style={{ marginBottom: 12 }}
       >
-        <Select options={FINGERPRINT_OPTIONS} showSearch optionFilterProp="label" />
+        <Select options={FINGERPRINT_OPTIONS} />
       </Form.Item>
       <div style={{ display: 'flex', columnGap: 12, rowGap: 0, flexWrap: 'wrap' }}>
         <Form.Item
