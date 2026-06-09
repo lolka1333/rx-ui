@@ -5,3 +5,14 @@
 # After changing any sqlx::query!/query_as! call, refresh the cache with:
 #   cargo sqlx prepare
 SQLX_OFFLINE = "true"
+
+# Run the test harness single-threaded. ts-rs emits one auto-generated export
+# test per `#[ts(export)]` type (61 of them), and many types share a single
+# output file (e.g. ~10 types all write frontend/src/api/types/security.ts).
+# Each test does a read-modify-append on its shared file with no locking, so
+# running them in parallel races and can emit duplicate `export type`
+# declarations — which then break `tsc` with "Cannot redeclare". Serial
+# execution makes binding regeneration deterministic. The suite is small and
+# fast (~0.3s), so the wall-clock cost is negligible. Override ad-hoc with
+# `RUST_TEST_THREADS=8 cargo test` when you specifically want parallelism.
+RUST_TEST_THREADS = "1"
