@@ -63,6 +63,14 @@ pub struct Sniffing {
     /// Subset of `["http", "tls", "fakedns", "quic"]`. Empty array is
     /// equivalent to `enabled == false`.
     pub dest_override: Vec<String>,
+    /// When true, the sniffed domain feeds routing decisions ONLY and the
+    /// connection's destination is left untouched (xray's `routeOnly`).
+    /// When false (default), xray rewrites the destination to the sniffed
+    /// domain. `#[serde(default)]` keeps inbound rows whose stored JSON
+    /// predates this field deserializing to `false`, preserving their
+    /// existing on-wire behaviour.
+    #[serde(default)]
+    pub route_only: bool,
 }
 
 impl Default for Sniffing {
@@ -73,6 +81,10 @@ impl Default for Sniffing {
         Self {
             enabled: true,
             dest_override: vec!["http".to_owned(), "tls".to_owned(), "fakedns".to_owned()],
+            // Behaviour-preserving default: xray rewrites dest to the
+            // sniffed domain. Operators flip this on from the UI when they
+            // want the original destination kept on the wire.
+            route_only: false,
         }
     }
 }

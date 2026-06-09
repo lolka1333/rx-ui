@@ -194,7 +194,7 @@ export function GeneralTab() {
         <Form.Item
           name="sniffing_dest_override"
           label={t('inbounds.sniffingDestOverride')}
-          style={{ marginBottom: 0 }}
+          style={{ marginBottom: 12 }}
         >
           <ChipGroup
             options={[
@@ -204,6 +204,15 @@ export function GeneralTab() {
               { value: 'quic', label: t('inbounds.sniffingDestQuic') },
             ]}
           />
+        </Form.Item>
+        <Form.Item
+          name="sniffing_route_only"
+          label={t('inbounds.sniffingRouteOnly')}
+          tooltip={t('inbounds.sniffingRouteOnlyHint')}
+          valuePropName="checked"
+          style={{ marginBottom: 0 }}
+        >
+          <Switch />
         </Form.Item>
       </Section>
     </>

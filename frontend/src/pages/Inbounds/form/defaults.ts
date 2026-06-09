@@ -63,6 +63,7 @@ export const DEFAULTS: FormValues = {
   reality_server_names: ['www.cloudflare.com'],
   reality_short_ids: [],
   reality_fingerprint: 'chrome',
+  reality_spider_x: '/',
   reality_xver: 0,
   reality_private_key: '',
   reality_public_key: '',
@@ -81,6 +82,7 @@ export const DEFAULTS: FormValues = {
   // impossible (WS upgrade is HTTP/1.1-only), so defaulting to ["h2","http/1.1"]
   // would silently break WS+TLS. Operators using XHTTP add `h2` explicitly.
   tls_alpn: ['http/1.1'],
+  tls_fingerprint: 'chrome',
   tls_min_version: '',
   tls_max_version: '',
   tls_cipher_suites: [],
@@ -126,6 +128,7 @@ export const DEFAULTS: FormValues = {
   // the operator decides to enable sniffing for domain-based routing.
   sniffing_enabled: false,
   sniffing_dest_override: ['http', 'tls', 'fakedns'],
+  sniffing_route_only: false,
   // FinalMask off by default — adding obfuscation only makes sense
   // when the operator has a concrete reason (active DPI, censorship).
   // The sudoku sub-fields are pre-filled with xray's documented

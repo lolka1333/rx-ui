@@ -362,6 +362,7 @@ mod tests {
                 short_ids: vec!["324a8e7c".into()],
                 fingerprint: "chrome".into(),
                 xver: 0,
+                spider_x: String::new(),
             }),
         );
         inb.protocol = vless(VlessFlow::XtlsRprxVision);
@@ -855,6 +856,72 @@ mod tests {
         // Same "first wins" for server_names → sni=.
         assert!(link.contains("sni=x"));
         assert!(!link.contains("sni=y"));
+    }
+
+    /// Reality with no spiderX configured emits the default `spx=/` (URL-
+    /// encoded to `%2F`) — the value clients expect when none is set.
+    #[test]
+    fn reality_empty_spider_x_defaults_to_slash() {
+        let inb = inbound(
+            TransportConfig::Tcp(TcpTransport {}),
+            SecurityConfig::Reality(RealitySecurity {
+                dest: "x:443".into(),
+                server_names: vec!["x".into()],
+                public_key: "pk".into(),
+                ..RealitySecurity::default()
+            }),
+        );
+        let link = build_vless_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
+        assert!(link.contains("spx=%2F"), "got: {link}");
+    }
+
+    /// Operator-set spiderX rides through as `spx=`, URL-encoded.
+    #[test]
+    fn reality_custom_spider_x_is_emitted_encoded() {
+        let inb = inbound(
+            TransportConfig::Tcp(TcpTransport {}),
+            SecurityConfig::Reality(RealitySecurity {
+                dest: "x:443".into(),
+                server_names: vec!["x".into()],
+                public_key: "pk".into(),
+                spider_x: "/crawl?a=b".into(),
+                ..RealitySecurity::default()
+            }),
+        );
+        let link = build_vless_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
+        assert!(link.contains("spx=%2Fcrawl%3Fa%3Db"), "got: {link}");
+    }
+
+    /// An operator-chosen uTLS fingerprint on the standard-TLS path
+    /// overrides the historical hard-coded `fp=chrome`.
+    #[test]
+    fn tls_fingerprint_override_emits_chosen_fp() {
+        let inb = inbound(
+            TransportConfig::Tcp(TcpTransport {}),
+            SecurityConfig::Tls(TlsSecurity {
+                server_name: Some("real.example.com".into()),
+                fingerprint: Some("firefox".into()),
+                ..TlsSecurity::default()
+            }),
+        );
+        let link = build_vless_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
+        assert!(link.contains("fp=firefox"), "got: {link}");
+        assert!(!link.contains("fp=chrome"), "got: {link}");
+    }
+
+    /// TLS with no fingerprint set still defaults to `fp=chrome`,
+    /// preserving the pre-existing behaviour for untouched inbounds.
+    #[test]
+    fn tls_no_fingerprint_defaults_to_chrome() {
+        let inb = inbound(
+            TransportConfig::Tcp(TcpTransport {}),
+            SecurityConfig::Tls(TlsSecurity {
+                server_name: Some("real.example.com".into()),
+                ..TlsSecurity::default()
+            }),
+        );
+        let link = build_vless_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
+        assert!(link.contains("fp=chrome"), "got: {link}");
     }
 
     /// VLESS Vision over plain TLS (not Reality). xray supports this combo

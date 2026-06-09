@@ -93,7 +93,7 @@ pub fn inbound_to_handler_config(
             domains_excluded: Vec::new(),
             ips_excluded: Vec::new(),
             metadata_only: false,
-            route_only: false,
+            route_only: inb.sniffing.route_only,
         }),
     };
 
@@ -123,5 +123,96 @@ fn parse_listen_address(s: &str) -> IpOrDomain {
     };
     IpOrDomain {
         address: Some(address),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Verify the orchestrator threads the sniffing `route_only` flag into
+    //! xray's `ReceiverConfig.SniffingConfig` (the field rides in the gRPC
+    //! inbound config, not the share-link, so it needs its own coverage).
+    use super::*;
+    use crate::models::Sniffing;
+    use crate::protocols::ProtocolConfig;
+    use crate::protocols::vless::{VlessEncryptionMode, VlessFlow, VlessProtocol};
+    use crate::security::{NoneSecurity, SecurityConfig};
+    use crate::transports::TransportConfig;
+    use crate::transports::finalmask::FinalMask;
+    use crate::transports::sockopt::SocketOpt;
+    use crate::transports::tcp::TcpTransport;
+    use prost::Message as _;
+
+    fn client() -> Client {
+        Client {
+            id: "cid".into(),
+            inbound_id: "id-x".into(),
+            email: "u@test".into(),
+            uuid: "00000000-0000-0000-0000-000000000001".into(),
+            auth: None,
+            flow: None,
+            enabled: true,
+            note: None,
+            traffic_limit_bytes: None,
+            disabled_reason: None,
+            expires_at: None,
+            sub_token: "0000000000000000000000000000000a".into(),
+            created_at: "now".into(),
+            updated_at: "now".into(),
+        }
+    }
+
+    fn inbound_with_sniffing(sniffing: Sniffing) -> Inbound {
+        Inbound {
+            id: "id-x".into(),
+            tag: "t".into(),
+            enabled: true,
+            listen: "0.0.0.0".into(),
+            port: 8443,
+            protocol: ProtocolConfig::Vless(VlessProtocol {
+                flow: VlessFlow::None,
+                encryption_mode: VlessEncryptionMode::None,
+                ..VlessProtocol::default()
+            }),
+            transport: TransportConfig::Tcp(TcpTransport {}),
+            security: SecurityConfig::None(NoneSecurity {}),
+            sniffing,
+            finalmask: FinalMask::None,
+            sockopt: SocketOpt::default(),
+            created_at: "now".into(),
+            updated_at: "now".into(),
+        }
+    }
+
+    /// Decode the `ReceiverConfig` back out of the handler config and
+    /// return its `SniffingConfig`.
+    fn decoded_sniffing(inb: &Inbound) -> SniffingConfig {
+        let cfg = inbound_to_handler_config(inb, &[client()]).unwrap();
+        let receiver = cfg.receiver_settings.expect("receiver_settings present");
+        let receiver =
+            ReceiverConfig::decode(&receiver.value[..]).expect("ReceiverConfig decodes");
+        receiver.sniffing_settings.expect("sniffing_settings present")
+    }
+
+    #[test]
+    fn route_only_true_reaches_receiver_config() {
+        let sniff = decoded_sniffing(&inbound_with_sniffing(Sniffing {
+            enabled: true,
+            dest_override: vec!["tls".to_owned()],
+            route_only: true,
+        }));
+        assert!(sniff.enabled);
+        assert!(
+            sniff.route_only,
+            "route_only must propagate into xray's SniffingConfig"
+        );
+    }
+
+    #[test]
+    fn route_only_defaults_to_false() {
+        let sniff = decoded_sniffing(&inbound_with_sniffing(Sniffing::default()));
+        assert!(
+            !sniff.route_only,
+            "default Sniffing must keep route_only=false (behaviour-preserving)"
+        );
     }
 }

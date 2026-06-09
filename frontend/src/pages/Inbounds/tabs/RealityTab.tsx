@@ -148,6 +148,15 @@ export function RealityTab({ editing, onRotate, rotating }: RealityTabProps) {
         </Form.Item>
       </SideBySide>
 
+      <Form.Item
+        name="reality_spider_x"
+        label={t('inbounds.realitySpiderX')}
+        tooltip={t('inbounds.realitySpiderXTooltip')}
+        style={{ marginBottom: 12 }}
+      >
+        <Input placeholder="/" />
+      </Form.Item>
+
       {/* Hidden round-trip fields: the keypair travels in the form so a
           create carries it to the server (which re-derives the public). */}
       <Form.Item name="reality_private_key" noStyle hidden>

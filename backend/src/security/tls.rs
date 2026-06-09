@@ -84,6 +84,14 @@ pub struct TlsSecurity {
     pub ech_config_list: Option<String>,
     /// TLS 1.3 curves list. None = xray default.
     pub curve_preferences: Option<Vec<String>>,
+    /// uTLS `ClientHello` fingerprint the client emulates ("chrome",
+    /// "firefox", "randomized", a version-pinned `hello*`, …). Travels in
+    /// the share-link as `fp=` only — uTLS emulation is client-side, so
+    /// xray does no server-side validation and there's no proto field.
+    /// `None`/empty defaults to "chrome", matching the value pinned
+    /// before this knob was configurable (so existing inbounds are
+    /// unchanged).
+    pub fingerprint: Option<String>,
 }
 
 impl TlsSecurity {
@@ -160,9 +168,16 @@ impl Security for TlsSecurity {
         {
             params.push(("alpn".to_owned(), alpn.join(",")));
         }
-        // uTLS fingerprint pinned to chrome by default — safest blanket
-        // value behind CDNs / inspectors.
-        params.push(("fp".to_owned(), "chrome".to_owned()));
+        // uTLS fingerprint the client emulates. Operator-chosen; defaults
+        // to chrome (safest blanket value behind CDNs / inspectors) when
+        // unset, matching the value pinned before the field existed.
+        let fp = self
+            .fingerprint
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("chrome");
+        params.push(("fp".to_owned(), fp.to_owned()));
         // Public ECH config list. xray-compatible clients (NekoBox,
         // v2rayN, Stash, sing-box) read `ech=` from the URL and feed
         // it into TLS Client Hello — no out-of-band copy-paste.

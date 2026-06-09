@@ -37,6 +37,14 @@ pub struct RealitySecurity {
     pub fingerprint: String,
     /// PROXY-protocol version (0/1/2). 0 = off.
     pub xver: u32,
+    /// `SpiderX` — the crawl path the client walks on the real `dest` after
+    /// an unverified handshake (client-side camouflage against active
+    /// probing). Emitted to clients as the share-link `spx=` param;
+    /// xray's server-side Reality config has no spiderX field, so it's
+    /// share-link-only. Empty defaults to "/". `#[serde(default)]` keeps
+    /// inbound rows whose stored JSON predates this field deserializing.
+    #[serde(default)]
+    pub spider_x: String,
 }
 
 impl Security for RealitySecurity {
@@ -60,6 +68,15 @@ impl Security for RealitySecurity {
             self.fingerprint.clone()
         };
         params.push(("fp".to_owned(), fp));
+        // SpiderX crawl path. Empty defaults to "/" — the value every
+        // client expects when none is configured. URL-encoded by the
+        // share-link builder ("/" → %2F).
+        let spx = if self.spider_x.is_empty() {
+            "/".to_owned()
+        } else {
+            self.spider_x.clone()
+        };
+        params.push(("spx".to_owned(), spx));
         params
     }
     fn build_settings(&self) -> anyhow::Result<Option<TypedMessage>> {

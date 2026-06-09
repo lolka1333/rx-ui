@@ -31,6 +31,7 @@ import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/api/client';
 import { apiErrorMessage } from '@/api/errors';
 import type { EchKeyBundle, TlsCertSource, TlsCertUsage } from '@/api/types';
+import { FINGERPRINT_OPTIONS } from '../helpers';
 import { ChipGroup, Section } from '../widgets';
 import type { FormValues } from '../form/types';
 
@@ -225,6 +226,14 @@ export function TlsTab() {
         style={{ marginBottom: 12 }}
       >
         <ChipGroup options={ALPN_OPTIONS} />
+      </Form.Item>
+      <Form.Item
+        name="tls_fingerprint"
+        label={t('inbounds.fingerprint')}
+        tooltip={t('inbounds.tlsFingerprintTooltip')}
+        style={{ marginBottom: 12 }}
+      >
+        <Select options={FINGERPRINT_OPTIONS} showSearch optionFilterProp="label" />
       </Form.Item>
       <div style={{ display: 'flex', columnGap: 12, rowGap: 0, flexWrap: 'wrap' }}>
         <Form.Item

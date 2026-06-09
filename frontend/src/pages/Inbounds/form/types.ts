@@ -116,6 +116,9 @@ export interface FormValues {
   reality_server_names: string[];
   reality_short_ids: string[];
   reality_fingerprint: string;
+  // SpiderX crawl path — client-side camouflage walked on the real dest
+  // after an unverified handshake. Rides in the share-link as `spx=`.
+  reality_spider_x: string;
   reality_xver: number;
   // Reality x25519 keypair — body-carried (generated via
   // POST /api/keygen/reality-keypair) so the public key shows on the create
@@ -133,6 +136,10 @@ export interface FormValues {
   tls_certificates: TlsCertificate[];
   tls_server_name: string;
   tls_alpn: string[];
+  // uTLS ClientHello fingerprint the client emulates on the standard-TLS
+  // path (Reality has its own). Travels in the share-link as `fp=`; empty
+  // defaults to "chrome" server-side.
+  tls_fingerprint: string;
   tls_min_version: string;
   tls_max_version: string;
   // xray `cipherSuites` field — TLS 1.2 cipher list. Stored as an
@@ -249,6 +256,10 @@ export interface FormValues {
   finalmask_noise_rand_max: number | null;
   sniffing_enabled: boolean;
   sniffing_dest_override: string[];
+  // routeOnly — use the sniffed domain for routing only, without
+  // rewriting the connection's destination (keeps the original target on
+  // the wire). Off preserves xray's dest-rewrite behaviour.
+  sniffing_route_only: boolean;
   // Sockopt — socket-level options (streamSettings.sockopt). Kept flat
   // like the rest of the form; `buildSockopt` collapses them back into
   // the typed `SocketOpt` at the boundary.

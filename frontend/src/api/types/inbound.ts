@@ -70,7 +70,16 @@ export type Sniffing = { enabled: boolean,
  * Subset of `["http", "tls", "fakedns", "quic"]`. Empty array is
  * equivalent to `enabled == false`.
  */
-dest_override: Array<string>, };
+dest_override: Array<string>, 
+/**
+ * When true, the sniffed domain feeds routing decisions ONLY and the
+ * connection's destination is left untouched (xray's `routeOnly`).
+ * When false (default), xray rewrites the destination to the sniffed
+ * domain. `#[serde(default)]` keeps inbound rows whose stored JSON
+ * predates this field deserializing to `false`, preserving their
+ * existing on-wire behaviour.
+ */
+route_only: boolean, };
 
 /**
  * Operator-facing socket options. Every field is optional; an instance

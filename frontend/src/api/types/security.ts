@@ -76,7 +76,16 @@ fingerprint: string,
 /**
  * PROXY-protocol version (0/1/2). 0 = off.
  */
-xver: number, };
+xver: number, 
+/**
+ * `SpiderX` — the crawl path the client walks on the real `dest` after
+ * an unverified handshake (client-side camouflage against active
+ * probing). Emitted to clients as the share-link `spx=` param;
+ * xray's server-side Reality config has no spiderX field, so it's
+ * share-link-only. Empty defaults to "/". `#[serde(default)]` keeps
+ * inbound rows whose stored JSON predates this field deserializing.
+ */
+spider_x: string, };
 
 export type SecurityConfig = { "kind": "none" } & NoneSecurity | { "kind": "tls" } & TlsSecurity | { "kind": "reality" } & RealitySecurity;
 
@@ -127,4 +136,14 @@ ech_config_list: string | null,
 /**
  * TLS 1.3 curves list. None = xray default.
  */
-curve_preferences: Array<string> | null, };
+curve_preferences: Array<string> | null, 
+/**
+ * uTLS `ClientHello` fingerprint the client emulates ("chrome",
+ * "firefox", "randomized", a version-pinned `hello*`, …). Travels in
+ * the share-link as `fp=` only — uTLS emulation is client-side, so
+ * xray does no server-side validation and there's no proto field.
+ * `None`/empty defaults to "chrome", matching the value pinned
+ * before this knob was configurable (so existing inbounds are
+ * unchanged).
+ */
+fingerprint: string | null, };

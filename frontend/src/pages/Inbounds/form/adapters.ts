@@ -133,6 +133,7 @@ export function inboundToForm(inb: Inbound): FormValues {
     v.reality_server_names = r.server_names;
     v.reality_short_ids = r.short_ids;
     v.reality_fingerprint = r.fingerprint;
+    v.reality_spider_x = r.spider_x || '/';
     v.reality_xver = r.xver;
     v.reality_private_key = r.private_key;
     v.reality_public_key = r.public_key;
@@ -141,6 +142,7 @@ export function inboundToForm(inb: Inbound): FormValues {
     v.tls_certificates = s.certificates;
     v.tls_server_name = s.server_name ?? '';
     v.tls_alpn = s.alpn ?? ['h2', 'http/1.1'];
+    v.tls_fingerprint = s.fingerprint ?? 'chrome';
     v.tls_min_version = s.min_version ?? '';
     v.tls_max_version = s.max_version ?? '';
     v.tls_cipher_suites = s.cipher_suites
@@ -156,6 +158,7 @@ export function inboundToForm(inb: Inbound): FormValues {
 
   v.sniffing_enabled = inb.sniffing.enabled;
   v.sniffing_dest_override = inb.sniffing.dest_override;
+  v.sniffing_route_only = inb.sniffing.route_only;
 
   // Sockopt is always present on the typed inbound (defaults to an empty
   // SocketOpt). Peel each field into its flat form slot; empty/null stay
@@ -437,6 +440,7 @@ export function buildSecurity(v: FormValues): SecurityConfig {
         public_key: v.reality_public_key,
         short_ids: v.reality_short_ids,
         fingerprint: v.reality_fingerprint || 'chrome',
+        spider_x: v.reality_spider_x || '/',
         xver: v.reality_xver,
       };
     case 'tls': {
@@ -446,6 +450,7 @@ export function buildSecurity(v: FormValues): SecurityConfig {
         ),
         server_name: v.tls_server_name || null,
         alpn: v.tls_alpn && v.tls_alpn.length > 0 ? v.tls_alpn : null,
+        fingerprint: orNull(v.tls_fingerprint),
         min_version: v.tls_min_version || null,
         max_version: v.tls_max_version || null,
         cipher_suites: v.tls_cipher_suites.length > 0
@@ -467,7 +472,11 @@ export function buildSecurity(v: FormValues): SecurityConfig {
 }
 
 export function buildSniffing(v: FormValues): Sniffing {
-  return { enabled: v.sniffing_enabled, dest_override: v.sniffing_dest_override };
+  return {
+    enabled: v.sniffing_enabled,
+    dest_override: v.sniffing_dest_override,
+    route_only: v.sniffing_route_only,
+  };
 }
 
 /** Collect the flat sockopt fields into a typed `SocketOpt`. Always
