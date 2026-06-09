@@ -187,10 +187,9 @@ mod tests {
     /// return its `SniffingConfig`.
     fn decoded_sniffing(inb: &Inbound) -> SniffingConfig {
         let cfg = inbound_to_handler_config(inb, &[client()]).unwrap();
-        let receiver = cfg.receiver_settings.expect("receiver_settings present");
-        let receiver =
-            ReceiverConfig::decode(&receiver.value[..]).expect("ReceiverConfig decodes");
-        receiver.sniffing_settings.expect("sniffing_settings present")
+        let msg = cfg.receiver_settings.unwrap();
+        let receiver = ReceiverConfig::decode(&msg.value[..]).unwrap();
+        receiver.sniffing_settings.unwrap()
     }
 
     #[test]
