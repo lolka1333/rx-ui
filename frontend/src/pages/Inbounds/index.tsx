@@ -51,6 +51,10 @@ export function Inbounds() {
   const { t } = useTranslation();
   const { message } = App.useApp();
   const qc = useQueryClient();
+  // Only poll while this tab is visible — it stays mounted (display:none) on
+  // other tabs, so gating keeps it from hitting the API in the background and
+  // draining a phone for stats nobody is watching.
+  const isActive = useNav((s) => s.current === 'inbounds');
   const screens = Grid.useBreakpoint();
   const { token } = theme.useToken();
   const isMobile = !screens.md;
@@ -88,7 +92,7 @@ export function Inbounds() {
     queryKey: ['clients-stats'],
     queryFn: async () =>
       (await apiClient.get<TrafficSnapshotMap>('/clients/stats')).data,
-    refetchInterval: 5_000,
+    refetchInterval: isActive ? 5_000 : false,
     staleTime: 4_000,
   });
   // Inbounds don't have quotas of their own — caps live on clients.

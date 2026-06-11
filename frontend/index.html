@@ -3,6 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Empty favicon: no tab icon, but it still suppresses the browser's
+         automatic /favicon.ico request (which 404s in dev). -->
+    <link rel="icon" href="data:," />
     <!-- Default tab title. Stays as-is for the admin shell. For the
          public subscription landing the backend's
          `static_assets::serve_index_with_title()` substitutes this

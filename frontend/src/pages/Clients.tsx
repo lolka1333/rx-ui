@@ -55,6 +55,7 @@ import dayjs, { type Dayjs } from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import { apiClient } from '@/api/client';
 import { apiErrorMessage } from '@/api/errors';
+import { useNav } from '@/stores/nav';
 import { QrCard } from '@/components/QrCard';
 import { TrafficCell } from '@/components/TrafficCell';
 import { fmtBytes } from '@/lib/format';
@@ -255,6 +256,12 @@ export function Clients() {
   const { t } = useTranslation();
   const { message } = App.useApp();
   const qc = useQueryClient();
+  // Only the visible tab needs to poll — the page stays mounted (display:none)
+  // when you're on another tab, so without this gate its lists keep hitting the
+  // API every 5s in the background, draining a phone's battery/radio for data
+  // nobody is looking at. The pollers below switch off when this tab isn't
+  // current.
+  const isActive = useNav((s) => s.current === 'clients');
 
   // Filter state lives in a module store so the "N клиентов" badge on the
   // Inbounds table can pre-apply the inbound filter when it navigates here.
@@ -324,7 +331,7 @@ export function Clients() {
     // Quota state and limit live on the row, not in the stats snapshot,
     // so without this the progress bar's `% used / limit` would lag
     // until the next mutation invalidated the cache.
-    refetchInterval: 5_000,
+    refetchInterval: isActive ? 5_000 : false,
   });
 
   // Unfiltered global client list — needed by the form's multi-select
@@ -335,7 +342,7 @@ export function Clients() {
   const { data: allClients = [] } = useQuery<Client[]>({
     queryKey: ['clients-global', null],
     queryFn: async () => (await apiClient.get<Client[]>('/clients')).data,
-    refetchInterval: 5_000,
+    refetchInterval: isActive ? 5_000 : false,
   });
 
   // Live online + traffic snapshot. Backend keeps a 5 s-warm in-memory
@@ -346,7 +353,7 @@ export function Clients() {
   const { data: stats = {} } = useQuery<TrafficSnapshotMap>({
     queryKey: ['clients-stats'],
     queryFn: async () => (await apiClient.get<TrafficSnapshotMap>('/clients/stats')).data,
-    refetchInterval: 5_000,
+    refetchInterval: isActive ? 5_000 : false,
   });
 
   // Email-keyed groups for the table. One row per email — the

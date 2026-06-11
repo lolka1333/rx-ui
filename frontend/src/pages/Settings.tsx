@@ -22,8 +22,11 @@ import {
 import {
   CloseOutlined,
   ControlOutlined,
+  DatabaseOutlined,
+  LeftOutlined,
   LinkOutlined,
   LogoutOutlined,
+  RightOutlined,
   UserOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -37,7 +40,7 @@ import { useLocale } from '@/stores/locale';
 import { LOCALES } from '@/i18n';
 import type { PanelSettings } from '@/api/types';
 
-type SectionKey = 'account' | 'access' | 'subscription';
+type SectionKey = 'account' | 'access' | 'subscription' | 'xray';
 
 /** Fallback values for the subscription side of `PanelSettings`, used by:
  *   1) the AccessSection mutation when it can't read the current
@@ -84,7 +87,7 @@ interface DirtyHandle {
   onDiscard: () => void;
 }
 
-type CategoryKey = 'account' | 'access' | 'subscription';
+type CategoryKey = 'account' | 'access' | 'subscription' | 'xray';
 
 /** Left-nav structure for the settings modal. Short labels here; the
  *  per-section headings live inside each section. The account page bundles
@@ -105,6 +108,12 @@ const SETTINGS_GROUPS: {
     items: [
       { key: 'access', labelKey: 'settings.navAccess', icon: <ControlOutlined /> },
       { key: 'subscription', labelKey: 'settings.navSubscription', icon: <LinkOutlined /> },
+    ],
+  },
+  {
+    titleKey: 'settings.groupEngine',
+    items: [
+      { key: 'xray', labelKey: 'settings.navXray', icon: <DatabaseOutlined /> },
     ],
   },
 ];
@@ -162,7 +171,13 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
     [setDirty],
   );
 
-  const [active, setActive] = useState<CategoryKey>('account');
+  // `null` = the section list (drill-in root); a key = that section's detail
+  // screen. Opening always starts at the list (reset on close, below).
+  const [active, setActive] = useState<CategoryKey | null>(null);
+  // Which section the detail panel renders. Tracked separately from `active`
+  // so the panel keeps showing its section through the slide-OUT (when
+  // `active` is already null on the way back) instead of blanking mid-glide.
+  const [lastDetail, setLastDetail] = useState<CategoryKey | null>(null);
 
   // Esc closes the modal — only wired while it's open.
   useEffect(() => {
@@ -185,7 +200,13 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
       setRendered(true);
       return undefined;
     }
-    const id = window.setTimeout(() => setRendered(false), 160);
+    const id = window.setTimeout(() => {
+      setRendered(false);
+      // Back to the section list so the next open starts at the root,
+      // matching the push-navigation model.
+      setActive(null);
+      setLastDetail(null);
+    }, 220);
     return () => window.clearTimeout(id);
   }, [open]);
 
@@ -200,28 +221,24 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
         role="dialog"
         aria-modal="true"
         aria-label={t('settings.title')}
+        data-view={active === null ? 'list' : 'detail'}
       >
-        <nav className="app-settings-nav">
-          <div className="app-settings-nav-title">{t('settings.title')}</div>
-          {SETTINGS_GROUPS.map((group) => (
-            <div key={group.titleKey} className="app-settings-nav-group">
-              <div className="app-settings-nav-grouptitle">{t(group.titleKey)}</div>
-              {group.items.map((item) => (
-                <button
-                  key={item.key}
-                  type="button"
-                  className={`app-settings-nav-item${active === item.key ? ' is-active' : ''}`}
-                  onClick={() => setActive(item.key)}
-                >
-                  <span className="app-settings-nav-icon">{item.icon}</span>
-                  {t(item.labelKey)}
-                </button>
-              ))}
-            </div>
-          ))}
-        </nav>
-
-        <div className="app-settings-content-wrap">
+        {/* Fixed header — it never slides, so the close button (and the
+            title / back control) sit ABOVE the push animation instead of
+            having the panels travel under them. Morphs title ⇄ back by view. */}
+        <div className="app-settings-header">
+          {active === null ? (
+            <span className="app-settings-header-title">{t('settings.title')}</span>
+          ) : (
+            <button
+              type="button"
+              className="app-settings-header-back"
+              onClick={() => setActive(null)}
+            >
+              <LeftOutlined />
+              <span>{t('settings.title')}</span>
+            </button>
+          )}
           <button
             type="button"
             className="app-settings-close"
@@ -230,25 +247,65 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
           >
             <CloseOutlined />
           </button>
-          <div className="app-settings-content-scroll">
-            <div style={{ display: active === 'account' ? 'block' : 'none' }}>
-              <AccountSection />
-            </div>
-            <div style={{ display: active === 'access' ? 'block' : 'none' }}>
-              <AccessSection onDirtyChange={onAccessDirty} />
-            </div>
-            <div style={{ display: active === 'subscription' ? 'block' : 'none' }}>
-              <SubscriptionSection onDirtyChange={onSubscriptionDirty} />
+        </div>
+
+        {/* Drill-in: the root list and the detail screen are both mounted,
+            stacked, and slide horizontally (push navigation) below the fixed
+            header, driven by the modal's `data-view`. */}
+        <div className="app-settings-drill">
+          {/* Root — sections as drill-in rows. */}
+          <div className="app-settings-drill-list">
+            {SETTINGS_GROUPS.map((group) => (
+              <div key={group.titleKey} className="app-settings-drill-group">
+                <div className="app-settings-drill-grouptitle">{t(group.titleKey)}</div>
+                {group.items.map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    className="app-settings-drill-row"
+                    onClick={() => {
+                      setLastDetail(item.key);
+                      setActive(item.key);
+                    }}
+                  >
+                    <span className="app-settings-drill-row-icon">{item.icon}</span>
+                    <span className="app-settings-drill-row-label">{t(item.labelKey)}</span>
+                    <RightOutlined className="app-settings-drill-row-go" />
+                  </button>
+                ))}
+              </div>
+            ))}
+          </div>
+
+          {/* Detail — just the active section; the back control lives in the
+              fixed header above. Sections stay mounted (toggled by `lastDetail`,
+              which lingers through the slide-out so the panel doesn't blank
+              mid-animation). */}
+          <div className="app-settings-drill-detail">
+            <div className="app-settings-drill-body">
+              <div style={{ display: lastDetail === 'account' ? 'block' : 'none' }}>
+                <AccountSection />
+              </div>
+              <div style={{ display: lastDetail === 'access' ? 'block' : 'none' }}>
+                <AccessSection onDirtyChange={onAccessDirty} />
+              </div>
+              <div style={{ display: lastDetail === 'subscription' ? 'block' : 'none' }}>
+                <SubscriptionSection onDirtyChange={onSubscriptionDirty} />
+              </div>
+              <div style={{ display: lastDetail === 'xray' ? 'block' : 'none' }}>
+                <XraySection />
+              </div>
             </div>
           </div>
-          <DirtyBar
-            visible={dirtyCount > 0}
-            saving={anySaving}
-            count={dirtyCount}
-            onSave={saveAll}
-            onDiscard={discardAll}
-          />
         </div>
+
+        <DirtyBar
+          visible={dirtyCount > 0}
+          saving={anySaving}
+          count={dirtyCount}
+          onSave={saveAll}
+          onDiscard={discardAll}
+        />
       </div>
     </div>
   );
@@ -274,7 +331,7 @@ function SectionFrame({
     <section className="app-settings-section">
       <h1 className="app-settings-section-title">{title}</h1>
       {description && <p className="app-settings-section-sub">{description}</p>}
-      <div>{children}</div>
+      <div className="app-settings-fields">{children}</div>
     </section>
   );
 }
@@ -282,11 +339,11 @@ function SectionFrame({
 /** A titled block of rows within a section — the "Account information" /
  *  "Password & security" headings grouping related rows. Consecutive
  *  groups get a hairline divider above them (see CSS). */
-function FieldGroup({ title, children }: { title: string; children: ReactNode }) {
+function FieldGroup({ title, children }: { title?: string; children: ReactNode }) {
   return (
     <div className="app-settings-fieldgroup">
-      <h2 className="app-settings-fieldgroup-title">{title}</h2>
-      <div>{children}</div>
+      {title && <h2 className="app-settings-fieldgroup-title">{title}</h2>}
+      <div className="app-settings-group">{children}</div>
     </div>
   );
 }
@@ -384,7 +441,9 @@ function AccountSection() {
           }
           action={
             <Button
-              danger
+              variant="filled"
+              color="default"
+              className="app-settings-logout"
               icon={<LogoutOutlined />}
               onClick={() => {
                 logout();
@@ -411,7 +470,7 @@ function AccountSection() {
         okText={t('common.done')}
         cancelText={t('common.cancel')}
         confirmLoading={mutation.isPending}
-        maskClosable={!mutation.isPending}
+        mask={{ closable: !mutation.isPending }}
         keyboard={!mutation.isPending}
         onCancel={close}
         onOk={() => form.submit()}
@@ -493,8 +552,10 @@ function InfoRow({
 }) {
   return (
     <div className="app-settings-inforow">
-      <div className="app-settings-inforow-label">{label}</div>
-      <div className="app-settings-inforow-value">{value}</div>
+      <div className="app-settings-inforow-main">
+        <div className="app-settings-inforow-label">{label}</div>
+        <div className="app-settings-inforow-value">{value}</div>
+      </div>
       {action}
     </div>
   );
@@ -616,30 +677,31 @@ function AccessSection({
           onValuesChange={() => setDirty(true)}
           onFinish={(v) => mutation.mutate(v)}
         >
-          <Form.Item
-            name="panel_port"
-            label={t('settings.panelPort')}
-            tooltip={t('settings.panelPortHint')}
-            rules={[
-              { required: true, message: t('settings.panelPortRequired') },
-              {
-                type: 'number',
-                min: 1,
-                max: 65535,
-                message: t('settings.panelPortRange'),
-              },
-            ]}
-          >
-            <InputNumber min={1} max={65535} style={{ width: 200 }} />
-          </Form.Item>
-          <Form.Item
-            name="panel_base_path"
-            label={t('settings.panelBasePath')}
-            tooltip={t('settings.panelBasePathHint')}
-            style={{ marginBottom: 0 }}
-          >
-            <Input placeholder={t('settings.panelBasePathPlaceholder')} />
-          </Form.Item>
+          <FieldGroup title={t('settings.accessGroupPanel')}>
+            <Form.Item
+              name="panel_port"
+              label={t('settings.panelPort')}
+              tooltip={t('settings.panelPortHint')}
+              rules={[
+                { required: true, message: t('settings.panelPortRequired') },
+                {
+                  type: 'number',
+                  min: 1,
+                  max: 65535,
+                  message: t('settings.panelPortRange'),
+                },
+              ]}
+            >
+              <InputNumber min={1} max={65535} />
+            </Form.Item>
+            <Form.Item
+              name="panel_base_path"
+              label={t('settings.panelBasePath')}
+              tooltip={t('settings.panelBasePathHint')}
+            >
+              <Input placeholder={t('settings.panelBasePathPlaceholder')} />
+            </Form.Item>
+          </FieldGroup>
         </Form>
       )}
       {/* Language picker lives in the same section but OUTSIDE the form:
@@ -694,17 +756,18 @@ function LanguagePicker() {
     [locale, setLocale],
   );
   return (
-    <div style={{ marginTop: 28, maxWidth: 320 }}>
-      <Typography.Text style={{ display: 'block', marginBottom: 8 }}>
-        {t('settings.language')}
-      </Typography.Text>
-      <Select
-        value={locale}
-        onChange={onChange}
-        options={LOCALES.map((l) => ({ value: l.value, label: l.label }))}
-        style={{ width: '100%' }}
-      />
-    </div>
+    <FieldGroup title={t('settings.interfaceGroup')}>
+      <div className="app-settings-plaque">
+        <span className="app-settings-plaque-label">{t('settings.language')}</span>
+        <div className="app-settings-plaque-control">
+          <Select
+            value={locale}
+            onChange={onChange}
+            options={LOCALES.map((l) => ({ value: l.value, label: l.label }))}
+          />
+        </div>
+      </div>
+    </FieldGroup>
   );
 }
 
@@ -801,149 +864,157 @@ function SubscriptionSection({
           onValuesChange={() => setDirty(true)}
           onFinish={(v) => mutation.mutate(v)}
         >
-          <Form.Item
-            name="sub_enabled"
-            label={t('settings.subEnabled')}
-            tooltip={t('settings.subEnabledHint')}
-            valuePropName="checked"
-            style={{ marginBottom: 20 }}
-          >
-            <Switch />
-          </Form.Item>
+          <FieldGroup>
+            <Form.Item
+              name="sub_enabled"
+              label={t('settings.subEnabled')}
+              tooltip={t('settings.subEnabledHint')}
+              valuePropName="checked"
+            >
+              <Switch />
+            </Form.Item>
+          </FieldGroup>
 
           {/* Watch the toggle so the dependent fields grey out when
               subscriptions are off — they keep their stored value
               (so flipping the switch back on restores the config),
-              just become read-only while disabled. */}
+              just become read-only while disabled. One watcher wraps both
+              groups since every dependent field shares the same gate. */}
           <Form.Item shouldUpdate={(p, n) => p.sub_enabled !== n.sub_enabled} noStyle>
             {({ getFieldValue }) => {
               const enabled = getFieldValue('sub_enabled') as boolean;
               return (
                 <>
-                  <Form.Item
-                    name="sub_host_override"
-                    label={t('settings.subHostOverride')}
-                    tooltip={t('settings.subHostOverrideHint')}
-                    rules={[
-                      {
-                        // Bare hostname / IPv4 / bracketed-IPv6 only — no
-                        // scheme, path, or whitespace. Same constraint the
-                        // backend enforces server-side; surfacing it as a
-                        // form rule shows the error inline before submit.
-                        pattern: /^(?:[A-Za-z0-9.\-:[\]]+)?$/,
-                        message: t('settings.subHostOverrideInvalid'),
-                      },
-                    ]}
-                    style={{ marginBottom: 20 }}
-                  >
-                    <Input
-                      placeholder={t('settings.subHostOverridePlaceholder')}
-                      disabled={!enabled}
-                    />
-                  </Form.Item>
-                  <Form.Item
-                    name="sub_update_interval_hours"
-                    label={t('settings.subUpdateInterval')}
-                    tooltip={t('settings.subUpdateIntervalHint')}
-                    rules={[
-                      {
-                        required: true,
-                        message: t('settings.subUpdateIntervalRequired'),
-                      },
-                      {
-                        type: 'number',
-                        min: 1,
-                        max: 168,
-                        message: t('settings.subUpdateIntervalRange'),
-                      },
-                    ]}
-                    style={{ marginBottom: 0 }}
-                  >
-                    <InputNumber min={1} max={168} disabled={!enabled} style={{ width: 200 }} />
-                  </Form.Item>
-                </>
-              );
-            }}
-          </Form.Item>
-          <Form.Item shouldUpdate={(p, n) => p.sub_enabled !== n.sub_enabled} noStyle>
-            {({ getFieldValue }) => {
-              const enabled = getFieldValue('sub_enabled') as boolean;
-              return (
-                <>
-                  <Form.Item
-                    name="sub_brand_name"
-                    label={t('settings.subBrandName')}
-                    tooltip={t('settings.subBrandNameHint')}
-                    rules={[
-                      {
-                        max: 60,
-                        message: t('settings.subBrandNameTooLong'),
-                      },
-                    ]}
-                    style={{ marginBottom: 20, marginTop: 20 }}
-                  >
-                    <Input
-                      placeholder={t('settings.subBrandNamePlaceholder')}
-                      disabled={!enabled}
-                      maxLength={60}
-                    />
-                  </Form.Item>
-                  <Form.Item
-                    name="sub_service_url"
-                    label={t('settings.subServiceUrl')}
-                    tooltip={t('settings.subServiceUrlHint')}
-                    rules={[
-                      {
-                        validator: (_, v: string) => {
-                          if (!v) return Promise.resolve();
-                          if (!/^https?:\/\//.test(v)) {
-                            return Promise.reject(new Error(t('settings.subServiceUrlInvalid')));
-                          }
-                          if (v.length > 2048) {
-                            return Promise.reject(new Error(t('settings.subServiceUrlTooLong')));
-                          }
-                          return Promise.resolve();
+                  <FieldGroup title={t('settings.subGroupConnection')}>
+                    <Form.Item
+                      name="sub_host_override"
+                      label={t('settings.subHostOverride')}
+                      tooltip={t('settings.subHostOverrideHint')}
+                      rules={[
+                        {
+                          // Bare hostname / IPv4 / bracketed-IPv6 only — no
+                          // scheme, path, or whitespace. Same constraint the
+                          // backend enforces server-side; surfacing it as a
+                          // form rule shows the error inline before submit.
+                          pattern: /^(?:[A-Za-z0-9.\-:[\]]+)?$/,
+                          message: t('settings.subHostOverrideInvalid'),
                         },
-                      },
-                    ]}
-                    style={{ marginBottom: 20 }}
-                  >
-                    <Input
-                      placeholder={t('settings.subServiceUrlPlaceholder')}
-                      disabled={!enabled}
-                    />
-                  </Form.Item>
-                  <Form.Item
-                    name="sub_port"
-                    label={t('settings.subPort')}
-                    tooltip={t('settings.subPortHint')}
-                    rules={[
-                      {
-                        validator: (_, v: number) => {
-                          if (v === 0) return Promise.resolve();
-                          if (!Number.isInteger(v) || v < 1 || v > 65535) {
-                            return Promise.reject(new Error(t('settings.subPortRange')));
-                          }
-                          return Promise.resolve();
+                      ]}
+                    >
+                      <Input
+                        placeholder={t('settings.subHostOverridePlaceholder')}
+                        disabled={!enabled}
+                      />
+                    </Form.Item>
+                    <Form.Item
+                      name="sub_port"
+                      label={t('settings.subPort')}
+                      tooltip={t('settings.subPortHint')}
+                      rules={[
+                        {
+                          validator: (_, v: number) => {
+                            if (v === 0) return Promise.resolve();
+                            if (!Number.isInteger(v) || v < 1 || v > 65535) {
+                              return Promise.reject(new Error(t('settings.subPortRange')));
+                            }
+                            return Promise.resolve();
+                          },
                         },
-                      },
-                    ]}
-                    style={{ marginBottom: 0 }}
-                  >
-                    <InputNumber
-                      min={0}
-                      max={65535}
-                      disabled={!enabled}
-                      style={{ width: '100%' }}
-                      placeholder={t('settings.subPortPlaceholder')}
-                    />
-                  </Form.Item>
+                      ]}
+                    >
+                      <InputNumber
+                        min={0}
+                        max={65535}
+                        disabled={!enabled}
+                        placeholder={t('settings.subPortPlaceholder')}
+                      />
+                    </Form.Item>
+                    <Form.Item
+                      name="sub_update_interval_hours"
+                      label={t('settings.subUpdateInterval')}
+                      tooltip={t('settings.subUpdateIntervalHint')}
+                      rules={[
+                        {
+                          required: true,
+                          message: t('settings.subUpdateIntervalRequired'),
+                        },
+                        {
+                          type: 'number',
+                          min: 1,
+                          max: 168,
+                          message: t('settings.subUpdateIntervalRange'),
+                        },
+                      ]}
+                    >
+                      <InputNumber min={1} max={168} disabled={!enabled} />
+                    </Form.Item>
+                  </FieldGroup>
+                  <FieldGroup title={t('settings.subGroupBranding')}>
+                    <Form.Item
+                      name="sub_brand_name"
+                      label={t('settings.subBrandName')}
+                      tooltip={t('settings.subBrandNameHint')}
+                      rules={[
+                        {
+                          max: 60,
+                          message: t('settings.subBrandNameTooLong'),
+                        },
+                      ]}
+                    >
+                      <Input
+                        placeholder={t('settings.subBrandNamePlaceholder')}
+                        disabled={!enabled}
+                        maxLength={60}
+                      />
+                    </Form.Item>
+                    <Form.Item
+                      name="sub_service_url"
+                      label={t('settings.subServiceUrl')}
+                      tooltip={t('settings.subServiceUrlHint')}
+                      rules={[
+                        {
+                          validator: (_, v: string) => {
+                            if (!v) return Promise.resolve();
+                            if (!/^https?:\/\//.test(v)) {
+                              return Promise.reject(new Error(t('settings.subServiceUrlInvalid')));
+                            }
+                            if (v.length > 2048) {
+                              return Promise.reject(new Error(t('settings.subServiceUrlTooLong')));
+                            }
+                            return Promise.resolve();
+                          },
+                        },
+                      ]}
+                    >
+                      <Input
+                        placeholder={t('settings.subServiceUrlPlaceholder')}
+                        disabled={!enabled}
+                      />
+                    </Form.Item>
+                  </FieldGroup>
                 </>
               );
             }}
           </Form.Item>
         </Form>
       )}
+    </SectionFrame>
+  );
+}
+
+// =============================================================================
+// Xray — engine settings. Placeholder for now: the dedicated controls
+// (config, version, restart) haven't been wired into this section yet.
+// =============================================================================
+
+function XraySection() {
+  const { t } = useTranslation();
+  return (
+    <SectionFrame title={t('settings.xraySection')} description={t('settings.xrayHint')}>
+      <div className="app-settings-placeholder">
+        <DatabaseOutlined className="app-settings-placeholder-icon" />
+        <p className="app-settings-placeholder-text">{t('settings.xraySoon')}</p>
+      </div>
     </SectionFrame>
   );
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Layout, Grid, theme } from 'antd';
 import { CloseOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
 import { Sidebar } from '@/components/Sidebar';
@@ -143,6 +143,17 @@ function AdminApp() {
 
   const onDrawerClose = useCallback(() => setDrawerOpen(false), []);
 
+  // The three tabs stay mounted (to preserve per-tab state) and each runs its
+  // own pollers, so they are expensive trees to render. Without this, every
+  // AdminApp re-render — including a drawer open/close, which flips
+  // `drawerOpen` — would synchronously re-render all three and stall the main
+  // thread, which is exactly what made the mobile drawer feel laggy. Memoising
+  // the elements gives React a stable reference so it bails out of re-rendering
+  // them on unrelated state changes; they still update from their own hooks.
+  const dashboardPage = useMemo(() => <Dashboard />, []);
+  const inboundsPage = useMemo(() => <Inbounds />, []);
+  const clientsPage = useMemo(() => <Clients />, []);
+
   if (!authToken) return <Login />;
 
   return (
@@ -176,19 +187,19 @@ function AdminApp() {
             className="app-page-fade"
             style={{ display: current === 'dashboard' ? 'block' : 'none' }}
           >
-            <Dashboard />
+            {dashboardPage}
           </div>
           <div
             className="app-page-fade"
             style={{ display: current === 'inbounds' ? 'block' : 'none' }}
           >
-            <Inbounds />
+            {inboundsPage}
           </div>
           <div
             className="app-page-fade"
             style={{ display: current === 'clients' ? 'block' : 'none' }}
           >
-            <Clients />
+            {clientsPage}
           </div>
         </Content>
       </Layout>

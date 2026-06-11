@@ -1,20 +1,20 @@
-import { Layout, Menu, Switch, Checkbox, Drawer, Tooltip, theme } from 'antd';
+import { Layout, Menu, Switch, Checkbox, Drawer, Tooltip } from 'antd';
 import {
   DashboardOutlined,
   CloudServerOutlined,
   TeamOutlined,
   ClusterOutlined,
   SettingOutlined,
-  ToolOutlined,
   LogoutOutlined,
   BulbOutlined,
   LeftOutlined,
   RightOutlined,
 } from '@ant-design/icons';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/stores/auth';
 import { useTheme } from '@/stores/theme';
+import { SidebarStatus } from './SidebarStatus';
 
 const { Sider } = Layout;
 
@@ -62,9 +62,14 @@ export function Sidebar({
 }: SidebarProps) {
   const { t } = useTranslation();
   const logout = useAuth((s) => s.logout);
+  const username = useAuth((s) => s.user?.username ?? 'admin');
+  // Track which inline submenus are open ("Тема"). Left free so the collapsed
+  // rail's hover-popup theme switcher still works; we only clear it on the
+  // collapse click (below) so the open inline submenu doesn't sprawl during the
+  // collapse transition.
+  const [openKeys, setOpenKeys] = useState<string[]>([]);
   const themeMode = useTheme((s) => s.mode);
   const setThemeMode = useTheme((s) => s.set);
-  const { token } = theme.useToken();
 
   const isDark = themeMode !== 'light';
   const isDarker = themeMode === 'darker';
@@ -136,9 +141,6 @@ export function Sidebar({
       { key: 'inbounds', icon: <CloudServerOutlined />, label: t('sidebar.inbounds') },
       { key: 'clients', icon: <TeamOutlined />, label: t('sidebar.clients') },
       { key: 'nodes', icon: <ClusterOutlined />, label: t('sidebar.nodes'), disabled: true },
-      { key: 'settings', icon: <SettingOutlined />, label: t('sidebar.settings') },
-      { key: 'xray-settings', icon: <ToolOutlined />, label: t('sidebar.xray'), disabled: true },
-      { key: 'logout', icon: <LogoutOutlined />, label: t('sidebar.logout') },
     ],
     [themeChildren, t],
   );
@@ -160,9 +162,10 @@ export function Sidebar({
       theme={themeMode === 'light' ? 'light' : 'dark'}
       mode="inline"
       selectedKeys={[current]}
+      openKeys={openKeys}
+      onOpenChange={(keys) => setOpenKeys(keys as string[])}
       inlineIndent={16}
       onClick={handleMenuClick}
-      forceSubMenuRender
       inlineCollapsed={!mobile && collapsed}
       style={{
         flex: 1,
@@ -172,6 +175,84 @@ export function Sidebar({
       }}
       items={menuItems}
     />
+  );
+
+  // Settings + sign-out as compact icon-only buttons pinned to the bottom,
+  // separate from the page navigation above. Stacks vertically when the rail
+  // is collapsed (too narrow for two side by side).
+  const footerActions = (
+    <div
+      className={`sidebar-footer${!mobile && collapsed ? ' sidebar-footer--collapsed' : ''}`}
+    >
+      <Tooltip
+        title={t('sidebar.settings')}
+        placement={!mobile && collapsed ? 'right' : 'top'}
+        arrow={false}
+        mouseEnterDelay={0.3}
+      >
+        <button
+          type="button"
+          className="sidebar-footer-btn"
+          onClick={() => onNavigate('settings')}
+          aria-label={t('sidebar.settings')}
+        >
+          <SettingOutlined />
+        </button>
+      </Tooltip>
+      <Tooltip
+        title={t('sidebar.logout')}
+        placement={!mobile && collapsed ? 'right' : 'top'}
+        arrow={false}
+        mouseEnterDelay={0.3}
+      >
+        <button
+          type="button"
+          className="sidebar-footer-btn sidebar-footer-btn--danger"
+          onClick={logout}
+          aria-label={t('sidebar.logout')}
+        >
+          <LogoutOutlined />
+        </button>
+      </Tooltip>
+      {!mobile && onToggleCollapsed && (
+        <Tooltip
+          title={collapsed ? t('sidebar.expand') : t('sidebar.collapse')}
+          placement={collapsed ? 'right' : 'top'}
+          arrow={false}
+          mouseEnterDelay={0.3}
+        >
+          <button
+            type="button"
+            className="sidebar-footer-btn sidebar-footer-btn--toggle"
+            onClick={() => {
+              // Close any open inline submenu in the same batch as the collapse
+              // so "Тема" doesn't sprawl during the transition — while leaving
+              // openKeys free afterwards so the collapsed hover-popup still works.
+              setOpenKeys([]);
+              onToggleCollapsed();
+            }}
+            aria-label={collapsed ? t('sidebar.expand') : t('sidebar.collapse')}
+          >
+            {collapsed ? <RightOutlined /> : <LeftOutlined />}
+          </button>
+        </Tooltip>
+      )}
+    </div>
+  );
+
+  // Logged-in account card pinned above the footer — fills the otherwise
+  // empty stretch of the rail and shows who's signed in. Collapses to just
+  // the avatar when the rail is narrow.
+  const accountCard = (
+    <div
+      className={`sidebar-account${!mobile && collapsed ? ' sidebar-account--collapsed' : ''}`}
+    >
+      <span className="sidebar-account-avatar">{username.charAt(0).toUpperCase()}</span>
+      <span className="sidebar-account-main">
+        <span className="sidebar-account-name">{username}</span>
+        <span className="sidebar-account-role">{t('sidebar.role')}</span>
+      </span>
+    </div>
   );
 
   if (mobile) {
@@ -190,6 +271,9 @@ export function Sidebar({
       >
         <div style={{ height: 8 }} />
         {menuNode}
+        <SidebarStatus mobile />
+        {accountCard}
+        {footerActions}
       </Drawer>
     );
   }
@@ -212,58 +296,21 @@ export function Sidebar({
           height: '100%',
           display: 'flex',
           flexDirection: 'column',
+          // Clip content to the rail's animating width so the custom blocks
+          // (status / account / footer) reveal cleanly instead of squishing
+          // while the width transitions between collapsed and expanded.
+          overflow: 'hidden',
         }}
       >
         <div style={{ height: 8 }} />
 
         {menuNode}
 
-        {onToggleCollapsed && (
-          <div style={{ padding: '4px 12px 6px', flexShrink: 0 }}>
-            <Tooltip
-              title={collapsed ? t('sidebar.expand') : t('sidebar.collapse')}
-              placement="right"
-              arrow={false}
-              mouseEnterDelay={0.3}
-            >
-              <button
-                type="button"
-                onClick={onToggleCollapsed}
-                aria-label="toggle sidebar"
-                style={{
-                  background: 'transparent',
-                  border: 0,
-                  color: token.colorTextSecondary,
-                  width: '100%',
-                  height: 28,
-                  borderRadius: 8,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 13,
-                  transition: 'all 0.15s ease',
-                  margin: 0,
-                  padding: 0,
-                  outline: 'none',
-                  WebkitTapHighlightColor: 'transparent',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = isDark
-                    ? 'rgba(255,255,255,0.04)'
-                    : 'rgba(0,0,0,0.04)';
-                  e.currentTarget.style.color = token.colorText;
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'transparent';
-                  e.currentTarget.style.color = token.colorTextSecondary;
-                }}
-              >
-                {collapsed ? <RightOutlined /> : <LeftOutlined />}
-              </button>
-            </Tooltip>
-          </div>
-        )}
+        <SidebarStatus collapsed={collapsed} />
+
+        {accountCard}
+
+        {footerActions}
       </div>
     </Sider>
   );
