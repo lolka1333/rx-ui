@@ -72,11 +72,9 @@ pub struct XhttpTransport {
     pub uplink_http_method: Option<String>,
     // xray-core v26.6.22 (#6258) renamed `session*` → `sessionID*` (proto
     // field numbers 20/21 unchanged) and added a custom session-ID table +
-    // length. The serde aliases keep configs stored under the old keys
-    // readable so nothing in the DB needs migrating.
-    #[serde(alias = "session_placement")]
+    // length. These session knobs are optional; the panel re-serializes them
+    // under the new keys, so the rename needs no DB migration.
     pub session_id_placement: Option<String>,
-    #[serde(alias = "session_key")]
     pub session_id_key: Option<String>,
     /// Predefined table name (ALPHABET/Alphabet/BASE36/Base62/HEX/alphabet/
     /// base36/hex/number) or a custom ASCII alphabet for the session ID.
