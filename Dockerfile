@@ -9,7 +9,7 @@
 # ---- Stage 1: build the frontend (Vite -> frontend/dist) --------------------
 FROM node:22-bookworm-slim AS frontend
 # corepack ships with Node 22 and reads the "packageManager" field
-# (pnpm@11.5.0) from package.json, so the pnpm version matches CI exactly.
+# (pnpm@11.9.0) from package.json, so the pnpm version matches CI exactly.
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 WORKDIR /app/frontend
 RUN corepack enable

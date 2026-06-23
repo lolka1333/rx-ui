@@ -144,7 +144,7 @@ jobs:
         # `packageManager` field in frontend/package.json.
         uses: pnpm/action-setup@v6
         with:
-          version: 11.5.0
+          version: 11.9.0
           run_install: false
 
       - name: Cache pnpm store
