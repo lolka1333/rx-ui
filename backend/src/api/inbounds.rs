@@ -149,17 +149,21 @@ fn validate_finalmask(security: &SecurityConfig, finalmask: &FinalMask) -> AppRe
         // of different lengths would silently drop ranges; an inverted min > max
         // range is a config error too. The form guarantees neither, but a direct
         // API call could send them — reject both here.
-        if p.lengths_min.len() != p.lengths_max.len()
-            || p.delays_min.len() != p.delays_max.len()
-        {
+        if p.lengths_min.len() != p.lengths_max.len() || p.delays_min.len() != p.delays_max.len() {
             return Err(AppError::BadRequest(
                 "Fragment length/delay ranges are malformed — each range needs \
                  both a min and a max."
                     .to_owned(),
             ));
         }
-        if p.lengths_min.iter().zip(&p.lengths_max).any(|(mn, mx)| mn > mx)
-            || p.delays_min.iter().zip(&p.delays_max).any(|(mn, mx)| mn > mx)
+        if p.lengths_min
+            .iter()
+            .zip(&p.lengths_max)
+            .any(|(mn, mx)| mn > mx)
+            || p.delays_min
+                .iter()
+                .zip(&p.delays_max)
+                .any(|(mn, mx)| mn > mx)
         {
             return Err(AppError::BadRequest(
                 "Fragment range min must be ≤ max.".to_owned(),

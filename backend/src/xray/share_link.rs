@@ -1145,7 +1145,10 @@ mod tests {
         // packets (0,1) is the conf "tlshello" shortcut — the common DPI-bypass
         // mode that fragments only the TLS ClientHello.
         assert_eq!(v["tcp"][0]["settings"]["packets"], "tlshello");
-        assert_eq!(v["tcp"][0]["settings"]["lengths"], serde_json::json!(["5-20"]));
+        assert_eq!(
+            v["tcp"][0]["settings"]["lengths"],
+            serde_json::json!(["5-20"])
+        );
     }
 
     #[test]

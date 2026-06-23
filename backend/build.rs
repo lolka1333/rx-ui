@@ -154,8 +154,7 @@ fn fingerprint_dist(root: &std::path::Path, dir: &std::path::Path, out: &mut Vec
                 .modified()
                 .ok()
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| d.as_nanos())
-                .unwrap_or(0);
+                .map_or(0, |d| d.as_nanos());
             out.push(format!("{}:{}:{}", rel.display(), meta.len(), mtime));
         }
     }
