@@ -496,6 +496,43 @@ mod tests {
     }
 
     #[test]
+    fn xhttp_session_id_rides_in_extra() {
+        // sessionID placement/key are symmetric (server reads the id where the
+        // client put it); table/length carry the operator's chosen id format.
+        let inb = inbound(
+            TransportConfig::Xhttp(XhttpTransport {
+                path: Some("/x".into()),
+                mode: Some(XhttpMode::Auto),
+                session_id_placement: Some("cookie".into()),
+                session_id_key: Some("sid".into()),
+                session_id_table: Some("hex".into()),
+                session_id_length: Some("8-16".into()),
+                ..XhttpTransport::default()
+            }),
+            SecurityConfig::None(NoneSecurity {}),
+        );
+        let link = build_vless_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
+        assert!(link.contains("extra="), "missing extra=: {link}");
+        for needle in [
+            "sessionIDPlacement",
+            "sessionIDKey",
+            "sessionIDTable",
+            "sessionIDLength",
+            "cookie",
+            "sid",
+            "hex",
+            "8-16",
+        ] {
+            assert!(link.contains(needle), "extra missing {needle}: {link}");
+        }
+        // padding obfs is off → no padding keys leak into the link
+        assert!(
+            !link.contains("xPadding"),
+            "padding should be absent: {link}"
+        );
+    }
+
+    #[test]
     fn tls_security_with_ech_config_list_emits_ech_param() {
         // When ECH config list is set on the inbound, the share-link
         // must carry it so clients can embed it in Client Hello without

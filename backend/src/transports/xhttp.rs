@@ -141,15 +141,20 @@ impl Transport for XhttpTransport {
         if let Some(m) = self.mode {
             params.push(("mode".to_owned(), m.as_db_str().to_owned()));
         }
-        // Padding-obfuscation is a *symmetric* wire feature: the server pads
-        // every request, so a client that doesn't pad identically can't
-        // connect. xray carries the advanced xhttpSettings in the
-        // share-link's `extra` param — a JSON the client merges into its own
-        // xhttpSettings (field names match xray's conf: xPaddingObfsMode,
-        // xPaddingKey, …). Only emitted when obfs is actually on, so plain
-        // inbounds keep a clean link.
+        // Advanced xhttpSettings the client must mirror travel in xray's
+        // `extra` param — a JSON the client merges into its own xhttpSettings
+        // (key names match xray's conf). Two symmetric groups ride here:
+        //   * padding obfuscation — the server pads every request, so a client
+        //     that doesn't pad identically can't connect (only when obfs on).
+        //   * session-ID placement/key — the client encodes the session id at
+        //     this location and the server reads it there to pair the up/down
+        //     streams, so a mismatch breaks the session; table/length shape the
+        //     id generated client-side and ride along so the client honours the
+        //     operator's choice.
+        // Built lazily: only non-default fields are inserted, so a plain inbound
+        // keeps a clean link with no `extra=` at all.
+        let mut extra = serde_json::Map::new();
         if self.x_padding_obfs_mode.unwrap_or(false) {
-            let mut extra = serde_json::Map::new();
             extra.insert("xPaddingObfsMode".to_owned(), serde_json::Value::Bool(true));
             for (key, val) in [
                 ("xPaddingKey", self.x_padding_key.as_deref()),
@@ -161,6 +166,18 @@ impl Transport for XhttpTransport {
                     extra.insert(key.to_owned(), serde_json::Value::String(v.to_owned()));
                 }
             }
+        }
+        for (key, val) in [
+            ("sessionIDPlacement", self.session_id_placement.as_deref()),
+            ("sessionIDKey", self.session_id_key.as_deref()),
+            ("sessionIDTable", self.session_id_table.as_deref()),
+            ("sessionIDLength", self.session_id_length.as_deref()),
+        ] {
+            if let Some(v) = val.filter(|s| !s.is_empty()) {
+                extra.insert(key.to_owned(), serde_json::Value::String(v.to_owned()));
+            }
+        }
+        if !extra.is_empty() {
             params.push((
                 "extra".to_owned(),
                 serde_json::Value::Object(extra).to_string(),
