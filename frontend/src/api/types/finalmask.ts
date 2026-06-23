@@ -22,17 +22,26 @@
 export type FinalMask = { "kind": "none" } | { "kind": "sudoku" } & SudokuParams | { "kind": "fragment" } & FragmentParams | { "kind": "noise" } & NoiseParams;
 
 /**
- * Fragment finalmask knobs. Each field is `[min, max]` — xray picks
- * a uniform-random value in that range per fragment. `0` on a field
- * means "use xray's built-in default" (typical: packets 1..1, length
- * 100..200, delay 0..0, `max_split` 0..0). For the operator the most
- * impactful pair is `length_min/max` — the chunk size distribution.
+ * Fragment finalmask knobs (xray-core v26.6.22 #6334). `lengths`/`delays`
+ * are PER-SEGMENT parallel arrays: segment `i` is `lengths_min[i]..
+ * lengths_max[i]` bytes long and is followed by a `delays_min[i]..
+ * delays_max[i]` ms pause; the last entry repeats for all further segments.
+ * `packets` selects which packets to fragment (0/1 ≡ the `tlshello`
+ * shortcut). Empty arrays ≡ "use xray's default". xray rejects a final
+ * `lengths` entry whose min is 0, so the active form keeps a positive last
+ * min.
  */
-export type FragmentParams = { packets_from: number | null, packets_to: number | null, length_min: number | null, length_max: number | null, 
+export type FragmentParams = { packets_from: number | null, packets_to: number | null, 
 /**
- * Inter-chunk delay in milliseconds.
+ * Per-segment chunk-length range, min side. Paired index-for-index with
+ * `lengths_max`.
  */
-delay_min: number | null, delay_max: number | null, max_split_min: number | null, max_split_max: number | null, };
+lengths_min: number[], lengths_max: number[], 
+/**
+ * Per-segment inter-chunk delay range in ms, min side. Paired with
+ * `delays_max`.
+ */
+delays_min: number[], delays_max: number[], max_split_min: number | null, max_split_max: number | null, };
 
 /**
  * Noise finalmask knobs. xray's wire shape is a list of `Item`s plus

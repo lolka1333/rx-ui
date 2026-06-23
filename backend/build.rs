@@ -108,9 +108,55 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .into());
     }
-    // Force re-embed when frontend output changes — rust-embed reads the
-    // folder at compile time and won't otherwise notice a fresh `pnpm build`.
+    // Force re-embed when frontend output changes. `rust-embed` bakes the dist
+    // tree into the binary during `static_assets.rs`'s proc-macro expansion, and
+    // cargo only re-runs that macro when the MODULE recompiles. A bare
+    // `rerun-if-changed=../frontend/dist` re-runs this script but does not
+    // invalidate that module, so an incremental release build after a fresh
+    // `pnpm build` can silently embed the PREVIOUS dist. To make the embed track
+    // dist reliably we walk the tree here (emitting a per-file rerun-if-changed
+    // so this script re-runs on any change), fingerprint it, and write the
+    // digest to OUT_DIR. `static_assets.rs` pulls that digest in via
+    // `include_str!`, so a changed dist changes the digest, recompiles the
+    // module, and makes rust-embed re-read the folder.
     println!("cargo:rerun-if-changed=../frontend/dist");
+    let mut entries = Vec::new();
+    let dist = std::path::Path::new("../frontend/dist");
+    fingerprint_dist(dist, dist, &mut entries);
+    entries.sort();
+    let out_dir = std::env::var("OUT_DIR")?;
+    std::fs::write(
+        std::path::Path::new(&out_dir).join("dist_fingerprint.txt"),
+        entries.join("\n"),
+    )?;
 
     Ok(())
+}
+
+/// Walk `dir`, emitting a `cargo:rerun-if-changed` for every file (so the build
+/// script re-runs whenever a `pnpm build` rewrites the output) and collecting a
+/// `relpath:len:mtime` line per file into `out`. The sorted join of these lines
+/// is the dist fingerprint that gates the embed: any added, removed, resized, or
+/// rewritten file changes it. A missing dir (dev builds with no `pnpm build`
+/// yet) simply yields no entries, so the digest is empty and stable.
+fn fingerprint_dist(root: &std::path::Path, dir: &std::path::Path, out: &mut Vec<String>) {
+    let Ok(read) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in read.flatten() {
+        let path = entry.path();
+        println!("cargo:rerun-if-changed={}", path.display());
+        if path.is_dir() {
+            fingerprint_dist(root, &path, out);
+        } else if let Ok(meta) = entry.metadata() {
+            let rel = path.strip_prefix(root).unwrap_or(&path);
+            let mtime = meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            out.push(format!("{}:{}:{}", rel.display(), meta.len(), mtime));
+        }
+    }
 }

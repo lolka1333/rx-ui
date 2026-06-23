@@ -70,8 +70,19 @@ pub struct XhttpTransport {
     pub x_padding_placement: Option<String>,
     pub x_padding_method: Option<String>,
     pub uplink_http_method: Option<String>,
-    pub session_placement: Option<String>,
-    pub session_key: Option<String>,
+    // xray-core v26.6.22 (#6258) renamed `session*` → `sessionID*` (proto
+    // field numbers 20/21 unchanged) and added a custom session-ID table +
+    // length. The serde aliases keep configs stored under the old keys
+    // readable so nothing in the DB needs migrating.
+    #[serde(alias = "session_placement")]
+    pub session_id_placement: Option<String>,
+    #[serde(alias = "session_key")]
+    pub session_id_key: Option<String>,
+    /// Predefined table name (ALPHABET/Alphabet/BASE36/Base62/HEX/alphabet/
+    /// base36/hex/number) or a custom ASCII alphabet for the session ID.
+    pub session_id_table: Option<String>,
+    /// Session-ID length range ("8" or "8-16"). Empty ≡ xray default.
+    pub session_id_length: Option<String>,
     pub seq_placement: Option<String>,
     pub seq_key: Option<String>,
     pub uplink_data_placement: Option<String>,
@@ -192,8 +203,10 @@ impl Transport for XhttpTransport {
             x_padding_placement: self.x_padding_placement.clone().unwrap_or_default(),
             x_padding_method: self.x_padding_method.clone().unwrap_or_default(),
             uplink_http_method: self.uplink_http_method.clone().unwrap_or_default(),
-            session_placement: self.session_placement.clone().unwrap_or_default(),
-            session_key: self.session_key.clone().unwrap_or_default(),
+            session_id_placement: self.session_id_placement.clone().unwrap_or_default(),
+            session_id_key: self.session_id_key.clone().unwrap_or_default(),
+            session_id_table: self.session_id_table.clone().unwrap_or_default(),
+            session_id_length: parse_range(self.session_id_length.as_deref())?,
             seq_placement: self.seq_placement.clone().unwrap_or_default(),
             seq_key: self.seq_key.clone().unwrap_or_default(),
             uplink_data_placement: self.uplink_data_placement.clone().unwrap_or_default(),

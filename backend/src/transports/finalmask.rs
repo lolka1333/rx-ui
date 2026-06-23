@@ -79,31 +79,105 @@ pub struct SudokuParams {
     pub custom_tables: Vec<String>,
 }
 
-/// Fragment finalmask knobs. Each field is `[min, max]` — xray picks
-/// a uniform-random value in that range per fragment. `0` on a field
-/// means "use xray's built-in default" (typical: packets 1..1, length
-/// 100..200, delay 0..0, `max_split` 0..0). For the operator the most
-/// impactful pair is `length_min/max` — the chunk size distribution.
+/// Fragment finalmask knobs (xray-core v26.6.22 #6334). `lengths`/`delays`
+/// are PER-SEGMENT parallel arrays: segment `i` is `lengths_min[i]..
+/// lengths_max[i]` bytes long and is followed by a `delays_min[i]..
+/// delays_max[i]` ms pause; the last entry repeats for all further segments.
+/// `packets` selects which packets to fragment (0/1 ≡ the `tlshello`
+/// shortcut). Empty arrays ≡ "use xray's default". xray rejects a final
+/// `lengths` entry whose min is 0, so the active form keeps a positive last
+/// min.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
+#[serde(from = "FragmentParamsRaw")]
 #[ts(export, export_to = "../../frontend/src/api/types/finalmask.ts")]
 pub struct FragmentParams {
     #[ts(type = "number | null")]
     pub packets_from: Option<i64>,
     #[ts(type = "number | null")]
     pub packets_to: Option<i64>,
-    #[ts(type = "number | null")]
-    pub length_min: Option<i64>,
-    #[ts(type = "number | null")]
-    pub length_max: Option<i64>,
-    /// Inter-chunk delay in milliseconds.
-    #[ts(type = "number | null")]
-    pub delay_min: Option<i64>,
-    #[ts(type = "number | null")]
-    pub delay_max: Option<i64>,
+    /// Per-segment chunk-length range, min side. Paired index-for-index with
+    /// `lengths_max`.
+    #[ts(type = "number[]")]
+    pub lengths_min: Vec<i64>,
+    #[ts(type = "number[]")]
+    pub lengths_max: Vec<i64>,
+    /// Per-segment inter-chunk delay range in ms, min side. Paired with
+    /// `delays_max`.
+    #[ts(type = "number[]")]
+    pub delays_min: Vec<i64>,
+    #[ts(type = "number[]")]
+    pub delays_max: Vec<i64>,
     #[ts(type = "number | null")]
     pub max_split_min: Option<i64>,
     #[ts(type = "number | null")]
     pub max_split_max: Option<i64>,
+}
+
+// Deserialization shim: also accepts the pre-v26.6.22 single-range keys
+// (`length_min`/`length_max`, `delay_min`/`delay_max`) the old panel stored,
+// folding them into the v26.6.22 per-segment arrays. Without this, a Fragment
+// inbound saved by an older build would silently lose its config on upgrade —
+// the renamed/removed scalar fields would just be ignored and the mask would
+// go inactive. The new array keys, when present, win over the legacy ones.
+#[derive(Deserialize)]
+struct FragmentParamsRaw {
+    #[serde(default)]
+    packets_from: Option<i64>,
+    #[serde(default)]
+    packets_to: Option<i64>,
+    #[serde(default)]
+    lengths_min: Vec<i64>,
+    #[serde(default)]
+    lengths_max: Vec<i64>,
+    #[serde(default)]
+    delays_min: Vec<i64>,
+    #[serde(default)]
+    delays_max: Vec<i64>,
+    #[serde(default)]
+    max_split_min: Option<i64>,
+    #[serde(default)]
+    max_split_max: Option<i64>,
+    #[serde(default)]
+    length_min: Option<i64>,
+    #[serde(default)]
+    length_max: Option<i64>,
+    #[serde(default)]
+    delay_min: Option<i64>,
+    #[serde(default)]
+    delay_max: Option<i64>,
+}
+
+impl From<FragmentParamsRaw> for FragmentParams {
+    fn from(r: FragmentParamsRaw) -> Self {
+        let (mut lengths_min, mut lengths_max) = (r.lengths_min, r.lengths_max);
+        let (mut delays_min, mut delays_max) = (r.delays_min, r.delays_max);
+        if lengths_min.is_empty()
+            && lengths_max.is_empty()
+            && (r.length_min.is_some() || r.length_max.is_some())
+        {
+            let min = r.length_min.unwrap_or(0);
+            lengths_min.push(min);
+            lengths_max.push(r.length_max.unwrap_or(min));
+        }
+        if delays_min.is_empty()
+            && delays_max.is_empty()
+            && (r.delay_min.is_some() || r.delay_max.is_some())
+        {
+            let min = r.delay_min.unwrap_or(0);
+            delays_min.push(min);
+            delays_max.push(r.delay_max.unwrap_or(min));
+        }
+        Self {
+            packets_from: r.packets_from,
+            packets_to: r.packets_to,
+            lengths_min,
+            lengths_max,
+            delays_min,
+            delays_max,
+            max_split_min: r.max_split_min,
+            max_split_max: r.max_split_max,
+        }
+    }
 }
 
 /// Noise finalmask knobs. xray's wire shape is a list of `Item`s plus
@@ -162,14 +236,10 @@ impl FinalMask {
         match self {
             Self::None => false,
             Self::Sudoku(p) => !p.password.trim().is_empty(),
-            // Fragment is active when ANY of the length / packets knobs
-            // is set above 0 — otherwise the wrapper is a no-op.
-            Self::Fragment(p) => p
-                .length_min
-                .or(p.length_max)
-                .or(p.packets_from)
-                .or(p.packets_to)
-                .is_some_and(|v| v > 0),
+            // Fragment is active once a positive chunk length is configured;
+            // a packets-only form has no chunk size to split to and xray
+            // rejects a zero final length anyway.
+            Self::Fragment(p) => p.lengths_min.iter().chain(&p.lengths_max).any(|&v| v > 0),
             // Noise is active when there's either a literal packet
             // prefix or a non-zero random byte count.
             Self::Noise(p) => {
@@ -207,10 +277,10 @@ impl FinalMask {
                 let proto = fm::fragment::Config {
                     packets_from: p.packets_from.unwrap_or(0),
                     packets_to: p.packets_to.unwrap_or(0),
-                    length_min: p.length_min.unwrap_or(0),
-                    length_max: p.length_max.unwrap_or(0),
-                    delay_min: p.delay_min.unwrap_or(0),
-                    delay_max: p.delay_max.unwrap_or(0),
+                    lengths_min: p.lengths_min.clone(),
+                    lengths_max: p.lengths_max.clone(),
+                    delays_min: p.delays_min.clone(),
+                    delays_max: p.delays_max.clone(),
                     max_split_min: p.max_split_min.unwrap_or(0),
                     max_split_max: p.max_split_max.unwrap_or(0),
                 };
@@ -306,5 +376,39 @@ mod tests {
         assert_eq!(cfg.items.len(), 1);
         assert_eq!(cfg.items[0].rand_range_min, 0);
         assert_eq!(cfg.items[0].rand_range_max, 255);
+    }
+
+    /// A Fragment config saved by the pre-v26.6.22 panel (single length/delay
+    /// range) must fold into the new per-segment arrays on load, not reset to
+    /// empty — otherwise upgrading silently drops the operator's fragment mask.
+    #[test]
+    fn fragment_migrates_legacy_single_range() {
+        let fm: FinalMask = serde_json::from_str(
+            r#"{"kind":"fragment","length_min":40,"length_max":80,"delay_min":1,"delay_max":2}"#,
+        )
+        .expect("legacy fragment json deserializes");
+        let FinalMask::Fragment(p) = &fm else {
+            panic!("expected fragment variant");
+        };
+        assert_eq!(p.lengths_min, vec![40]);
+        assert_eq!(p.lengths_max, vec![80]);
+        assert_eq!(p.delays_min, vec![1]);
+        assert_eq!(p.delays_max, vec![2]);
+        assert!(fm.is_active(), "migrated fragment must stay active");
+    }
+
+    /// The new array keys win when both old and new are present, so a config
+    /// re-saved by the new panel isn't disturbed by leftover legacy keys.
+    #[test]
+    fn fragment_new_arrays_win_over_legacy() {
+        let fm: FinalMask = serde_json::from_str(
+            r#"{"kind":"fragment","length_min":40,"length_max":80,"lengths_min":[3,6],"lengths_max":[5,8]}"#,
+        )
+        .expect("deserializes");
+        let FinalMask::Fragment(p) = &fm else {
+            panic!("expected fragment variant");
+        };
+        assert_eq!(p.lengths_min, vec![3, 6]);
+        assert_eq!(p.lengths_max, vec![5, 8]);
     }
 }

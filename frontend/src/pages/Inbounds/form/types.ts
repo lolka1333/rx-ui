@@ -187,6 +187,8 @@ export interface FormValues {
   xhttp_uplink_http_method: string;
   xhttp_session_placement: string;
   xhttp_session_key: string;
+  xhttp_session_id_table: string;
+  xhttp_session_id_length: string;
   xhttp_seq_placement: string;
   xhttp_seq_key: string;
   xhttp_uplink_data_placement: string;
@@ -246,10 +248,9 @@ export interface FormValues {
   finalmask_fragment_packets_mode: 'tlshello' | 'all' | 'range';
   finalmask_fragment_packets_from: number | null;
   finalmask_fragment_packets_to: number | null;
-  finalmask_fragment_length_min: number | null;
-  finalmask_fragment_length_max: number | null;
-  finalmask_fragment_delay_min: number | null;
-  finalmask_fragment_delay_max: number | null;
+  // Per-segment ranges as comma-separated "min-max" lists, e.g. "100-200, 3-5".
+  finalmask_fragment_lengths: string;
+  finalmask_fragment_delays: string;
   // noise
   finalmask_noise_packet_hex: string;
   finalmask_noise_rand_min: number | null;

@@ -29,6 +29,15 @@ use rust_embed::Embed;
 #[folder = "../frontend/dist/"]
 struct Asset;
 
+// Ties this module's compilation to the dist fingerprint that `build.rs` writes
+// into OUT_DIR. rust-embed bakes the dist tree in during THIS module's macro
+// expansion; when `pnpm build` changes the output, build.rs rewrites the
+// fingerprint, which changes this `include_str!` input and forces a recompile —
+// so an incremental release build can never embed a stale dist. The value is
+// intentionally unused (anonymous const); only the compile-time file dependency
+// matters.
+const _: &str = include_str!(concat!(env!("OUT_DIR"), "/dist_fingerprint.txt"));
+
 /// Returns an axum router that serves the embedded frontend on every
 /// path NOT already claimed by an `/api/*` nest. Wire it via
 /// `Router::fallback_service(static_assets::router())` AFTER all `nest`

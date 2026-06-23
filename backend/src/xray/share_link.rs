@@ -197,23 +197,30 @@ fn finalmask_share_link_param(fm: &FinalMask) -> Option<(String, String)> {
             "paddingMax":   p.padding_max.unwrap_or(0),
             "customTables": p.custom_tables,
         }),
-        // Conf-shape required by xray's `infra/conf` FragmentMask: `packets`
-        // is a string ("tlshello" | "" | "from-to"); `length` / `delay` /
-        // `maxSplit` are Int32Range, accepted as "min-max" strings. The proto
-        // field names (lengthMin / packetsFrom / …) are NOT recognised by the
-        // conf parser, which then sees LengthMin == 0 and rejects the whole
-        // config with "LengthMin can't be 0". (packets 0/1 == the tlshello
-        // shortcut, matching the gRPC path's packets_from=0/packets_to=1.)
+        // Conf-shape required by xray's `infra/conf` FragmentMask (v26.6.22
+        // #6334): `packets` is a string ("tlshello" | "" | "from-to");
+        // `lengths` / `delays` are arrays of "min-max" Int32Range strings, one
+        // per segment (the last entry repeats for further segments); `maxSplit`
+        // is a single Int32Range. The proto field names (lengthsMin / … ) are
+        // NOT recognised by the conf parser, and xray rejects a final `lengths`
+        // entry whose min is 0. (packets 0/1 == the tlshello shortcut, matching
+        // the gRPC path's packets_from=0/packets_to=1.)
         FinalMask::Fragment(p) => {
             let packets = match (p.packets_from.unwrap_or(0), p.packets_to.unwrap_or(0)) {
                 (0, 1) => "tlshello".to_owned(),
                 (0, 0) => String::new(),
                 (from, to) => format!("{from}-{to}"),
             };
+            let ranges = |mins: &[i64], maxs: &[i64]| -> Vec<String> {
+                mins.iter()
+                    .zip(maxs.iter())
+                    .map(|(min, max)| format!("{min}-{max}"))
+                    .collect()
+            };
             serde_json::json!({
                 "packets":  packets,
-                "length":   format!("{}-{}", p.length_min.unwrap_or(0), p.length_max.unwrap_or(0)),
-                "delay":    format!("{}-{}", p.delay_min.unwrap_or(0), p.delay_max.unwrap_or(0)),
+                "lengths":  ranges(&p.lengths_min, &p.lengths_max),
+                "delays":   ranges(&p.delays_min, &p.delays_max),
                 "maxSplit": format!("{}-{}", p.max_split_min.unwrap_or(0), p.max_split_max.unwrap_or(0)),
             })
         }
@@ -1095,8 +1102,8 @@ mod tests {
             SecurityConfig::None(NoneSecurity {}),
         );
         inb.finalmask = FinalMask::Fragment(FragmentParams {
-            length_min: Some(100),
-            length_max: Some(200),
+            lengths_min: vec![100],
+            lengths_max: vec![200],
             packets_from: Some(1),
             packets_to: Some(1),
             ..FragmentParams::default()
@@ -1104,14 +1111,18 @@ mod tests {
         let link = build_vless_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
         let v = extract_fm(&link);
         assert_eq!(v["tcp"][0]["type"], "fragment");
-        // Conf-shape: string ranges, NOT proto field names. xray's FragmentMask
-        // parses `length`/`packets` — `lengthMin`/`packetsFrom` would be ignored
-        // and the config rejected ("LengthMin can't be 0"). packets (1,1) → "1-1".
-        assert_eq!(v["tcp"][0]["settings"]["length"], "100-200");
+        // Conf-shape: `packets` string + `lengths`/`delays` arrays of "min-max"
+        // strings, NOT proto field names. xray's FragmentMask parses these;
+        // `lengthsMin`/`packetsFrom` would be ignored and the config rejected.
+        // packets (1,1) → "1-1".
+        assert_eq!(
+            v["tcp"][0]["settings"]["lengths"],
+            serde_json::json!(["100-200"])
+        );
         assert_eq!(v["tcp"][0]["settings"]["packets"], "1-1");
         assert_eq!(v["tcp"][0]["settings"]["maxSplit"], "0-0");
-        // The old proto keys must be gone, or xray will choke on this config.
-        assert!(v["tcp"][0]["settings"]["lengthMin"].is_null());
+        // The proto field names must be gone, or xray will choke on this config.
+        assert!(v["tcp"][0]["settings"]["lengthsMin"].is_null());
         // Fragment is TCP-only — udp slot must be present but empty.
         assert_eq!(v["udp"], serde_json::json!([]));
     }
@@ -1123,8 +1134,8 @@ mod tests {
             SecurityConfig::None(NoneSecurity {}),
         );
         inb.finalmask = FinalMask::Fragment(FragmentParams {
-            length_min: Some(5),
-            length_max: Some(20),
+            lengths_min: vec![5],
+            lengths_max: vec![20],
             packets_from: Some(0),
             packets_to: Some(1),
             ..FragmentParams::default()
@@ -1134,7 +1145,7 @@ mod tests {
         // packets (0,1) is the conf "tlshello" shortcut — the common DPI-bypass
         // mode that fragments only the TLS ClientHello.
         assert_eq!(v["tcp"][0]["settings"]["packets"], "tlshello");
-        assert_eq!(v["tcp"][0]["settings"]["length"], "5-20");
+        assert_eq!(v["tcp"][0]["settings"]["lengths"], serde_json::json!(["5-20"]));
     }
 
     #[test]
@@ -1226,8 +1237,8 @@ mod tests {
             SecurityConfig::None(NoneSecurity {}),
         );
         inb.finalmask = FinalMask::Fragment(FragmentParams {
-            length_min: Some(100),
-            length_max: Some(200),
+            lengths_min: vec![100],
+            lengths_max: vec![200],
             ..FragmentParams::default()
         });
         let link = build_vless_share_link(&inb, &base_client(), "1.2.3.4").unwrap();

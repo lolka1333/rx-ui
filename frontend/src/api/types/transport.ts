@@ -143,7 +143,16 @@ heartbeat_period: number | null, };
  */
 export type XhttpMode = "auto" | "packet-up" | "stream-up" | "stream-one";
 
-export type XhttpTransport = { path: string | null, host: string | null, mode: XhttpMode | null, headers: { [key in string]: string } | null, x_padding_bytes: string | null, no_grpc_header: boolean | null, no_sse_header: boolean | null, sc_max_each_post_bytes: string | null, sc_min_posts_interval_ms: string | null, sc_max_buffered_posts: number | null, sc_stream_up_server_secs: string | null, xmux_max_concurrency: string | null, xmux_max_connections: string | null, xmux_c_max_reuse_times: string | null, xmux_h_max_request_times: string | null, xmux_h_max_reusable_secs: string | null, xmux_h_keep_alive_period: number | null, x_padding_obfs_mode: boolean | null, x_padding_key: string | null, x_padding_header: string | null, x_padding_placement: string | null, x_padding_method: string | null, uplink_http_method: string | null, session_placement: string | null, session_key: string | null, seq_placement: string | null, seq_key: string | null, uplink_data_placement: string | null, uplink_data_key: string | null, uplink_chunk_size: string | null, server_max_header_bytes: number | null, 
+export type XhttpTransport = { path: string | null, host: string | null, mode: XhttpMode | null, headers: { [key in string]: string } | null, x_padding_bytes: string | null, no_grpc_header: boolean | null, no_sse_header: boolean | null, sc_max_each_post_bytes: string | null, sc_min_posts_interval_ms: string | null, sc_max_buffered_posts: number | null, sc_stream_up_server_secs: string | null, xmux_max_concurrency: string | null, xmux_max_connections: string | null, xmux_c_max_reuse_times: string | null, xmux_h_max_request_times: string | null, xmux_h_max_reusable_secs: string | null, xmux_h_keep_alive_period: number | null, x_padding_obfs_mode: boolean | null, x_padding_key: string | null, x_padding_header: string | null, x_padding_placement: string | null, x_padding_method: string | null, uplink_http_method: string | null, session_id_placement: string | null, session_id_key: string | null, 
+/**
+ * Predefined table name (ALPHABET/Alphabet/BASE36/Base62/HEX/alphabet/
+ * base36/hex/number) or a custom ASCII alphabet for the session ID.
+ */
+session_id_table: string | null, 
+/**
+ * Session-ID length range ("8" or "8-16"). Empty ≡ xray default.
+ */
+session_id_length: string | null, seq_placement: string | null, seq_key: string | null, uplink_data_placement: string | null, uplink_data_key: string | null, uplink_chunk_size: string | null, server_max_header_bytes: number | null, 
 /**
  * Stream-level QUIC tuning. xray's splithttp reads this off
  * `StreamConfig.quic_params` when running in H3 mode

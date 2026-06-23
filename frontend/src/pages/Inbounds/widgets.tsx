@@ -7,7 +7,9 @@
 //! header than implementation.
 
 import { useMemo, type CSSProperties, type ReactNode } from 'react';
+import type { FormItemProps } from 'antd';
 import {
+  AutoComplete,
   Button,
   Collapse,
   Form,
@@ -195,6 +197,7 @@ interface FieldProps {
   labelKey: string;
   tooltipKey?: string;
   last?: boolean;
+  rules?: FormItemProps['rules'];
 }
 
 export function RangeField({ name, labelKey, tooltipKey, last }: FieldProps) {
@@ -243,7 +246,39 @@ export function NumberField({ name, labelKey, tooltipKey, last }: FieldProps) {
   );
 }
 
-export function InputField({ name, labelKey, tooltipKey, last }: FieldProps) {
+export function InputField({ name, labelKey, tooltipKey, last, rules }: FieldProps) {
+  const { t } = useTranslation();
+  return (
+    <Form.Item
+      name={name}
+      label={t(labelKey)}
+      tooltip={tooltipKey ? t(tooltipKey) : undefined}
+      rules={rules}
+      style={{ marginBottom: last ? 0 : 12 }}
+    >
+      <Input />
+    </Form.Item>
+  );
+}
+
+// Free-text input with a dropdown of preset suggestions. Unlike `SelectField`
+// the operator can ALSO type a value that isn't in the list — for fields that
+// take a known preset OR a custom string (e.g. XHTTP `sessionIDTable`: a
+// predefined alphabet name or a custom ASCII set). Typing filters the presets
+// by case-insensitive substring; whatever is typed is kept as the value.
+interface AutoCompleteFieldProps extends FieldProps {
+  options: { value: string; label?: string }[];
+  placeholderKey?: string;
+}
+
+export function AutoCompleteField({
+  name,
+  labelKey,
+  tooltipKey,
+  options,
+  placeholderKey,
+  last,
+}: AutoCompleteFieldProps) {
   const { t } = useTranslation();
   return (
     <Form.Item
@@ -252,7 +287,18 @@ export function InputField({ name, labelKey, tooltipKey, last }: FieldProps) {
       tooltip={tooltipKey ? t(tooltipKey) : undefined}
       style={{ marginBottom: last ? 0 : 12 }}
     >
-      <Input />
+      <AutoComplete
+        options={options}
+        allowClear
+        style={{ width: '100%' }}
+        placeholder={placeholderKey ? t(placeholderKey) : undefined}
+        showSearch={{
+          filterOption: (input, option) =>
+            String(option?.value ?? '')
+              .toLowerCase()
+              .includes(input.toLowerCase()),
+        }}
+      />
     </Form.Item>
   );
 }

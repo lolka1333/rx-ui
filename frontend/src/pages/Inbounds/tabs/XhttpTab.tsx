@@ -8,6 +8,7 @@ import { Collapse, Form, Input, InputNumber, Select, Typography } from 'antd';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  AutoCompleteField,
   HeaderListField,
   InputField,
   NumberField,
@@ -24,6 +25,21 @@ const XHTTP_MODE_OPTIONS = [
   { value: 'stream-up', labelKey: 'inbounds.xhttpModeStreamUp' },
   { value: 'stream-one', labelKey: 'inbounds.xhttpModeStreamOne' },
 ] as const;
+
+// Predefined session-ID alphabets xray ships (infra/conf splithttp). The
+// operator can also type a custom ASCII set, so this drives an AutoComplete
+// (preset suggestions + free input), not a plain Select.
+const SESSION_ID_TABLE_OPTIONS = [
+  'ALPHABET',
+  'Alphabet',
+  'BASE36',
+  'Base62',
+  'HEX',
+  'alphabet',
+  'base36',
+  'hex',
+  'number',
+].map((value) => ({ value }));
 
 // The four placement sets are NOT interchangeable — they're separate by
 // design in xray-core. Source of truth:
@@ -309,6 +325,17 @@ function XhttpAdvanced() {
                 name="xhttp_seq_key"
                 labelKey="inbounds.xhttpSeqKey"
                 tooltipKey="inbounds.xhttpSeqKeyTip"
+              />
+              <AutoCompleteField
+                name="xhttp_session_id_table"
+                labelKey="inbounds.xhttpSessionIdTable"
+                tooltipKey="inbounds.xhttpSessionIdTableTip"
+                options={SESSION_ID_TABLE_OPTIONS}
+              />
+              <InputField
+                name="xhttp_session_id_length"
+                labelKey="inbounds.xhttpSessionIdLength"
+                tooltipKey="inbounds.xhttpSessionIdLengthTip"
                 last
               />
             </>

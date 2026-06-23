@@ -16,7 +16,7 @@ import { useMemo } from 'react';
 import { Alert, Form, Input, InputNumber, Select, Typography } from 'antd';
 import { useTranslation } from 'react-i18next';
 import type { FinalMask } from '@/api/types';
-import { RangePair, Section, SelectField, SideBySide } from '../widgets';
+import { InputField, RangePair, Section, SelectField, SideBySide } from '../widgets';
 import type { FormValues, SudokuAscii } from '../form/types';
 
 /** Sudoku padding is `uint32` on the proto but xray rejects values above
@@ -134,6 +134,26 @@ function FragmentFields() {
   // tlshello / all encode their packets pair internally (0,1 / 0,0), so we
   // hide the raw inputs to keep the operator out of the magic-numbers trap.
   const packetsMode = Form.useWatch('finalmask_fragment_packets_mode', form);
+  // Reject malformed range-list input ("3-5-7", "40-", "200-100") so a typo
+  // surfaces inline instead of silently truncating or sending an inverted range.
+  const rangeListRule = {
+    validator(_rule: unknown, value: unknown) {
+      const text = typeof value === 'string' ? value.trim() : '';
+      if (!text) return Promise.resolve();
+      for (const raw of text.split(',')) {
+        const part = raw.trim();
+        if (!part) continue;
+        const seg = part.split('-').map((s) => s.trim());
+        if (seg.length > 2 || seg.some((s) => !/^\d+$/.test(s))) {
+          return Promise.reject(new Error(t('inbounds.finalmaskFragmentRangeInvalid')));
+        }
+        if (seg.length === 2 && Number(seg[0]) > Number(seg[1])) {
+          return Promise.reject(new Error(t('inbounds.finalmaskFragmentRangeOrder')));
+        }
+      }
+      return Promise.resolve();
+    },
+  };
   return (
     <Section itemKey="finalmask-fragment" labelKey="inbounds.finalmaskFragmentSection">
       <Typography.Paragraph
@@ -160,17 +180,17 @@ function FragmentFields() {
           maxName="finalmask_fragment_packets_to"
         />
       )}
-      <RangePair
-        labelKey="inbounds.finalmaskFragmentLength"
-        tooltipKey="inbounds.finalmaskFragmentLengthTooltip"
-        minName="finalmask_fragment_length_min"
-        maxName="finalmask_fragment_length_max"
+      <InputField
+        name="finalmask_fragment_lengths"
+        labelKey="inbounds.finalmaskFragmentLengths"
+        tooltipKey="inbounds.finalmaskFragmentLengthsTooltip"
+        rules={[rangeListRule]}
       />
-      <RangePair
-        labelKey="inbounds.finalmaskFragmentDelay"
-        tooltipKey="inbounds.finalmaskFragmentDelayTooltip"
-        minName="finalmask_fragment_delay_min"
-        maxName="finalmask_fragment_delay_max"
+      <InputField
+        name="finalmask_fragment_delays"
+        labelKey="inbounds.finalmaskFragmentDelays"
+        tooltipKey="inbounds.finalmaskFragmentDelaysTooltip"
+        rules={[rangeListRule]}
         last
       />
     </Section>

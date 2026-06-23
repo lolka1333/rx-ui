@@ -115,8 +115,10 @@ export function inboundToForm(inb: Inbound): FormValues {
     v.xhttp_x_padding_placement = x.x_padding_placement ?? '';
     v.xhttp_x_padding_method = x.x_padding_method ?? '';
     v.xhttp_uplink_http_method = x.uplink_http_method ?? '';
-    v.xhttp_session_placement = x.session_placement ?? '';
-    v.xhttp_session_key = x.session_key ?? '';
+    v.xhttp_session_placement = x.session_id_placement ?? '';
+    v.xhttp_session_key = x.session_id_key ?? '';
+    v.xhttp_session_id_table = x.session_id_table ?? '';
+    v.xhttp_session_id_length = x.session_id_length ?? '';
     v.xhttp_seq_placement = x.seq_placement ?? '';
     v.xhttp_seq_key = x.seq_key ?? '';
     v.xhttp_uplink_data_placement = x.uplink_data_placement ?? '';
@@ -199,10 +201,15 @@ export function inboundToForm(inb: Inbound): FormValues {
       pf === 0 && pt === 1 ? 'tlshello' : pf === 0 && pt === 0 ? 'all' : 'range';
     v.finalmask_fragment_packets_from = inb.finalmask.packets_from;
     v.finalmask_fragment_packets_to = inb.finalmask.packets_to;
-    v.finalmask_fragment_length_min = inb.finalmask.length_min;
-    v.finalmask_fragment_length_max = inb.finalmask.length_max;
-    v.finalmask_fragment_delay_min = inb.finalmask.delay_min;
-    v.finalmask_fragment_delay_max = inb.finalmask.delay_max;
+    // Render the backend's parallel min/max arrays back into comma-separated
+    // "min-max" lists for the form's text inputs.
+    const frag = inb.finalmask;
+    v.finalmask_fragment_lengths = frag.lengths_min
+      .map((min, i) => `${min}-${frag.lengths_max[i] ?? min}`)
+      .join(', ');
+    v.finalmask_fragment_delays = frag.delays_min
+      .map((min, i) => `${min}-${frag.delays_max[i] ?? min}`)
+      .join(', ');
   } else if (inb.finalmask.kind === 'noise') {
     v.finalmask_kind = 'noise';
     v.finalmask_noise_packet_hex = inb.finalmask.packet_hex;
@@ -411,8 +418,10 @@ export function buildTransport(v: FormValues): TransportConfig {
         x_padding_placement: orNull(v.xhttp_x_padding_placement),
         x_padding_method: orNull(v.xhttp_x_padding_method),
         uplink_http_method: orNull(v.xhttp_uplink_http_method),
-        session_placement: orNull(v.xhttp_session_placement),
-        session_key: orNull(v.xhttp_session_key),
+        session_id_placement: orNull(v.xhttp_session_placement),
+        session_id_key: orNull(v.xhttp_session_key),
+        session_id_table: orNull(v.xhttp_session_id_table),
+        session_id_length: orNull(v.xhttp_session_id_length),
         seq_placement: orNull(v.xhttp_seq_placement),
         seq_key: orNull(v.xhttp_seq_key),
         uplink_data_placement: orNull(v.xhttp_uplink_data_placement),
@@ -536,14 +545,29 @@ export function buildFinalMask(v: FormValues): FinalMask {
           : v.finalmask_fragment_packets_mode === 'all'
             ? [0, 0]
             : [v.finalmask_fragment_packets_from, v.finalmask_fragment_packets_to];
+      // Parse comma-separated "min-max" lists into the backend's parallel
+      // min/max arrays. "100" → [100,100]; "3-5" → [3,5]; blanks skipped.
+      const parseRanges = (s: string): [number[], number[]] => {
+        const mins: number[] = [];
+        const maxs: number[] = [];
+        for (const part of s.split(',').map((x) => x.trim()).filter(Boolean)) {
+          const [a, b] = part.split('-').map((x) => Number.parseInt(x.trim(), 10));
+          const min = Number.isFinite(a) ? a : 0;
+          mins.push(min);
+          maxs.push(Number.isFinite(b) ? b : min);
+        }
+        return [mins, maxs];
+      };
+      const [lengths_min, lengths_max] = parseRanges(v.finalmask_fragment_lengths);
+      const [delays_min, delays_max] = parseRanges(v.finalmask_fragment_delays);
       return {
         kind: 'fragment',
         packets_from,
         packets_to,
-        length_min: v.finalmask_fragment_length_min,
-        length_max: v.finalmask_fragment_length_max,
-        delay_min: v.finalmask_fragment_delay_min,
-        delay_max: v.finalmask_fragment_delay_max,
+        lengths_min,
+        lengths_max,
+        delays_min,
+        delays_max,
         max_split_min: null,
         max_split_max: null,
       };

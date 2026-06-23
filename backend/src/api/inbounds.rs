@@ -130,19 +130,41 @@ fn validate_finalmask(security: &SecurityConfig, finalmask: &FinalMask) -> AppRe
         ));
     }
 
-    // xray's FragmentMask.Build rejects LengthMin == 0 ("LengthMin can't be
-    // 0"). An active Fragment mask with a zero/empty min length ships
-    // `length:"0-N"` in the share-link fm=, the client's xray refuses the
-    // config, and the user simply can't connect — so reject it at the panel.
+    // xray's FragmentMask.Build rejects a final `lengths` entry whose min is
+    // 0 ("last lengths entry min can't be 0"). An active Fragment mask whose
+    // last length range starts at 0 ships a config the client's xray refuses,
+    // so the user simply can't connect — reject it at the panel instead.
     if let FinalMask::Fragment(p) = finalmask
         && finalmask.is_active()
-        && p.length_min.unwrap_or(0) < 1
     {
-        return Err(AppError::BadRequest(
-            "Fragment FinalMask needs a chunk length of at least 1 byte — \
-             xray rejects a zero min length. Set the Length min to 1 or more."
-                .to_owned(),
-        ));
+        if p.lengths_min.last().copied().unwrap_or(0) < 1 {
+            return Err(AppError::BadRequest(
+                "Fragment FinalMask needs a chunk length of at least 1 byte — \
+                 xray rejects a zero min on the last length range. Set the last \
+                 length min to 1 or more."
+                    .to_owned(),
+            ));
+        }
+        // The share-link zips the min/max lists into "min-max" pairs, so lists
+        // of different lengths would silently drop ranges; an inverted min > max
+        // range is a config error too. The form guarantees neither, but a direct
+        // API call could send them — reject both here.
+        if p.lengths_min.len() != p.lengths_max.len()
+            || p.delays_min.len() != p.delays_max.len()
+        {
+            return Err(AppError::BadRequest(
+                "Fragment length/delay ranges are malformed — each range needs \
+                 both a min and a max."
+                    .to_owned(),
+            ));
+        }
+        if p.lengths_min.iter().zip(&p.lengths_max).any(|(mn, mx)| mn > mx)
+            || p.delays_min.iter().zip(&p.delays_max).any(|(mn, mx)| mn > mx)
+        {
+            return Err(AppError::BadRequest(
+                "Fragment range min must be ≤ max.".to_owned(),
+            ));
+        }
     }
 
     Ok(())
@@ -1141,8 +1163,8 @@ mod validate_layers_tests {
             &FinalMask::Fragment(FragmentParams {
                 packets_from: Some(0),
                 packets_to: Some(1),
-                length_min: Some(40),
-                length_max: Some(80),
+                lengths_min: vec![40],
+                lengths_max: vec![80],
                 ..FragmentParams::default()
             }),
         )
@@ -1160,16 +1182,58 @@ mod validate_layers_tests {
             &FinalMask::Fragment(FragmentParams {
                 packets_from: Some(0),
                 packets_to: Some(1),
-                // min cleared, max set → the mask is active but ships
-                // length "0-80", which xray would reject.
-                length_min: None,
-                length_max: Some(80),
+                // last length min is 0, max set → the mask is active but
+                // ships lengths ["0-80"], which xray would reject.
+                lengths_min: vec![0],
+                lengths_max: vec![80],
                 ..FragmentParams::default()
             }),
         )
         .unwrap_err()
         .to_string();
         assert!(err.contains("length"), "got: {err}");
+    }
+
+    /// A range whose min exceeds its max ("200-100") is a config error; the
+    /// panel rejects it instead of shipping an inverted range to xray.
+    #[test]
+    fn fragment_inverted_range_rejected() {
+        let err = validate_layers(
+            &vless(VlessFlow::None),
+            &TransportConfig::Tcp(TcpTransport {}),
+            &reality_ok(),
+            &FinalMask::Fragment(FragmentParams {
+                packets_from: Some(0),
+                packets_to: Some(1),
+                lengths_min: vec![200],
+                lengths_max: vec![100],
+                ..FragmentParams::default()
+            }),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("min must be"), "got: {err}");
+    }
+
+    /// Mismatched min/max list lengths would silently truncate via the
+    /// share-link zip; the panel rejects the malformed config up front.
+    #[test]
+    fn fragment_mismatched_range_lists_rejected() {
+        let err = validate_layers(
+            &vless(VlessFlow::None),
+            &TransportConfig::Tcp(TcpTransport {}),
+            &reality_ok(),
+            &FinalMask::Fragment(FragmentParams {
+                packets_from: Some(0),
+                packets_to: Some(1),
+                lengths_min: vec![40, 90],
+                lengths_max: vec![80],
+                ..FragmentParams::default()
+            }),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("malformed"), "got: {err}");
     }
 
     // ---- VLESS fallbacks validation -------------------------------------
