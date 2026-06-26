@@ -113,13 +113,34 @@ export function Outbounds() {
   // backend, survives xray restarts. Poll only while this tab is visible so a
   // hidden page doesn't hit the API every 5s.
   const isActive = useNav((s) => s.current === 'outbounds');
-  const { data: stats = {} } = useQuery<Record<string, OutboundTraffic>>({
+  const { data: stats = {}, dataUpdatedAt } = useQuery<Record<string, OutboundTraffic>>({
     queryKey: ['outbounds-stats'],
     queryFn: async () =>
       (await apiClient.get<Record<string, OutboundTraffic>>('/outbounds/stats')).data,
     refetchInterval: isActive ? 5_000 : false,
     staleTime: 4_000,
   });
+
+  // Live indicator: the endpoint returns cumulative totals, not a rate, so we
+  // derive "currently flowing" by diffing each poll against the previous one —
+  // a tag whose bytes grew since the last poll is live (its bar animates). This
+  // is React's "store info from previous renders" pattern: a guarded setState
+  // during render (not in an effect), keyed on `dataUpdatedAt` which ticks on
+  // every fetch even when structural sharing keeps the same `stats` object, so
+  // an idle tag clears on the next poll.
+  const [liveTags, setLiveTags] = useState<Set<string>>(new Set());
+  const [prevPoll, setPrevPoll] = useState<{ at: number; stats: Record<string, OutboundTraffic> }>(
+    { at: 0, stats: {} },
+  );
+  if (dataUpdatedAt !== prevPoll.at) {
+    const next = new Set<string>();
+    for (const [tag, s] of Object.entries(stats)) {
+      const p = prevPoll.stats[tag];
+      if (p && (s.uplink > p.uplink || s.downlink > p.downlink)) next.add(tag);
+    }
+    setPrevPoll({ at: dataUpdatedAt, stats });
+    setLiveTags(next);
+  }
 
   // Persist the whole array — the backend replaces + resyncs xray on PUT.
   const putList = (list: CustomOutbound[]) => apiClient.put('/outbounds', list);
@@ -315,9 +336,14 @@ export function Outbounds() {
             key: 'traffic',
             width: 180,
             render: (_, r) => {
-              const s = stats[r.rowKind === 'system' ? r.tag : r.ob.tag];
+              const tag = r.rowKind === 'system' ? r.tag : r.ob.tag;
+              const s = stats[tag];
               return s ? (
-                <TrafficCell up={fmtBytes(s.uplink)} down={fmtBytes(s.downlink)} live={false} />
+                <TrafficCell
+                  up={fmtBytes(s.uplink)}
+                  down={fmtBytes(s.downlink)}
+                  live={liveTags.has(tag)}
+                />
               ) : (
                 <Typography.Text type="secondary">—</Typography.Text>
               );
