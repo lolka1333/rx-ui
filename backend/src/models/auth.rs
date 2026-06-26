@@ -1,6 +1,29 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+/// One operator-defined routing rule. Stored (by id) in `xray_custom_rules`;
+/// its position in the evaluation order is held separately in
+/// `xray_rule_order`. All matchers are AND-ed; an empty matcher is omitted.
+/// v1 target is a single `outbound_tag` (direct / blocked / direct-ipv4).
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../frontend/src/api/types/settings.ts")]
+pub struct RoutingRule {
+    pub id: String,
+    pub enabled: bool,
+    /// Panel-only label; not emitted to xray.
+    pub name: String,
+    pub domain: Vec<String>,
+    pub ip: Vec<String>,
+    pub source_ip: Vec<String>,
+    pub port: String,
+    pub source_port: String,
+    pub network: Vec<String>,
+    pub protocol: Vec<String>,
+    pub inbound_tag: Vec<String>,
+    pub user: Vec<String>,
+    pub outbound_tag: String,
+}
+
 /// Runtime configuration the panel reads from DB at boot. Holds the
 /// values an operator can change from the UI without editing the env
 /// file: TCP port + URL prefix the panel binds to, plus subscription
@@ -45,6 +68,31 @@ pub struct PanelSettings {
     /// routes stripped — useful for putting the public endpoint behind
     /// a separate firewall rule / CDN without exposing the admin API.
     pub sub_port: i32,
+    /// `domainStrategy` of the freedom (`direct`) outbound: `AsIs`,
+    /// `UseIP*`, or `ForceIP*`. Lives in the bootstrap config, so a
+    /// change only applies on the next xray restart.
+    pub xray_freedom_strategy: String,
+    /// `domainStrategy` of the routing block: `AsIs`, `IPIfNonMatch`,
+    /// or `IPOnDemand`. Same restart-to-apply rule as above.
+    pub xray_routing_strategy: String,
+    /// URL the "test outbound" button fetches from the server to confirm
+    /// the egress reaches the internet. Stored only; not part of the xray
+    /// config (a single freedom outbound needs no observatory).
+    pub xray_test_url: String,
+    /// Block the sniffed `bittorrent` protocol via a blackhole outbound
+    /// (needs inbound sniffing enabled to detect it).
+    pub xray_block_bittorrent: bool,
+    /// Destinations blackholed. Each entry is a domain, IP/CIDR, or a
+    /// `geoip:`/`geosite:`/`ext:` matcher xray understands. Stored as a JSON
+    /// array in the DB; surfaced here as a list.
+    pub xray_blocked_ips: Vec<String>,
+    pub xray_blocked_domains: Vec<String>,
+    /// Domains forced out over IPv4 (routed to a freedom `UseIPv4` outbound).
+    pub xray_ipv4_domains: Vec<String>,
+    /// Operator-defined ordered routing rules, applied after the built-in ones.
+    pub xray_custom_rules: Vec<RoutingRule>,
+    /// Full evaluation order as tokens (system keys + custom rule ids).
+    pub xray_rule_order: Vec<String>,
 }
 
 /// Body for `PUT /api/settings/panel`. Same shape as the read view —
@@ -62,6 +110,17 @@ pub struct PanelSettingsUpdate {
     pub sub_brand_name: String,
     pub sub_service_url: String,
     pub sub_port: i32,
+    pub xray_freedom_strategy: String,
+    pub xray_routing_strategy: String,
+    pub xray_test_url: String,
+    pub xray_block_bittorrent: bool,
+    pub xray_blocked_ips: Vec<String>,
+    pub xray_blocked_domains: Vec<String>,
+    pub xray_ipv4_domains: Vec<String>,
+    #[serde(default)]
+    pub xray_custom_rules: Vec<RoutingRule>,
+    #[serde(default)]
+    pub xray_rule_order: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]

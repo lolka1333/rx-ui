@@ -9,18 +9,26 @@
 //! anywhere in the protocol/transport/security trees doesn't require
 //! changes here.
 
-use crate::models::{Client, Inbound, Sniffing};
-use crate::transports::finalmask::FinalMaskScope;
-use crate::xray::proto::xray::app::proxyman::{ReceiverConfig, SniffingConfig};
+use crate::models::{Client, CustomOutbound, Inbound, OutboundProtocolConfig, Sniffing};
+use crate::protocols::vless::vless_client_encryption_fields;
+use crate::xray::proto::xray::app::proxyman::{
+    MultiplexingConfig, ReceiverConfig, SenderConfig, SniffingConfig,
+};
 use crate::xray::proto::xray::common::geodata::{
     Cidr, CidrRule, Domain, DomainRule, IpRule, domain::Type as DomainType, domain_rule, ip_rule,
 };
 use crate::xray::proto::xray::common::net::{IpOrDomain, PortList, PortRange, ip_or_domain};
+use crate::xray::proto::xray::common::protocol::{ServerEndpoint, User};
 use crate::xray::proto::xray::common::serial::TypedMessage;
-use crate::xray::proto::xray::core::InboundHandlerConfig;
-use crate::xray::proto::xray::transport::internet::StreamConfig;
+use crate::xray::proto::xray::core::{InboundHandlerConfig, OutboundHandlerConfig};
+use crate::xray::proto::xray::proxy::vless::Account as VlessAccount;
+use crate::xray::proto::xray::proxy::vless::outbound::Config as VlessOutboundConfig;
+use crate::xray::proto::xray::transport::internet::{ProxyConfig, StreamConfig};
 
 const TYPE_RECEIVER_CONFIG: &str = "xray.app.proxyman.ReceiverConfig";
+const TYPE_SENDER_CONFIG: &str = "xray.app.proxyman.SenderConfig";
+const TYPE_VLESS_OUTBOUND: &str = "xray.proxy.vless.outbound.Config";
+const TYPE_VLESS_ACCOUNT: &str = "xray.proxy.vless.Account";
 
 /// Build the `InboundHandlerConfig` proto from an `Inbound` + its
 /// enabled-only client list. Caller filters out disabled clients —
@@ -43,22 +51,9 @@ pub fn inbound_to_handler_config(
         .map(|c| protocol.build_user(c))
         .collect::<anyhow::Result<Vec<_>>>()?;
 
-    // FinalMask wires the server's socket masks. Sudoku is a symmetric,
-    // stateful cipher → it runs on both sides (fills both slots). Noise is
-    // UDP-only. Fragment (the only Tcp-scope mask) is the odd one out: it is
-    // *asymmetric*. The client fragments its own ClientHello (shipped via the
-    // share-link's `fm=`); the server just reassembles over TCP, so a
-    // server-side fragment wrapper is pointless — and under Reality it is
-    // fatal: xray panics `*fragment.fragmentConn is not reality.CloseWriteConn`
-    // because Reality type-asserts CloseWrite on the un-spliced server conn.
-    // So Fragment never enters the server's tcpmasks; it is client-only.
-    let (tcpmasks, udpmasks) = match inb.finalmask.to_typed_message() {
-        Some((m, FinalMaskScope::Both)) => (vec![m.clone()], vec![m]),
-        Some((m, FinalMaskScope::Udp)) => (Vec::new(), vec![m]),
-        // Fragment (Tcp scope) is client-only — see the note above — so it
-        // contributes no server-side mask, same as an inactive mask.
-        Some((_, FinalMaskScope::Tcp)) | None => (Vec::new(), Vec::new()),
-    };
+    // Server-side socket masks. `client_side = false` drops Fragment (it is
+    // client-only — see `FinalMask::masks`); Sudoku/Noise fill their slots.
+    let (tcpmasks, udpmasks) = inb.finalmask.masks(false);
 
     // Stream settings = transport + security composed.
     let stream_settings = StreamConfig {
@@ -111,6 +106,132 @@ pub fn inbound_to_handler_config(
         receiver_settings: Some(receiver_msg),
         proxy_settings: Some(proxy),
     })
+}
+
+/// Build the `OutboundHandlerConfig` proto from a `CustomOutbound`, ready for
+/// `HandlerService.AddOutbound`. Mirrors `inbound_to_handler_config` but emits
+/// a `SenderConfig` (dialer side: stream + mux + chaining + sendThrough) wrapped
+/// around the same `StreamConfig` building — only the security layer differs
+/// (client variant: no certs / Reality client fields), and there are no users
+/// or sniffing.
+pub fn outbound_to_handler_config(ob: &CustomOutbound) -> anyhow::Result<OutboundHandlerConfig> {
+    let transport = ob.transport.as_transport();
+    let security = ob.security.as_security();
+
+    // Client-side socket masks, mirrored to the upstream so a symmetric Sudoku
+    // (or UDP Noise) lines up — without it the server drops the connection.
+    // `client_side = true` puts Fragment in the TCP slot: the dialer fragments
+    // its OWN ClientHello (the asymmetric half the inbound deliberately omits).
+    let (tcpmasks, udpmasks) = ob.finalmask.masks(true);
+
+    // Same StreamConfig as inbounds, but the client-side security variant.
+    let stream_settings = StreamConfig {
+        protocol_name: transport.xray_protocol_name().to_owned(),
+        transport_settings: ob.transport.build_xray_transport_settings()?,
+        security_type: security.xray_type_url().to_owned(),
+        security_settings: security
+            .build_client_settings()?
+            .map_or_else(Vec::new, |msg| vec![msg]),
+        quic_params: transport.quic_params_proto(),
+        tcpmasks,
+        udpmasks,
+        ..StreamConfig::default()
+    };
+
+    // Protocol-specific outbound proxy settings.
+    let proxy = match &ob.protocol {
+        OutboundProtocolConfig::Vless(v) => {
+            // Mirror the upstream server's application-layer cipher. For native
+            // (mlkem768x25519plus) this sets encryption(=key)/xor_mode/seconds/
+            // padding exactly as the inbound's `build_user` does — a verbatim
+            // string copy would make xray reject the key ("invalid seed length").
+            let (encryption, xor_mode, seconds, padding) = vless_client_encryption_fields(
+                v.encryption_mode,
+                v.encryption_xor_mode,
+                v.encryption_client_key.as_deref(),
+                v.encryption_padding.as_deref(),
+            );
+            let account = VlessAccount {
+                id: v.id.clone(),
+                flow: v.flow.clone(),
+                encryption,
+                xor_mode,
+                seconds,
+                padding,
+                ..VlessAccount::default()
+            };
+            let user = User {
+                level: 0,
+                email: String::new(),
+                account: Some(TypedMessage {
+                    r#type: TYPE_VLESS_ACCOUNT.to_owned(),
+                    value: prost::Message::encode_to_vec(&account),
+                }),
+            };
+            let endpoint = ServerEndpoint {
+                address: Some(parse_listen_address(&v.address)),
+                port: u32::from(v.port),
+                user: Some(user),
+            };
+            let cfg = VlessOutboundConfig {
+                vnext: Some(endpoint),
+            };
+            TypedMessage {
+                r#type: TYPE_VLESS_OUTBOUND.to_owned(),
+                value: prost::Message::encode_to_vec(&cfg),
+            }
+        }
+    };
+
+    let multiplex_settings = ob.mux.enabled.then(|| MultiplexingConfig {
+        enabled: true,
+        concurrency: ob.mux.concurrency,
+        ..MultiplexingConfig::default()
+    });
+
+    // proxySettings.tag — chain through another outbound.
+    let proxy_settings = (!ob.proxy_tag.trim().is_empty()).then(|| ProxyConfig {
+        tag: ob.proxy_tag.trim().to_owned(),
+        ..ProxyConfig::default()
+    });
+
+    // sendThrough: an IP literal binds `via`; anything else (CIDR / origin /
+    // srcip) rides in `via_cidr`.
+    let (via, via_cidr) = parse_send_through(&ob.send_through);
+
+    let sender = SenderConfig {
+        via,
+        via_cidr,
+        stream_settings: Some(stream_settings),
+        proxy_settings,
+        multiplex_settings,
+        // Outbound domainStrategy is not modeled — always AsIs (0).
+        target_strategy: 0,
+    };
+
+    Ok(OutboundHandlerConfig {
+        tag: ob.tag.clone(),
+        sender_settings: Some(TypedMessage {
+            r#type: TYPE_SENDER_CONFIG.to_owned(),
+            value: prost::Message::encode_to_vec(&sender),
+        }),
+        proxy_settings: Some(proxy),
+        expire: 0,
+        comment: String::new(),
+    })
+}
+
+/// `sendThrough` → (`via`, `via_cidr`): a bare IP binds the source address via
+/// `via`; a CIDR or the `origin` / `srcip` keywords go to `via_cidr`.
+fn parse_send_through(s: &str) -> (Option<IpOrDomain>, String) {
+    let t = s.trim();
+    if t.is_empty() {
+        (None, String::new())
+    } else if t.parse::<std::net::IpAddr>().is_ok() {
+        (Some(parse_listen_address(t)), String::new())
+    } else {
+        (None, t.to_owned())
+    }
 }
 
 /// Parse the `listen` column into xray's `IPOrDomain` oneof. Accepts

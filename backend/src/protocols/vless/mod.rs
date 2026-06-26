@@ -5,7 +5,10 @@
 
 mod proto;
 
-pub use proto::{VlessEncryptionAuth, VlessEncryptionMode, VlessFlow, VlessProtocol, VlessXorMode};
+pub use proto::{
+    VlessEncryptionAuth, VlessEncryptionMode, VlessFlow, VlessProtocol, VlessXorMode,
+    vless_client_encryption_fields,
+};
 
 // `VlessFallback` / `VlessFallbackType` live inside `proto` and are
 // referenced from the proto module's own helpers — no production code

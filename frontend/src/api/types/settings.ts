@@ -76,7 +76,47 @@ sub_service_url: string,
  * routes stripped — useful for putting the public endpoint behind
  * a separate firewall rule / CDN without exposing the admin API.
  */
-sub_port: number, };
+sub_port: number, 
+/**
+ * `domainStrategy` of the freedom (`direct`) outbound: `AsIs`,
+ * `UseIP*`, or `ForceIP*`. Lives in the bootstrap config, so a
+ * change only applies on the next xray restart.
+ */
+xray_freedom_strategy: string, 
+/**
+ * `domainStrategy` of the routing block: `AsIs`, `IPIfNonMatch`,
+ * or `IPOnDemand`. Same restart-to-apply rule as above.
+ */
+xray_routing_strategy: string, 
+/**
+ * URL the "test outbound" button fetches from the server to confirm
+ * the egress reaches the internet. Stored only; not part of the xray
+ * config (a single freedom outbound needs no observatory).
+ */
+xray_test_url: string, 
+/**
+ * Block the sniffed `bittorrent` protocol via a blackhole outbound
+ * (needs inbound sniffing enabled to detect it).
+ */
+xray_block_bittorrent: boolean, 
+/**
+ * Destinations blackholed. Each entry is a domain, IP/CIDR, or a
+ * `geoip:`/`geosite:`/`ext:` matcher xray understands. Stored as a JSON
+ * array in the DB; surfaced here as a list.
+ */
+xray_blocked_ips: Array<string>, xray_blocked_domains: Array<string>, 
+/**
+ * Domains forced out over IPv4 (routed to a freedom `UseIPv4` outbound).
+ */
+xray_ipv4_domains: Array<string>, 
+/**
+ * Operator-defined ordered routing rules, applied after the built-in ones.
+ */
+xray_custom_rules: Array<RoutingRule>, 
+/**
+ * Full evaluation order as tokens (system keys + custom rule ids).
+ */
+xray_rule_order: Array<string>, };
 
 /**
  * Body for `PUT /api/settings/panel`. Same shape as the read view —
@@ -84,6 +124,18 @@ sub_port: number, };
  * allowlist, log level, etc.) may carry different validation than
  * the read response.
  */
-export type PanelSettingsUpdate = { panel_port: number, panel_base_path: string, sub_enabled: boolean, sub_host_override: string, sub_update_interval_hours: number, sub_brand_name: string, sub_service_url: string, sub_port: number, };
+export type PanelSettingsUpdate = { panel_port: number, panel_base_path: string, sub_enabled: boolean, sub_host_override: string, sub_update_interval_hours: number, sub_brand_name: string, sub_service_url: string, sub_port: number, xray_freedom_strategy: string, xray_routing_strategy: string, xray_test_url: string, xray_block_bittorrent: boolean, xray_blocked_ips: Array<string>, xray_blocked_domains: Array<string>, xray_ipv4_domains: Array<string>, xray_custom_rules: Array<RoutingRule>, xray_rule_order: Array<string>, };
+
+/**
+ * One operator-defined routing rule. Stored (by id) in `xray_custom_rules`;
+ * its position in the evaluation order is held separately in
+ * `xray_rule_order`. All matchers are AND-ed; an empty matcher is omitted.
+ * v1 target is a single `outbound_tag` (direct / blocked / direct-ipv4).
+ */
+export type RoutingRule = { id: string, enabled: boolean, 
+/**
+ * Panel-only label; not emitted to xray.
+ */
+name: string, domain: Array<string>, ip: Array<string>, source_ip: Array<string>, port: string, source_port: string, network: Array<string>, protocol: Array<string>, inbound_tag: Array<string>, user: Array<string>, outbound_tag: string, };
 
 export type UserView = { id: string, username: string, is_admin: boolean, };

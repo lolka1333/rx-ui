@@ -53,7 +53,38 @@ pub async fn bootstrap(state: &AppState) -> anyhow::Result<()> {
         }
     }
 
-    let value = config_gen::build_bootstrap_config();
-    config_gen::write_config_validated(&state.xray.binary, &state.xray.config_path, &value).await?;
+    write_bootstrap_config(state).await?;
     state.xray.start().await
+}
+
+/// Regenerate the bootstrap config from the operator's current xray
+/// settings (Freedom + routing `domainStrategy`) and write it to disk,
+/// validated. Called at boot and before every xray restart, so a change
+/// to those settings is picked up the next time xray loads its config.
+pub async fn write_bootstrap_config(state: &AppState) -> anyhow::Result<()> {
+    let row = sqlx::query!(
+        "SELECT xray_freedom_strategy, xray_routing_strategy, xray_block_bittorrent,
+                xray_blocked_ips, xray_blocked_domains, xray_ipv4_domains,
+                xray_custom_rules, xray_rule_order
+            FROM panel_settings WHERE id = 1"
+    )
+    .fetch_one(&state.db)
+    .await?;
+    // The JSON columns degrade to an empty value on a parse failure (e.g. a
+    // hand-edited DB) rather than refusing to boot xray.
+    let parse = |s: &str| serde_json::from_str::<Vec<String>>(s).unwrap_or_default();
+    let custom_rules: Vec<crate::models::RoutingRule> =
+        serde_json::from_str(&row.xray_custom_rules).unwrap_or_default();
+    let settings = config_gen::BootstrapSettings {
+        freedom_strategy: row.xray_freedom_strategy,
+        routing_strategy: row.xray_routing_strategy,
+        block_bittorrent: row.xray_block_bittorrent != 0,
+        blocked_ips: parse(&row.xray_blocked_ips),
+        blocked_domains: parse(&row.xray_blocked_domains),
+        ipv4_domains: parse(&row.xray_ipv4_domains),
+        custom_rules,
+        rule_order: parse(&row.xray_rule_order),
+    };
+    let value = config_gen::build_bootstrap_config(&settings);
+    config_gen::write_config_validated(&state.xray.binary, &state.xray.config_path, &value).await
 }

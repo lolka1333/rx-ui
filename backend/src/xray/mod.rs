@@ -4,6 +4,7 @@ pub mod grpc;
 pub mod installer;
 pub mod keygen;
 pub mod orchestrator;
+pub mod outbound_test;
 pub mod proto;
 pub mod reload;
 pub mod share_link;

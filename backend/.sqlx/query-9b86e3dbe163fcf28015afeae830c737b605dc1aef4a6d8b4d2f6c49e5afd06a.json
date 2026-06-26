@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT tag            AS \"tag!: String\",\n                  uplink_total   AS \"uplink_total!: i64\",\n                  downlink_total AS \"downlink_total!: i64\"\n           FROM outbound_traffic",
+  "describe": {
+    "columns": [
+      {
+        "name": "tag!: String",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "outbound_traffic",
+            "name": "tag"
+          }
+        }
+      },
+      {
+        "name": "uplink_total!: i64",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "outbound_traffic",
+            "name": "uplink_total"
+          }
+        }
+      },
+      {
+        "name": "downlink_total!: i64",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "outbound_traffic",
+            "name": "downlink_total"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "9b86e3dbe163fcf28015afeae830c737b605dc1aef4a6d8b4d2f6c49e5afd06a"
+}

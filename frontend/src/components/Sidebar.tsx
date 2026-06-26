@@ -2,6 +2,7 @@ import { Layout, Menu, Switch, Checkbox, Drawer, Tooltip } from 'antd';
 import {
   DashboardOutlined,
   CloudServerOutlined,
+  ExportOutlined,
   TeamOutlined,
   ClusterOutlined,
   SettingOutlined,
@@ -139,6 +140,7 @@ export function Sidebar({
       },
       { key: 'dashboard', icon: <DashboardOutlined />, label: t('sidebar.dashboard') },
       { key: 'inbounds', icon: <CloudServerOutlined />, label: t('sidebar.inbounds') },
+      { key: 'outbounds', icon: <ExportOutlined />, label: t('sidebar.outbounds') },
       { key: 'clients', icon: <TeamOutlined />, label: t('sidebar.clients') },
       { key: 'nodes', icon: <ClusterOutlined />, label: t('sidebar.nodes'), disabled: true },
     ],

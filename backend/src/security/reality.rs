@@ -47,6 +47,26 @@ pub struct RealitySecurity {
     pub spider_x: String,
 }
 
+impl RealitySecurity {
+    /// uTLS fingerprint, defaulting to "chrome" (the safest blanket profile)
+    /// when unset. Shared by the share-link and the outbound client build.
+    fn effective_fingerprint(&self) -> &str {
+        if self.fingerprint.is_empty() {
+            "chrome"
+        } else {
+            &self.fingerprint
+        }
+    }
+    /// `SpiderX` crawl path, defaulting to "/" when unset.
+    fn effective_spider_x(&self) -> &str {
+        if self.spider_x.is_empty() {
+            "/"
+        } else {
+            &self.spider_x
+        }
+    }
+}
+
 impl Security for RealitySecurity {
     fn kind(&self) -> SecurityKind {
         SecurityKind::Reality
@@ -62,21 +82,9 @@ impl Security for RealitySecurity {
         let sid = self.short_ids.first().map_or("", String::as_str).to_owned();
         params.push(("sid".to_owned(), sid));
         params.push(("pbk".to_owned(), self.public_key.clone()));
-        let fp = if self.fingerprint.is_empty() {
-            "chrome".to_owned()
-        } else {
-            self.fingerprint.clone()
-        };
-        params.push(("fp".to_owned(), fp));
-        // SpiderX crawl path. Empty defaults to "/" — the value every
-        // client expects when none is configured. URL-encoded by the
-        // share-link builder ("/" → %2F).
-        let spx = if self.spider_x.is_empty() {
-            "/".to_owned()
-        } else {
-            self.spider_x.clone()
-        };
-        params.push(("spx".to_owned(), spx));
+        params.push(("fp".to_owned(), self.effective_fingerprint().to_owned()));
+        // SpiderX crawl path — URL-encoded by the share-link builder ("/" → %2F).
+        params.push(("spx".to_owned(), self.effective_spider_x().to_owned()));
         params
     }
     fn build_settings(&self) -> anyhow::Result<Option<TypedMessage>> {
@@ -105,6 +113,36 @@ impl Security for RealitySecurity {
             // it against a whitelist and rejects unknowns. The operator-
             // chosen fingerprint travels via the share-link only (uTLS
             // emulation happens on the client side).
+            ..XrayRealityConfig::default()
+        };
+        Ok(Some(TypedMessage {
+            r#type: TYPE_REALITY_CONFIG.to_owned(),
+            value: cfg.encode_to_vec(),
+        }))
+    }
+
+    fn build_client_settings(&self) -> anyhow::Result<Option<TypedMessage>> {
+        // Outbound/client Reality uses the CLIENT fields of the same proto:
+        // the server's `public_key`, the chosen SNI (`server_name`), one
+        // `short_id`, the uTLS `Fingerprint`, and the `spider_x` crawl path.
+        // The server-only fields (private_key / server_names[] / short_ids[] /
+        // dest) stay unset.
+        let public_key = keygen::decode_x25519_key(&self.public_key)
+            .map_err(|e| anyhow::anyhow!("public_key: {e}"))?;
+        let short_id = self
+            .short_ids
+            .first()
+            .map(|s| keygen::decode_short_id(s))
+            .transpose()
+            .map_err(|e| anyhow::anyhow!("short_id: {e}"))?
+            .unwrap_or_default();
+        let server_name = self.server_names.first().cloned().unwrap_or_default();
+        let cfg = XrayRealityConfig {
+            server_name,
+            public_key,
+            short_id,
+            fingerprint: self.effective_fingerprint().to_owned(),
+            spider_x: self.effective_spider_x().to_owned(),
             ..XrayRealityConfig::default()
         };
         Ok(Some(TypedMessage {

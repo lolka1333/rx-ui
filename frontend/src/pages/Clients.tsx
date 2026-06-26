@@ -811,12 +811,11 @@ export function Clients() {
       >
         <Select
           allowClear
-          showSearch
+          showSearch={{ optionFilterProp: 'label' }}
           placeholder={t('clients.filterInbound')}
           value={inboundIdFilter ?? undefined}
           onChange={(v) => setInboundIdFilter(v ?? null)}
           style={{ minWidth: 200, flex: 1 }}
-          optionFilterProp="label"
           options={inbounds.map((ib) => ({ value: ib.id, label: ib.tag }))}
         />
         <Input.Search
@@ -1151,8 +1150,7 @@ export function Clients() {
             >
               <Select
                 mode="multiple"
-                showSearch
-                optionFilterProp="label"
+                showSearch={{ optionFilterProp: 'label' }}
                 placeholder={t('clients.inboundPlaceholder')}
                 // `maxTagCount="responsive"` — Antd measures the
                 // control width and folds the overflow into a single
@@ -1243,7 +1241,7 @@ export function Clients() {
                 inputReadOnly
                 style={{ width: '100%' }}
                 placeholder={t('clients.expiryNever')}
-                popupClassName="expiry-picker-dropdown"
+                classNames={{ popup: { root: 'expiry-picker-dropdown' } }}
               />
             </Form.Item>
             {/* Enabled state is operated from the inline switch in the

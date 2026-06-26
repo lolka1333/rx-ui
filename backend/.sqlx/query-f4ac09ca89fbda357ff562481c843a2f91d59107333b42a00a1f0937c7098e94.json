@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE panel_settings SET xray_custom_outbounds = ? WHERE id = 1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "f4ac09ca89fbda357ff562481c843a2f91d59107333b42a00a1f0937c7098e94"
+}

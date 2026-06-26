@@ -26,8 +26,9 @@ use tonic::transport::{Channel, Endpoint};
 use prost::Message;
 
 use crate::xray::proto::xray::app::proxyman::command::{
-    AddInboundRequest, AddUserOperation, AlterInboundRequest, ListInboundsRequest,
-    ListInboundsResponse, RemoveInboundRequest, RemoveUserOperation,
+    AddInboundRequest, AddOutboundRequest, AddUserOperation, AlterInboundRequest,
+    ListInboundsRequest, ListInboundsResponse, ListOutboundsRequest, ListOutboundsResponse,
+    RemoveInboundRequest, RemoveOutboundRequest, RemoveUserOperation,
     handler_service_client::HandlerServiceClient,
 };
 use crate::xray::proto::xray::app::stats::command::{
@@ -36,7 +37,7 @@ use crate::xray::proto::xray::app::stats::command::{
 };
 use crate::xray::proto::xray::common::protocol::User;
 use crate::xray::proto::xray::common::serial::TypedMessage;
-use crate::xray::proto::xray::core::InboundHandlerConfig;
+use crate::xray::proto::xray::core::{InboundHandlerConfig, OutboundHandlerConfig};
 
 /// Bare proto-package paths xray expects in `TypedMessage.type` (no
 /// `type.googleapis.com/` prefix — xray uses raw package paths since
@@ -201,8 +202,58 @@ impl XrayClient {
         Ok(())
     }
 
-    /// List currently-registered handlers. Used by reconciliation logic to
-    /// detect drift between the panel DB and xray's in-memory state.
+    /// Add an outbound handler to a running xray (custom egress / relay).
+    /// Mirrors `add_inbound` — pushes the `OutboundHandlerConfig` built by
+    /// `orchestrator::outbound_to_handler_config`, no restart.
+    pub async fn add_outbound(&self, outbound: OutboundHandlerConfig) -> anyhow::Result<()> {
+        let channel = self.channel().await?;
+        let mut client = HandlerServiceClient::new(channel);
+        client
+            .add_outbound(AddOutboundRequest {
+                outbound: Some(outbound),
+            })
+            .await
+            .map_err(|s| {
+                anyhow::anyhow!("xray add_outbound failed: {} {}", s.code(), s.message())
+            })?;
+        Ok(())
+    }
+
+    /// Remove an outbound by tag.
+    pub async fn remove_outbound(&self, tag: &str) -> anyhow::Result<()> {
+        let channel = self.channel().await?;
+        let mut client = HandlerServiceClient::new(channel);
+        client
+            .remove_outbound(RemoveOutboundRequest {
+                tag: tag.to_owned(),
+            })
+            .await
+            .map_err(|s| {
+                anyhow::anyhow!(
+                    "xray remove_outbound({tag}) failed: {} {}",
+                    s.code(),
+                    s.message()
+                )
+            })?;
+        Ok(())
+    }
+
+    /// List currently-registered outbound handlers. Currently unused —
+    /// reserved for future drift detection (mirrors `list_inbounds`).
+    pub async fn list_outbounds(&self) -> anyhow::Result<ListOutboundsResponse> {
+        let channel = self.channel().await?;
+        let mut client = HandlerServiceClient::new(channel);
+        let resp = client
+            .list_outbounds(ListOutboundsRequest {})
+            .await
+            .map_err(|s| {
+                anyhow::anyhow!("xray list_outbounds failed: {} {}", s.code(), s.message())
+            })?;
+        Ok(resp.into_inner())
+    }
+
+    /// List currently-registered inbound handlers. Currently unused — reserved
+    /// for future drift detection between the panel DB and xray's in-memory state.
     pub async fn list_inbounds(&self) -> anyhow::Result<ListInboundsResponse> {
         let channel = self.channel().await?;
         let mut client = HandlerServiceClient::new(channel);
@@ -236,6 +287,29 @@ impl XrayClient {
             .await
             .map_err(|s| {
                 anyhow::anyhow!("xray query_stats failed: {} {}", s.code(), s.message())
+            })?;
+        Ok(resp.into_inner())
+    }
+
+    /// Pull every `outbound>>>{tag}>>>traffic>>>{uplink|downlink}` counter in
+    /// one RPC — per-outbound traffic for the Outbounds page. Session totals
+    /// (xray resets them on restart). Enabled by `policy.system.statsOutbound*`
+    /// in `config_gen`.
+    pub async fn query_outbound_stats(&self) -> anyhow::Result<QueryStatsResponse> {
+        let channel = self.channel().await?;
+        let mut client = StatsServiceClient::new(channel);
+        let resp = client
+            .query_stats(QueryStatsRequest {
+                pattern: "outbound>>>".to_owned(),
+                reset: false,
+            })
+            .await
+            .map_err(|s| {
+                anyhow::anyhow!(
+                    "xray query_stats (outbound) failed: {} {}",
+                    s.code(),
+                    s.message()
+                )
             })?;
         Ok(resp.into_inner())
     }

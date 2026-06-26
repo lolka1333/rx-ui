@@ -40,6 +40,15 @@ export type {
 export type { FinalMask, SudokuParams } from './finalmask';
 
 export type {
+  CustomOutbound,
+  OutboundProtocolConfig,
+  VlessOutbound,
+  OutboundMux,
+  OutboundTestResult,
+  OutboundTraffic,
+} from './outbound';
+
+export type {
   SecurityConfig,
   TlsSecurity,
   TlsCertificate,
@@ -64,4 +73,6 @@ export type {
   LoginResponse,
   ChangeCredentialsRequest,
   PanelSettings,
+  PanelSettingsUpdate,
+  RoutingRule,
 } from './settings';

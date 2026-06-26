@@ -68,6 +68,17 @@ pub trait Security: Send + Sync {
     /// otherwise. The orchestrator wraps it as a single-element vec.
     fn build_settings(&self) -> anyhow::Result<Option<TypedMessage>>;
 
+    /// Client-side (outbound) variant of `build_settings`. Differs from the
+    /// server build: TLS drops the certificates (the client validates the
+    /// server's chain); Reality populates the client fields (`server_name` /
+    /// `public_key` / `short_id` / `Fingerprint` / `spider_x`) instead of the
+    /// server's `private_key` / `server_names[]` / `short_ids[]`. The default
+    /// delegates to the server build — correct for `None` (returns `None`);
+    /// TLS and Reality override it.
+    fn build_client_settings(&self) -> anyhow::Result<Option<TypedMessage>> {
+        self.build_settings()
+    }
+
     /// Key/value pairs this security layer contributes to the share-link
     /// URL. Default impl emits `security=<kind>`. Reality + TLS override
     /// to add their own `pbk`/`sid`/`fp`/`sni`/`alpn` etc.

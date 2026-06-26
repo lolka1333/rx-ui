@@ -4,6 +4,7 @@ pub mod dashboard;
 pub mod inbounds;
 pub mod keygen;
 pub mod logs;
+pub mod outbounds;
 pub mod settings;
 pub mod subscription;
 pub mod xray;
@@ -28,6 +29,7 @@ pub fn router(state: AppState) -> Router {
         .nest("/api/inbounds/{inbound_id}/clients", clients::routes())
         .nest("/api/clients", clients::routes_global())
         .nest("/api/logs", logs::routes())
+        .nest("/api/outbounds", outbounds::routes())
         .nest("/api/settings", settings::routes())
         // Public subscription URL — no `/api/` prefix because client
         // apps (v2rayN, Hiddify, sing-box, NekoBox) pull from a bare

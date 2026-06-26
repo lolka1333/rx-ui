@@ -67,6 +67,9 @@ pub mod xray {
             pub mod inbound {
                 tonic::include_proto!("xray.proxy.vless.inbound");
             }
+            pub mod outbound {
+                tonic::include_proto!("xray.proxy.vless.outbound");
+            }
         }
         pub mod hysteria {
             tonic::include_proto!("xray.proxy.hysteria");

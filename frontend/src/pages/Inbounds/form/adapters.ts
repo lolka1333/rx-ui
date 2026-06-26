@@ -477,6 +477,9 @@ export function buildSecurity(v: FormValues): SecurityConfig {
           v.tls_curve_preferences && v.tls_curve_preferences.length > 0
             ? v.tls_curve_preferences
             : null,
+        // Client-only (outbound relay) fields — never used on an inbound.
+        verify_peer_cert_by_name: null,
+        pinned_peer_cert_sha256: null,
       };
       return { kind: 'tls', ...tls };
     }

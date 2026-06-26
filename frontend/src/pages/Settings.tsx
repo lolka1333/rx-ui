@@ -17,14 +17,21 @@ import {
   Modal,
   Select,
   Switch,
+  Tabs,
+  Tag,
+  Tooltip,
   Typography,
 } from 'antd';
+import type { SelectProps } from 'antd';
 import {
+  BranchesOutlined,
+  CheckOutlined,
   CloseOutlined,
   ControlOutlined,
   DatabaseOutlined,
   LeftOutlined,
   LinkOutlined,
+  LoadingOutlined,
   LogoutOutlined,
   RightOutlined,
   UserOutlined,
@@ -38,16 +45,14 @@ import { apiErrorMessage } from '@/api/errors';
 import { useAuth } from '@/stores/auth';
 import { useLocale } from '@/stores/locale';
 import { LOCALES } from '@/i18n';
-import type { PanelSettings } from '@/api/types';
+import type { PanelSettings, PanelSettingsUpdate, RoutingRule } from '@/api/types';
+import { RoutingRulesField } from '@/components/RoutingRulesField';
 
 type SectionKey = 'account' | 'access' | 'subscription' | 'xray';
 
-/** Fallback values for the subscription side of `PanelSettings`, used by:
- *   1) the AccessSection mutation when it can't read the current
- *      subscription-side values from the cache (e.g. initial-render
- *      race) but still has to PUT them as part of the whole-row replace,
- *   2) the SubscriptionSection mutation for the same reason, in reverse,
- *   3) `deriveSettingsFromUrl` for the not-yet-loaded-from-backend state.
+/** Fallback values for the subscription side of `PanelSettings`, consumed by
+ *  `mergePanelSettings` (the whole-row PUT merge, when the cache isn't
+ *  populated yet) and by `deriveSettingsFromUrl` (not-yet-loaded state).
  *  Keep these in sync with the backend defaults in
  *  `backend/migrations/0024_subscription_settings.sql` +
  *  `0025_subscription_enabled.sql`. */
@@ -59,6 +64,71 @@ const SUBSCRIPTION_DEFAULTS = {
   sub_service_url: '',
   sub_port: 0,
 } as const;
+
+/** Fallback values for the xray side of `PanelSettings`, mirroring the backend
+ *  column defaults in `backend/migrations/0031_xray_settings.sql` +
+ *  `0032_xray_routing.sql`. Consumed by `mergePanelSettings` for the
+ *  not-yet-loaded case. */
+const XRAY_DEFAULTS = {
+  xray_freedom_strategy: 'AsIs',
+  xray_routing_strategy: 'AsIs',
+  xray_test_url: '',
+  xray_block_bittorrent: false,
+  xray_blocked_ips: [] as string[],
+  xray_blocked_domains: [] as string[],
+  xray_ipv4_domains: [] as string[],
+  xray_custom_rules: [] as RoutingRule[],
+  xray_rule_order: [] as string[],
+} as const;
+
+/** `PUT /settings/panel` replaces the whole row, so every save must send all
+ *  fields. Each settings section owns only a slice; this builds the full body
+ *  from the cached settings (or the *_DEFAULTS, pre-load) and applies the
+ *  caller's overrides — keeping the forward-everything-else logic in one place
+ *  so a newly added field can't silently drop from two of the three saves. */
+function mergePanelSettings(
+  current: PanelSettings | undefined,
+  overrides: Partial<PanelSettingsUpdate>,
+): PanelSettingsUpdate {
+  return {
+    panel_port: current?.panel_port ?? 8080,
+    panel_base_path: current?.panel_base_path ?? '',
+    sub_enabled: current?.sub_enabled ?? SUBSCRIPTION_DEFAULTS.sub_enabled,
+    sub_host_override:
+      current?.sub_host_override ?? SUBSCRIPTION_DEFAULTS.sub_host_override,
+    sub_update_interval_hours:
+      current?.sub_update_interval_hours ??
+      SUBSCRIPTION_DEFAULTS.sub_update_interval_hours,
+    sub_brand_name:
+      current?.sub_brand_name ?? SUBSCRIPTION_DEFAULTS.sub_brand_name,
+    sub_service_url:
+      current?.sub_service_url ?? SUBSCRIPTION_DEFAULTS.sub_service_url,
+    sub_port: current?.sub_port ?? SUBSCRIPTION_DEFAULTS.sub_port,
+    xray_freedom_strategy:
+      current?.xray_freedom_strategy ?? XRAY_DEFAULTS.xray_freedom_strategy,
+    xray_routing_strategy:
+      current?.xray_routing_strategy ?? XRAY_DEFAULTS.xray_routing_strategy,
+    xray_test_url: current?.xray_test_url ?? XRAY_DEFAULTS.xray_test_url,
+    xray_block_bittorrent:
+      current?.xray_block_bittorrent ?? XRAY_DEFAULTS.xray_block_bittorrent,
+    xray_blocked_ips: current?.xray_blocked_ips ?? XRAY_DEFAULTS.xray_blocked_ips,
+    xray_blocked_domains:
+      current?.xray_blocked_domains ?? XRAY_DEFAULTS.xray_blocked_domains,
+    xray_ipv4_domains:
+      current?.xray_ipv4_domains ?? XRAY_DEFAULTS.xray_ipv4_domains,
+    xray_custom_rules:
+      current?.xray_custom_rules ?? XRAY_DEFAULTS.xray_custom_rules,
+    xray_rule_order:
+      current?.xray_rule_order ?? XRAY_DEFAULTS.xray_rule_order,
+    ...overrides,
+  };
+}
+
+/** No-op control that only registers the `xray_rule_order` array field on the
+ *  form, so it's reactive via `Form.useWatch` and writable via `setFieldsValue`
+ *  — the value is rendered/edited by RoutingRulesField, not here. Antd injects
+ *  value/onChange at runtime; this control intentionally ignores them. */
+const HiddenField = () => null;
 
 interface CredentialsFormValues {
   current_password: string;
@@ -87,7 +157,7 @@ interface DirtyHandle {
   onDiscard: () => void;
 }
 
-type CategoryKey = 'account' | 'access' | 'subscription' | 'xray';
+type CategoryKey = SectionKey;
 
 /** Left-nav structure for the settings modal. Short labels here; the
  *  per-section headings live inside each section. The account page bundles
@@ -168,6 +238,10 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
   );
   const onSubscriptionDirty = useCallback(
     (h: DirtyHandle | null) => setDirty('subscription', h),
+    [setDirty],
+  );
+  const onXrayDirty = useCallback(
+    (h: DirtyHandle | null) => setDirty('xray', h),
     [setDirty],
   );
 
@@ -293,7 +367,7 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
                 <SubscriptionSection onDirtyChange={onSubscriptionDirty} />
               </div>
               <div style={{ display: lastDetail === 'xray' ? 'block' : 'none' }}>
-                <XraySection />
+                <XraySection onDirtyChange={onXrayDirty} />
               </div>
             </div>
           </div>
@@ -589,26 +663,17 @@ function AccessSection({
 
   const mutation = useMutation({
     mutationFn: async (values: PanelAccessFormValues) => {
-      // PUT replaces the whole panel_settings row, so we forward the
-      // current subscription-side values verbatim. Without this the
-      // operator changing the panel port would silently reset the
-      // subscription host override.
+      // PUT replaces the whole row; mergePanelSettings forwards every field
+      // this section doesn't own (sub_* / xray_*) from the cache so saving the
+      // port doesn't reset them.
       const current = settingsQuery.data;
-      await apiClient.put('/settings/panel', {
-        panel_port: values.panel_port,
-        panel_base_path: values.panel_base_path,
-        sub_enabled: current?.sub_enabled ?? SUBSCRIPTION_DEFAULTS.sub_enabled,
-        sub_host_override:
-          current?.sub_host_override ?? SUBSCRIPTION_DEFAULTS.sub_host_override,
-        sub_update_interval_hours:
-          current?.sub_update_interval_hours ??
-          SUBSCRIPTION_DEFAULTS.sub_update_interval_hours,
-        sub_brand_name:
-          current?.sub_brand_name ?? SUBSCRIPTION_DEFAULTS.sub_brand_name,
-        sub_service_url:
-          current?.sub_service_url ?? SUBSCRIPTION_DEFAULTS.sub_service_url,
-        sub_port: current?.sub_port ?? SUBSCRIPTION_DEFAULTS.sub_port,
-      });
+      await apiClient.put(
+        '/settings/panel',
+        mergePanelSettings(current, {
+          panel_port: values.panel_port,
+          panel_base_path: values.panel_base_path,
+        }),
+      );
       return values;
     },
     onSuccess: (values) => {
@@ -797,24 +862,20 @@ function SubscriptionSection({
 
   const mutation = useMutation({
     mutationFn: async (values: SubscriptionFormValues) => {
-      // Subscription fields go through the same PUT endpoint as the panel
-      // port / base-path fields. We send the latest panel-side values
-      // verbatim so a save here doesn't clobber edits an operator made
-      // in the Access section (the PUT replaces the whole row).
+      // PUT replaces the whole row; mergePanelSettings forwards the panel /
+      // xray fields from the cache so a subscription save doesn't clobber them.
       const current = settingsQuery.data;
-      if (!current) {
-        throw new Error('panel settings not loaded');
-      }
-      await apiClient.put('/settings/panel', {
-        panel_port: current.panel_port,
-        panel_base_path: current.panel_base_path,
-        sub_enabled: values.sub_enabled,
-        sub_host_override: values.sub_host_override.trim(),
-        sub_update_interval_hours: values.sub_update_interval_hours,
-        sub_brand_name: values.sub_brand_name.trim(),
-        sub_service_url: values.sub_service_url.trim(),
-        sub_port: values.sub_port,
-      });
+      await apiClient.put(
+        '/settings/panel',
+        mergePanelSettings(current, {
+          sub_enabled: values.sub_enabled,
+          sub_host_override: values.sub_host_override.trim(),
+          sub_update_interval_hours: values.sub_update_interval_hours,
+          sub_brand_name: values.sub_brand_name.trim(),
+          sub_service_url: values.sub_service_url.trim(),
+          sub_port: values.sub_port,
+        }),
+      );
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['panel-settings'] });
@@ -1003,18 +1064,468 @@ function SubscriptionSection({
 }
 
 // =============================================================================
-// Xray — engine settings. Placeholder for now: the dedicated controls
-// (config, version, restart) haven't been wired into this section yet.
+// Xray — engine settings (outbound/routing). These live in xray's bootstrap
+// config, so a Freedom/routing strategy change only applies on an xray
+// restart — the section saves to the DB, then offers to restart (which
+// regenerates the bootstrap and bounces the process).
 // =============================================================================
 
-function XraySection() {
-  const { t } = useTranslation();
+interface XrayFormValues {
+  xray_freedom_strategy: string;
+  xray_routing_strategy: string;
+  xray_test_url: string;
+  xray_block_bittorrent: boolean;
+  xray_blocked_ips: string[];
+  xray_blocked_domains: string[];
+  xray_ipv4_domains: string[];
+  xray_custom_rules: RoutingRule[];
+  xray_rule_order: string[];
+}
+
+/** Freedom-outbound `domainStrategy` values; mirrors the backend allowlist
+ *  in `api/settings.rs`. AsIs = no DNS forcing; the UseIP / ForceIP families
+ *  pick the egress address family. */
+const FREEDOM_STRATEGY_OPTIONS = [
+  'AsIs',
+  'UseIP',
+  'UseIPv4',
+  'UseIPv6',
+  'UseIPv4v6',
+  'UseIPv6v4',
+  'ForceIP',
+  'ForceIPv4',
+  'ForceIPv6',
+  'ForceIPv4v6',
+  'ForceIPv6v4',
+].map((value) => ({ value, label: value }));
+
+/** Routing-block `domainStrategy` values. */
+const ROUTING_STRATEGY_OPTIONS = ['AsIs', 'IPIfNonMatch', 'IPOnDemand'].map(
+  (value) => ({ value, label: value }),
+);
+
+type GeoOption = { value: string; code: string; label: string };
+
+/** Quick-pick presets for the blocked-IP field: country names + a 2-letter
+ *  code badge, each mapping to an xray `geoip:` matcher. The field stays
+ *  free-text (mode="tags"), so custom IPs / CIDRs / geoip codes still work. */
+const GEOIP_OPTIONS: GeoOption[] = [
+  { value: 'geoip:private', code: 'IP', label: 'Private IPs' },
+  { value: 'geoip:ru', code: 'RU', label: 'Russia' },
+  { value: 'geoip:ua', code: 'UA', label: 'Ukraine' },
+  { value: 'geoip:by', code: 'BY', label: 'Belarus' },
+  { value: 'geoip:kz', code: 'KZ', label: 'Kazakhstan' },
+  { value: 'geoip:cn', code: 'CN', label: 'China' },
+  { value: 'geoip:ir', code: 'IR', label: 'Iran' },
+  { value: 'geoip:us', code: 'US', label: 'USA' },
+  { value: 'geoip:de', code: 'DE', label: 'Germany' },
+  { value: 'geoip:nl', code: 'NL', label: 'Netherlands' },
+  { value: 'geoip:gb', code: 'GB', label: 'United Kingdom' },
+  { value: 'geoip:tr', code: 'TR', label: 'Turkey' },
+  { value: 'geoip:br', code: 'BR', label: 'Brazil' },
+  { value: 'geoip:vn', code: 'VN', label: 'Vietnam' },
+  { value: 'geoip:es', code: 'ES', label: 'Spain' },
+  { value: 'geoip:id', code: 'ID', label: 'Indonesia' },
+];
+
+/** Quick-pick presets for the blocked-domain field: `geosite:` categories +
+ *  common TLD matchers (regexp). Custom domains / geosite codes still work. */
+const GEOSITE_OPTIONS: GeoOption[] = [
+  { value: 'geosite:category-ads-all', code: 'AD', label: 'Ads' },
+  { value: 'geosite:category-porn', code: '18', label: 'Porn (18+)' },
+  { value: 'geosite:cn', code: 'CN', label: 'China sites' },
+  { value: 'geosite:google', code: 'G', label: 'Google' },
+  { value: 'geosite:telegram', code: 'TG', label: 'Telegram' },
+  { value: 'regexp:\\.ru$', code: 'RU', label: '.ru' },
+  { value: 'regexp:\\.su$', code: 'RU', label: '.su' },
+  { value: 'regexp:\\.xn--p1ai$', code: 'RU', label: '.рф' },
+  { value: 'regexp:\\.ua$', code: 'UA', label: '.ua' },
+  { value: 'regexp:\\.cn$', code: 'CN', label: '.cn' },
+  { value: 'regexp:\\.vn$', code: 'VN', label: '.vn' },
+];
+
+/** value -> preset, so a selected chip can show the same code badge. */
+const GEO_BY_VALUE = new Map<string, GeoOption>(
+  [...GEOIP_OPTIONS, ...GEOSITE_OPTIONS].map((o) => [o.value, o]),
+);
+
+/** Dropdown row: "<code> <name>". A custom (typed) option has no code. */
+const renderGeoOption: NonNullable<SelectProps['optionRender']> = (option) => {
+  const o = option.data as GeoOption;
   return (
-    <SectionFrame title={t('settings.xraySection')} description={t('settings.xrayHint')}>
-      <div className="app-settings-placeholder">
-        <DatabaseOutlined className="app-settings-placeholder-icon" />
-        <p className="app-settings-placeholder-text">{t('settings.xraySoon')}</p>
-      </div>
+    <span>
+      {o.code ? <span className="geo-code">{o.code}</span> : null}
+      {o.label}
+    </span>
+  );
+};
+
+/** Selected chip: a preset shows "<code> <name>", a custom value shows raw. */
+const renderGeoTag: NonNullable<SelectProps['tagRender']> = (props) => {
+  const o = GEO_BY_VALUE.get(String(props.value));
+  return (
+    <Tag closable={props.closable} onClose={props.onClose}>
+      {o ? (
+        <>
+          <span className="geo-code">{o.code}</span>
+          {o.label}
+        </>
+      ) : (
+        String(props.value)
+      )}
+    </Tag>
+  );
+};
+
+interface OutboundTestResult {
+  ok: boolean;
+  status: number;
+  latency_ms: number;
+  error?: string;
+}
+
+function XraySection({
+  onDirtyChange,
+}: {
+  onDirtyChange: (h: DirtyHandle | null) => void;
+}) {
+  const { t } = useTranslation();
+  const { message, modal } = App.useApp();
+  const qc = useQueryClient();
+  const [form] = Form.useForm<XrayFormValues>();
+  const [dirty, setDirty] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<OutboundTestResult | null>(null);
+
+  const settingsQuery = useQuery<PanelSettings>({
+    queryKey: ['panel-settings'],
+    queryFn: async () => (await apiClient.get<PanelSettings>('/settings/panel')).data,
+  });
+
+  const mutation = useMutation({
+    mutationFn: async (values: XrayFormValues) => {
+      // PUT replaces the whole row; mergePanelSettings forwards the panel /
+      // subscription fields from the cache so saving xray doesn't reset them.
+      const current = settingsQuery.data;
+      await apiClient.put(
+        '/settings/panel',
+        mergePanelSettings(current, {
+          xray_freedom_strategy: values.xray_freedom_strategy,
+          xray_routing_strategy: values.xray_routing_strategy,
+          xray_test_url: values.xray_test_url,
+          xray_block_bittorrent: values.xray_block_bittorrent,
+          xray_blocked_ips: values.xray_blocked_ips,
+          xray_blocked_domains: values.xray_blocked_domains,
+          xray_ipv4_domains: values.xray_ipv4_domains,
+          xray_custom_rules: values.xray_custom_rules,
+          xray_rule_order: values.xray_rule_order,
+        }),
+      );
+      return values;
+    },
+    onSuccess: (values) => {
+      // Strategies + routing rules live in the xray config and need a restart
+      // to apply; the test URL is store-only. Offer the restart only when a
+      // config-affecting field actually moved.
+      const old = settingsQuery.data;
+      const sameList = (a: string[], b: string[] | undefined) =>
+        JSON.stringify(a) === JSON.stringify(b ?? []);
+      const xrayConfigChanged =
+        old != null &&
+        (values.xray_freedom_strategy !== old.xray_freedom_strategy ||
+          values.xray_routing_strategy !== old.xray_routing_strategy ||
+          values.xray_block_bittorrent !== old.xray_block_bittorrent ||
+          !sameList(values.xray_blocked_ips, old.xray_blocked_ips) ||
+          !sameList(values.xray_blocked_domains, old.xray_blocked_domains) ||
+          !sameList(values.xray_ipv4_domains, old.xray_ipv4_domains) ||
+          JSON.stringify(values.xray_custom_rules) !==
+            JSON.stringify(old.xray_custom_rules ?? []) ||
+          JSON.stringify(values.xray_rule_order) !==
+            JSON.stringify(old.xray_rule_order ?? []));
+      qc.invalidateQueries({ queryKey: ['panel-settings'] });
+      setDirty(false);
+      if (xrayConfigChanged) {
+        modal.confirm({
+          title: t('settings.xrayRestartTitle'),
+          content: t('settings.xrayRestartBody'),
+          okText: t('settings.xrayRestartConfirm'),
+          cancelText: t('settings.xrayRestartLater'),
+          okButtonProps: { danger: true },
+          onOk: async () => {
+            try {
+              await apiClient.post('/xray/restart');
+              message.success(t('settings.xrayRestarted'));
+            } catch (err: unknown) {
+              message.error(apiErrorMessage(err) ?? t('settings.xrayRestartError'));
+            }
+          },
+        });
+      } else {
+        message.success(t('settings.panelSaved'));
+      }
+    },
+    onError: (err: unknown) =>
+      message.error(apiErrorMessage(err) ?? t('settings.panelSaveError')),
+  });
+
+  useEffect(() => {
+    onDirtyChange(
+      dirty
+        ? {
+            saving: mutation.isPending,
+            onSave: () => form.submit(),
+            onDiscard: () => {
+              form.resetFields();
+              setDirty(false);
+            },
+          }
+        : null,
+    );
+  }, [dirty, mutation.isPending, form, onDirtyChange]);
+
+  // "Test outbound": the server fetches the current URL field value through
+  // its own egress (the same path xray's freedom outbound uses) and reports
+  // the HTTP status + latency. Reads the live form value so it works before
+  // the operator saves.
+  const runTest = useCallback(async () => {
+    const url = String(form.getFieldValue('xray_test_url') ?? '').trim();
+    if (!url) {
+      message.warning(t('settings.xrayTestEmpty'));
+      return;
+    }
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const { data } = await apiClient.post<OutboundTestResult>(
+        '/xray/test-outbound',
+        { url },
+      );
+      setTestResult(data);
+      if (data.ok) {
+        message.success(
+          t('settings.xrayTestOk', { status: data.status, ms: data.latency_ms }),
+        );
+      } else {
+        message.error(
+          t('settings.xrayTestFail', {
+            status: data.status,
+            error: data.error ?? '',
+          }),
+        );
+      }
+    } catch (err: unknown) {
+      const error = apiErrorMessage(err) ?? t('settings.xrayTestError');
+      setTestResult({ ok: false, status: 0, latency_ms: 0, error });
+      message.error(error);
+    } finally {
+      setTesting(false);
+    }
+  }, [form, message, t]);
+
+  const data = settingsQuery.data;
+  return (
+    <SectionFrame
+      title={t('settings.xraySection')}
+      description={t('settings.xraySectionHint')}
+    >
+      {data && (
+        <Form<XrayFormValues>
+          form={form}
+          layout="vertical"
+          autoComplete="off"
+          key={JSON.stringify([
+            data.xray_freedom_strategy,
+            data.xray_routing_strategy,
+            data.xray_test_url,
+            data.xray_block_bittorrent,
+            data.xray_blocked_ips,
+            data.xray_blocked_domains,
+            data.xray_ipv4_domains,
+            data.xray_custom_rules ?? [],
+            data.xray_rule_order ?? [],
+          ])}
+          initialValues={{
+            xray_freedom_strategy: data.xray_freedom_strategy,
+            xray_routing_strategy: data.xray_routing_strategy,
+            xray_test_url: data.xray_test_url,
+            xray_block_bittorrent: data.xray_block_bittorrent,
+            xray_blocked_ips: data.xray_blocked_ips,
+            xray_blocked_domains: data.xray_blocked_domains,
+            xray_ipv4_domains: data.xray_ipv4_domains,
+            xray_custom_rules: data.xray_custom_rules ?? [],
+            xray_rule_order: data.xray_rule_order ?? [],
+          }}
+          disabled={mutation.isPending}
+          onValuesChange={() => setDirty(true)}
+          onFinish={(v) => mutation.mutate(v)}
+        >
+          <Tabs
+            className="xray-tabs"
+            defaultActiveKey="basic"
+            items={[
+              {
+                key: 'basic',
+                // forceRender keeps every tab's fields mounted in the form even
+                // while another tab is shown — otherwise antd lazy-mounts panes
+                // and an unvisited tab's fields drop out of the submit payload.
+                forceRender: true,
+                label: t('settings.xrayTabBasic'),
+                icon: <ControlOutlined />,
+                children: (
+                  <FieldGroup title={t('settings.xrayGroupBasic')}>
+                    <Form.Item
+                      name="xray_freedom_strategy"
+                      label={t('settings.xrayFreedomStrategy')}
+                      tooltip={t('settings.xrayFreedomStrategyHint')}
+                    >
+                      <Select options={FREEDOM_STRATEGY_OPTIONS} />
+                    </Form.Item>
+                    <Form.Item
+                      name="xray_routing_strategy"
+                      label={t('settings.xrayRoutingStrategy')}
+                      tooltip={t('settings.xrayRoutingStrategyHint')}
+                    >
+                      <Select options={ROUTING_STRATEGY_OPTIONS} />
+                    </Form.Item>
+                    {/* Test action is the icon inside the field: click to run,
+                        then it recolours by result — green check on success, red
+                        cross on failure — with the HTTP status / latency in its
+                        tooltip. The detailed toast still fires on click. */}
+                    <Form.Item
+                      name="xray_test_url"
+                      label={t('settings.xrayTestUrl')}
+                      tooltip={t('settings.xrayTestUrlHint')}
+                    >
+                      <Input
+                        placeholder="https://www.google.com/gen_204"
+                        suffix={
+                          <Tooltip
+                            // Force the tooltip shut while a test runs. Clicking
+                            // the icon with the result tooltip open would swap its
+                            // text and reposition the *open* popup, briefly
+                            // overflowing for one frame (a scrollbar flash / jerk).
+                            // Hiding it during the test skips that reposition; a
+                            // fresh show afterwards positions cleanly on its own.
+                            open={testing ? false : undefined}
+                            title={
+                              testResult
+                                ? testResult.ok
+                                  ? `${testResult.status} · ${testResult.latency_ms} ms`
+                                  : testResult.status
+                                    ? `HTTP ${testResult.status}`
+                                    : (testResult.error ??
+                                      t('settings.xrayTestError'))
+                                : t('settings.xrayTestRun')
+                            }
+                          >
+                            <span
+                              role="button"
+                              aria-label={t('settings.xrayTestRun')}
+                              // Don't let the icon steal focus into the URL input
+                              // on click — focusing a partly-scrolled field makes
+                              // the browser scroll it into view, jerking the modal.
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (!testing) runTest();
+                              }}
+                              style={{
+                                cursor: testing ? 'default' : 'pointer',
+                                display: 'inline-flex',
+                                fontSize: 16,
+                              }}
+                            >
+                              {testing ? (
+                                <LoadingOutlined />
+                              ) : testResult ? (
+                                testResult.ok ? (
+                                  <CheckOutlined style={{ color: '#52c41a' }} />
+                                ) : (
+                                  <CloseOutlined style={{ color: '#ff4d4f' }} />
+                                )
+                              ) : (
+                                <CheckOutlined style={{ opacity: 0.45 }} />
+                              )}
+                            </span>
+                          </Tooltip>
+                        }
+                      />
+                    </Form.Item>
+                  </FieldGroup>
+                ),
+              },
+              {
+                key: 'routing',
+                forceRender: true,
+                label: t('settings.xrayTabRouting'),
+                icon: <BranchesOutlined />,
+                children: (
+                  <>
+                  <FieldGroup title={t('settings.xrayGroupRouting')}>
+                    <Form.Item
+                      name="xray_block_bittorrent"
+                      label={t('settings.xrayBlockBittorrent')}
+                      tooltip={t('settings.xrayBlockBittorrentHint')}
+                      valuePropName="checked"
+                    >
+                      <Switch />
+                    </Form.Item>
+                    <Form.Item
+                      name="xray_blocked_ips"
+                      label={t('settings.xrayBlockedIps')}
+                      tooltip={t('settings.xrayBlockedIpsHint')}
+                    >
+                      <Select
+                        mode="tags"
+                        options={GEOIP_OPTIONS}
+                        showSearch={{ optionFilterProp: 'label' }}
+                        optionRender={renderGeoOption}
+                        tagRender={renderGeoTag}
+                        tokenSeparators={[',', ' ']}
+                        placeholder={t('settings.xrayGeoPlaceholder')}
+                      />
+                    </Form.Item>
+                    <Form.Item
+                      name="xray_blocked_domains"
+                      label={t('settings.xrayBlockedDomains')}
+                      tooltip={t('settings.xrayBlockedDomainsHint')}
+                    >
+                      <Select
+                        mode="tags"
+                        options={GEOSITE_OPTIONS}
+                        showSearch={{ optionFilterProp: 'label' }}
+                        optionRender={renderGeoOption}
+                        tagRender={renderGeoTag}
+                        tokenSeparators={[',', ' ']}
+                        placeholder={t('settings.xrayGeoPlaceholder')}
+                      />
+                    </Form.Item>
+                    <Form.Item
+                      name="xray_ipv4_domains"
+                      label={t('settings.xrayIpv4Domains')}
+                      tooltip={t('settings.xrayIpv4DomainsHint')}
+                    >
+                      <Select
+                        mode="tags"
+                        open={false}
+                        tokenSeparators={[',', ' ']}
+                        placeholder={t('settings.xrayListPlaceholder')}
+                      />
+                    </Form.Item>
+                  </FieldGroup>
+                  <Form.Item name="xray_custom_rules" noStyle>
+                    <RoutingRulesField />
+                  </Form.Item>
+                  <Form.Item name="xray_rule_order" hidden>
+                    <HiddenField />
+                  </Form.Item>
+                  </>
+                ),
+              },
+            ]}
+          />
+        </Form>
+      )}
     </SectionFrame>
   );
 }
@@ -1058,7 +1569,10 @@ function DirtyBar({
     >
       <div className="app-settings-dirtybar-inner">
         <span className="app-settings-dirtybar-dot" aria-hidden="true" />
-        <Typography.Text style={{ flex: '1 1 auto', minWidth: 0 }}>
+        <Typography.Text
+          className="app-settings-dirtybar-text"
+          style={{ flex: '1 1 auto', minWidth: 0 }}
+        >
           {count > 1
             ? t('settings.dirtyHintMany', { count })
             : t('settings.dirtyHint')}

@@ -253,6 +253,24 @@ impl FinalMask {
             scope,
         ))
     }
+
+    /// Resolve into the `(tcpmasks, udpmasks)` pair a `StreamConfig` carries.
+    /// `client_side` flips the asymmetric Fragment scope:
+    ///
+    /// * Sudoku (Both) is symmetric — fills both slots either way.
+    /// * Noise (Udp) → the UDP slot.
+    /// * Fragment (Tcp) → the TCP slot ON THE CLIENT (the dialer fragments its
+    ///   own `ClientHello`), but NEITHER slot on the server: a server-side
+    ///   fragment wrapper is pointless and, under Reality, panics
+    ///   (`*fragment.fragmentConn is not reality.CloseWriteConn`).
+    pub fn masks(&self, client_side: bool) -> (Vec<TypedMessage>, Vec<TypedMessage>) {
+        match self.to_typed_message() {
+            Some((m, FinalMaskScope::Both)) => (vec![m.clone()], vec![m]),
+            Some((m, FinalMaskScope::Udp)) => (Vec::new(), vec![m]),
+            Some((m, FinalMaskScope::Tcp)) if client_side => (vec![m], Vec::new()),
+            Some((_, FinalMaskScope::Tcp)) | None => (Vec::new(), Vec::new()),
+        }
+    }
 }
 
 /// Loose hex-decoder for the noise `packet_hex` operator input. Strips

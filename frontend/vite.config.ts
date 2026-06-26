@@ -10,8 +10,12 @@ export default defineConfig({
     },
   },
   build: {
-    // Antd alone is ~1MB. We've already split vendors; the warning is informational.
-    chunkSizeWarningLimit: 1200,
+    // antd v6 is a single ~1.23 MB module (its rc-* primitives are inlined, so
+    // it can't be split along package boundaries); icons are peeled into their
+    // own chunk below. The remaining antd-vendor is irreducible and already
+    // cached on its own, so lift the threshold just above it instead of chasing
+    // a meaningless split.
+    chunkSizeWarningLimit: 1300,
     rolldownOptions: {
       output: {
         // Split heavy dependencies into separate chunks so they can be cached
@@ -21,6 +25,11 @@ export default defineConfig({
           const norm = id.replace(/\\/g, '/');
           if (/\/(react|react-dom|scheduler)\//.test(norm)) {
             return 'react-vendor';
+          }
+          // Icons are a self-contained set (tree-shaken to what we use) — their
+          // own chunk caches independently of the antd core.
+          if (/\/@ant-design\/icons/.test(norm)) {
+            return 'icons-vendor';
           }
           if (
             /\/(antd|@ant-design|@rc-component)\//.test(norm) ||

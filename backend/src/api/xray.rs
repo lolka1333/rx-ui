@@ -10,6 +10,7 @@ use axum::{
     routing::{get, post},
 };
 use serde::Deserialize;
+use std::time::{Duration, Instant};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -18,6 +19,7 @@ pub fn routes() -> Router<AppState> {
         .route("/start", post(start))
         .route("/stop", post(stop))
         .route("/restart", post(restart))
+        .route("/test-outbound", post(test_outbound))
 }
 
 #[derive(Deserialize)]
@@ -123,7 +125,82 @@ async fn restart(
     _user: AuthUser,
     State(state): State<AppState>,
 ) -> AppResult<Json<serde_json::Value>> {
+    // Regenerate the bootstrap config from current xray settings first, so a
+    // Freedom/routing strategy change saved via /api/settings applies on this
+    // restart (the live process reloads its config.json on start).
+    crate::xray::reload::write_bootstrap_config(&state)
+        .await
+        .map_err(AppError::Internal)?;
     state.xray.restart().await.map_err(AppError::Internal)?;
     crate::resync_xray_state(&state).await;
     Ok(Json(serde_json::json!({ "restarted": true })))
+}
+
+#[derive(Deserialize)]
+struct TestOutboundRequest {
+    url: String,
+}
+
+/// Fetch the operator-supplied URL from the server a few times to confirm the
+/// egress reaches the internet. The backend's own network path is the same one
+/// xray's `freedom` outbound uses, so a success here means "the box can get
+/// out". Returns the HTTP status + the best (minimum) round-trip latency over
+/// the attempts; never errors the request itself (a failed fetch is a normal,
+/// reportable result).
+async fn test_outbound(
+    _user: AuthUser,
+    Json(req): Json<TestOutboundRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    const ATTEMPTS: usize = 4;
+
+    let url = req.url.trim();
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err(AppError::BadRequest(
+            "test URL must start with http:// or https://".to_owned(),
+        ));
+    }
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+
+    // A single GET measures DNS + TCP + TLS + one round-trip, so its latency is
+    // dominated by connection setup and isn't representative. Reuse one client
+    // (it pools the connection) across a few requests and report the *minimum*:
+    // the warm requests skip the handshake, and the min also drops the occasional
+    // first packet that upstream filtering holds up.
+    let mut best: Option<(u128, reqwest::StatusCode)> = None;
+    let mut last_error: Option<String> = None;
+    for _ in 0..ATTEMPTS {
+        let started = Instant::now();
+        match client.get(url).send().await {
+            Ok(resp) => {
+                // `send()` resolves on the response headers, so this is the
+                // round-trip time, not the body download.
+                let ms = started.elapsed().as_millis();
+                let status = resp.status();
+                // Drain the body so the connection returns to the pool and the
+                // next attempt reuses it instead of doing a fresh handshake.
+                let _ = resp.bytes().await;
+                if best.is_none_or(|(b, _)| ms < b) {
+                    best = Some((ms, status));
+                }
+            }
+            Err(e) => last_error = Some(e.to_string()),
+        }
+    }
+
+    match best {
+        Some((ms, status)) => Ok(Json(serde_json::json!({
+            "ok": status.is_success() || status.is_redirection(),
+            "status": status.as_u16(),
+            "latency_ms": ms,
+        }))),
+        None => Ok(Json(serde_json::json!({
+            "ok": false,
+            "status": 0,
+            "latency_ms": 0,
+            "error": last_error.unwrap_or_else(|| "request failed".to_owned()),
+        }))),
+    }
 }

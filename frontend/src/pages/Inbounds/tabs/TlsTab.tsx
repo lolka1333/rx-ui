@@ -287,7 +287,7 @@ export function TlsTab() {
             allowClear
             placeholder={t('inbounds.tlsCipherSuitesPlaceholder')}
             options={cipherSuiteOpts}
-            optionFilterProp="label"
+            showSearch={{ optionFilterProp: 'label' }}
             style={{ width: '100%' }}
           />
         </Form.Item>

@@ -85,13 +85,24 @@ pub struct TlsSecurity {
     /// TLS 1.3 curves list. None = xray default.
     pub curve_preferences: Option<Vec<String>>,
     /// uTLS `ClientHello` fingerprint the client emulates ("chrome",
-    /// "firefox", "randomized", a version-pinned `hello*`, …). Travels in
-    /// the share-link as `fp=` only — uTLS emulation is client-side, so
-    /// xray does no server-side validation and there's no proto field.
-    /// `None`/empty defaults to "chrome", matching the value pinned
-    /// before this knob was configurable (so existing inbounds are
-    /// unchanged).
+    /// "firefox", "randomized", a version-pinned `hello*`, …). On an inbound
+    /// this travels in the share-link as `fp=` (the server doesn't emulate);
+    /// on an OUTBOUND it IS emitted into the TLS proto (`fingerprint`, field
+    /// 11) so the relay's dialer emulates it. `None`/empty defaults to
+    /// "chrome".
     pub fingerprint: Option<String>,
+    /// CLIENT-side (outbound relay) only — verify the upstream server's
+    /// certificate against these names instead of the dial address. The
+    /// sanctioned replacement for the removed `allowInsecure` when relaying
+    /// to a server whose cert SAN doesn't match the address it's dialed by.
+    /// Ignored on inbounds (the server build never reads it).
+    #[serde(default)]
+    pub verify_peer_cert_by_name: Option<Vec<String>>,
+    /// CLIENT-side only — pin the upstream's certificate by SHA-256 (hex,
+    /// optionally colon-separated, or base64). The strict alternative to
+    /// `verify_peer_cert_by_name`. Ignored on inbounds.
+    #[serde(default)]
+    pub pinned_peer_cert_sha256: Option<Vec<String>>,
 }
 
 impl TlsSecurity {
@@ -247,4 +258,90 @@ impl Security for TlsSecurity {
             value: cfg.encode_to_vec(),
         }))
     }
+
+    fn build_client_settings(&self) -> anyhow::Result<Option<TypedMessage>> {
+        // Outbound/client TLS: NO certificates (the client validates the
+        // upstream server's chain) — SNI + ALPN + version knobs, PLUS the
+        // client-only fields a relay needs: the uTLS `fingerprint` (proto
+        // field 11, read by the TCP dialer), and the `allowInsecure`
+        // replacements `verify_peer_cert_by_name` / `pinned_peer_cert_sha256`
+        // for self-signed upstreams (allowInsecure itself hard-errors in this
+        // xray version).
+        let alpn = self
+            .alpn
+            .clone()
+            .unwrap_or_else(|| vec!["http/1.1".to_owned()]);
+        let min_version = self
+            .min_version
+            .clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "1.2".to_owned());
+        // Match the share-link default ("chrome") so the relay's emulated
+        // ClientHello lines up with what the operator advertises to clients.
+        let fingerprint = self
+            .fingerprint
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("chrome")
+            .to_owned();
+        let pinned_peer_cert_sha256 = self
+            .pinned_peer_cert_sha256
+            .clone()
+            .unwrap_or_default()
+            .iter()
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| decode_cert_sha256(s))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        let cfg = XrayTlsConfig {
+            certificate: Vec::new(),
+            server_name: self.server_name.clone().unwrap_or_default(),
+            next_protocol: alpn,
+            min_version,
+            max_version: self.max_version.clone().unwrap_or_default(),
+            cipher_suites: self.cipher_suites.clone().unwrap_or_default(),
+            fingerprint,
+            verify_peer_cert_by_name: self
+                .verify_peer_cert_by_name
+                .clone()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|s| !s.trim().is_empty())
+                .collect(),
+            pinned_peer_cert_sha256,
+            ..XrayTlsConfig::default()
+        };
+        Ok(Some(TypedMessage {
+            r#type: TYPE_TLS_CONFIG.to_owned(),
+            value: cfg.encode_to_vec(),
+        }))
+    }
+}
+
+/// Decode an operator-supplied SHA-256 cert hash (hex, optionally
+/// colon/space-separated, or base64) into the 32 raw bytes xray pins against.
+fn decode_cert_sha256(s: &str) -> anyhow::Result<Vec<u8>> {
+    let cleaned: String = s
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != ':')
+        .collect();
+    // SHA-256 = 32 bytes = 64 hex chars; otherwise treat as base64.
+    let bytes = if cleaned.len() == 64 && cleaned.bytes().all(|b| b.is_ascii_hexdigit()) {
+        (0..cleaned.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&cleaned[i..i + 2], 16))
+            .collect::<Result<Vec<u8>, _>>()
+            .map_err(|e| anyhow::anyhow!("pinned_peer_cert_sha256: invalid hex: {e}"))?
+    } else {
+        base64::engine::general_purpose::STANDARD
+            .decode(&cleaned)
+            .map_err(|e| anyhow::anyhow!("pinned_peer_cert_sha256: invalid hex/base64: {e}"))?
+    };
+    if bytes.len() != 32 {
+        anyhow::bail!(
+            "pinned_peer_cert_sha256 must be a 32-byte SHA-256 (got {} bytes)",
+            bytes.len()
+        );
+    }
+    Ok(bytes)
 }

@@ -5,11 +5,12 @@ import { Sidebar } from '@/components/Sidebar';
 import { Login } from '@/pages/Login';
 import { Dashboard } from '@/pages/Dashboard';
 import { Inbounds } from '@/pages/Inbounds';
+import { Outbounds } from '@/pages/Outbounds';
 import { Clients } from '@/pages/Clients';
 import { Settings } from '@/pages/Settings';
 import { SubscriptionLanding } from '@/pages/SubscriptionLanding';
 import { useAuth } from '@/stores/auth';
-import { useNav, type NavPage } from '@/stores/nav';
+import { useNav, isNavPage } from '@/stores/nav';
 
 /** Public route detection. The backend's `/sub/{token}` falls through
  *  to the SPA when the caller asks for HTML (Accept: text/html and no
@@ -133,8 +134,8 @@ function AdminApp() {
       // rather than switching the page; the rest narrow to known NavPages.
       if (key === 'settings') {
         setSettingsOpen(true);
-      } else if (key === 'dashboard' || key === 'inbounds' || key === 'clients') {
-        setCurrent(key satisfies NavPage);
+      } else if (isNavPage(key)) {
+        setCurrent(key);
       }
       setDrawerOpen(false);
     },
@@ -152,6 +153,7 @@ function AdminApp() {
   // them on unrelated state changes; they still update from their own hooks.
   const dashboardPage = useMemo(() => <Dashboard />, []);
   const inboundsPage = useMemo(() => <Inbounds />, []);
+  const outboundsPage = useMemo(() => <Outbounds />, []);
   const clientsPage = useMemo(() => <Clients />, []);
 
   if (!authToken) return <Login />;
@@ -194,6 +196,12 @@ function AdminApp() {
             style={{ display: current === 'inbounds' ? 'block' : 'none' }}
           >
             {inboundsPage}
+          </div>
+          <div
+            className="app-page-fade"
+            style={{ display: current === 'outbounds' ? 'block' : 'none' }}
+          >
+            {outboundsPage}
           </div>
           <div
             className="app-page-fade"

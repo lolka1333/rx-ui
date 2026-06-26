@@ -5,6 +5,7 @@ mod error;
 mod host;
 mod logs;
 mod models;
+mod outbound_traffic;
 // Trait-based protocol / transport / security modules. The orchestrator
 // (`xray::orchestrator`) composes one of each per inbound; the Inbound
 // row carries one tagged-enum per layer as JSON-blob columns.
@@ -44,10 +45,11 @@ pub struct AppState {
     pub host: HostMonitor,
     pub logs: LogBuffer,
     pub traffic: traffic::TrafficStore,
-    /// URL prefix the panel currently serves under. Read by the
-    /// `prefix_strip_middleware` on every request; updated atomically
-    /// when the operator saves new settings, so a path change takes
-    /// effect on the very next request (no restart needed).
+    /// URL prefix the panel currently serves under. Read by
+    /// `build_router` at router-build time and mounted as a static
+    /// `nest`; saving a new prefix rebuilds the router and rebinds the
+    /// listener (see the settings handler) — it is not a per-request
+    /// lookup. Stored behind a lock so the rebuild reads the latest value.
     pub base_path: Arc<RwLock<String>>,
     /// Port the currently-active TCP listener is bound to. Used by
     /// the settings handler to decide whether a port change needs a
@@ -164,6 +166,11 @@ async fn main() -> anyhow::Result<()> {
         state.db.clone(),
     );
 
+    // Per-outbound lifetime traffic — same cadence, persisted into
+    // `outbound_traffic` so the Outbounds page totals survive xray restarts
+    // (xray's per-outbound counters are session-only).
+    outbound_traffic::spawn_outbound_traffic_poller(state.xray_client.clone(), state.db.clone());
+
     // Reconcile in-memory xray state with the panel DB. xray's
     // HandlerService stores inbounds in memory only — every cold start
     // (panel boot, xray crash + supervisor restart) needs us to push the
@@ -174,16 +181,20 @@ async fn main() -> anyhow::Result<()> {
         if let Err(e) = reconcile_inbounds_with_xray(&reconcile_state).await {
             tracing::error!("xray reconciliation failed: {e}");
         }
+        // Custom outbounds are HandlerService state too — push them after the
+        // inbounds so routing rules that target a custom outbound resolve.
+        if let Err(e) = crate::api::outbounds::reconcile_outbounds_with_xray(&reconcile_state).await
+        {
+            tracing::error!("xray outbound reconciliation failed: {e}");
+        }
     });
 
-    // Build the router once. URL prefix is applied dynamically via the
-    // `prefix_strip_middleware` reading `state.base_path` on every
-    // request — that way an operator changing the prefix takes effect
-    // on the next request without rebuilding the router. Port changes
-    // do still need a fresh `TcpListener`; for that we spawn a new
-    // listener task and let the old one finish in-flight requests
-    // before shutting down (see `spawn_listener` + the settings
-    // handler's port-swap path).
+    // Build the initial router. The URL prefix is mounted statically by
+    // `build_router` (it reads `state.base_path` once, at build time).
+    // Changing the prefix or the port later rebuilds the router and swaps
+    // the `TcpListener`: a new listener task is spawned and the old one is
+    // left to finish in-flight requests before shutting down (see
+    // `spawn_listener` + the settings handler's swap path).
     let app = build_router(state.clone()).await;
 
     // Bind initial listener and stash its shutdown channel so the
@@ -488,6 +499,11 @@ pub(crate) async fn resync_xray_state(state: &AppState) {
     state.xray_client.invalidate().await;
     if let Err(e) = reconcile_inbounds_with_xray(state).await {
         tracing::error!("xray re-sync after restart failed: {e}");
+    }
+    // Custom outbounds live in the same in-memory HandlerService set — re-push
+    // them after the inbounds so routing targets resolve post-restart.
+    if let Err(e) = crate::api::outbounds::reconcile_outbounds_with_xray(state).await {
+        tracing::error!("xray outbound re-sync after restart failed: {e}");
     }
 }
 

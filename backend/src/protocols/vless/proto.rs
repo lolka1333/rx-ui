@@ -242,21 +242,44 @@ impl VlessProtocol {
     }
 
     fn client_encryption_fields(&self) -> (String, u32, u32, String) {
-        match self.encryption_mode {
-            VlessEncryptionMode::None => (String::new(), 0, 0, String::new()),
-            VlessEncryptionMode::Mlkem768x25519Plus => {
-                let xor = self.encryption_xor_mode.unwrap_or_default();
-                let pad = self.encryption_padding.clone().unwrap_or_default();
-                let key = self.encryption_client_key.clone().unwrap_or_default();
-                let encryption = if pad.is_empty() {
-                    key
-                } else {
-                    format!("{pad}.{key}")
-                };
-                // Clients use Seconds=1 (`0rtt` mode). xray's `1rtt`
-                // (Seconds=0) is legacy; never exposed in the panel UI.
-                (encryption, xor.as_proto_u32(), 1, pad)
-            }
+        vless_client_encryption_fields(
+            self.encryption_mode,
+            self.encryption_xor_mode,
+            self.encryption_client_key.as_deref(),
+            self.encryption_padding.as_deref(),
+        )
+    }
+}
+
+/// Compute the client-side VLESS `Account` proto fields
+/// `(encryption, xor_mode, seconds, padding)` for the given encryption
+/// settings — shared by inbound user-building (`VlessProtocol`) and custom
+/// **outbounds** (the relay client must mirror the upstream server's cipher).
+///
+/// `encryption` is the bare `[padding.]<client_key>` the proto expects — NOT
+/// the `mlkem768x25519plus.<xor>.0rtt.` prefixed string (that prefix is only
+/// for the JSON parser / share-links; via direct proto xray would try to
+/// base64-decode "mlkem768x25519plus" as a key and fail "invalid seed
+/// length"). Clients use `Seconds=1` (`0rtt`); legacy `1rtt` is never
+/// surfaced.
+pub fn vless_client_encryption_fields(
+    mode: VlessEncryptionMode,
+    xor_mode: Option<VlessXorMode>,
+    client_key: Option<&str>,
+    padding: Option<&str>,
+) -> (String, u32, u32, String) {
+    match mode {
+        VlessEncryptionMode::None => (String::new(), 0, 0, String::new()),
+        VlessEncryptionMode::Mlkem768x25519Plus => {
+            let xor = xor_mode.unwrap_or_default();
+            let pad = padding.unwrap_or_default().to_owned();
+            let key = client_key.unwrap_or_default();
+            let encryption = if pad.is_empty() {
+                key.to_owned()
+            } else {
+                format!("{pad}.{key}")
+            };
+            (encryption, xor.as_proto_u32(), 1, pad)
         }
     }
 }

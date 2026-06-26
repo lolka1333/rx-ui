@@ -1,0 +1,218 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT panel_port, panel_base_path,\n                sub_enabled, sub_host_override, sub_update_interval_hours,\n                sub_brand_name, sub_service_url, sub_port,\n                xray_freedom_strategy, xray_routing_strategy, xray_test_url,\n                xray_block_bittorrent, xray_blocked_ips, xray_blocked_domains,\n                xray_ipv4_domains, xray_custom_rules, xray_rule_order\n            FROM panel_settings WHERE id = 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "panel_port",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "panel_port"
+          }
+        }
+      },
+      {
+        "name": "panel_base_path",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "panel_base_path"
+          }
+        }
+      },
+      {
+        "name": "sub_enabled",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "sub_enabled"
+          }
+        }
+      },
+      {
+        "name": "sub_host_override",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "sub_host_override"
+          }
+        }
+      },
+      {
+        "name": "sub_update_interval_hours",
+        "ordinal": 4,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "sub_update_interval_hours"
+          }
+        }
+      },
+      {
+        "name": "sub_brand_name",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "sub_brand_name"
+          }
+        }
+      },
+      {
+        "name": "sub_service_url",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "sub_service_url"
+          }
+        }
+      },
+      {
+        "name": "sub_port",
+        "ordinal": 7,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "sub_port"
+          }
+        }
+      },
+      {
+        "name": "xray_freedom_strategy",
+        "ordinal": 8,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_freedom_strategy"
+          }
+        }
+      },
+      {
+        "name": "xray_routing_strategy",
+        "ordinal": 9,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_routing_strategy"
+          }
+        }
+      },
+      {
+        "name": "xray_test_url",
+        "ordinal": 10,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_test_url"
+          }
+        }
+      },
+      {
+        "name": "xray_block_bittorrent",
+        "ordinal": 11,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_block_bittorrent"
+          }
+        }
+      },
+      {
+        "name": "xray_blocked_ips",
+        "ordinal": 12,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_blocked_ips"
+          }
+        }
+      },
+      {
+        "name": "xray_blocked_domains",
+        "ordinal": 13,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_blocked_domains"
+          }
+        }
+      },
+      {
+        "name": "xray_ipv4_domains",
+        "ordinal": 14,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_ipv4_domains"
+          }
+        }
+      },
+      {
+        "name": "xray_custom_rules",
+        "ordinal": 15,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_custom_rules"
+          }
+        }
+      },
+      {
+        "name": "xray_rule_order",
+        "ordinal": 16,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_rule_order"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "235fa98a6a114b7fdcc7bee2ab410a5edd61a4ed491bbdf5240543d914d481c1"
+}

@@ -139,11 +139,24 @@ ech_config_list: string | null,
 curve_preferences: Array<string> | null, 
 /**
  * uTLS `ClientHello` fingerprint the client emulates ("chrome",
- * "firefox", "randomized", a version-pinned `hello*`, …). Travels in
- * the share-link as `fp=` only — uTLS emulation is client-side, so
- * xray does no server-side validation and there's no proto field.
- * `None`/empty defaults to "chrome", matching the value pinned
- * before this knob was configurable (so existing inbounds are
- * unchanged).
+ * "firefox", "randomized", a version-pinned `hello*`, …). On an inbound
+ * this travels in the share-link as `fp=` (the server doesn't emulate);
+ * on an OUTBOUND it IS emitted into the TLS proto (`fingerprint`, field
+ * 11) so the relay's dialer emulates it. `None`/empty defaults to
+ * "chrome".
  */
-fingerprint: string | null, };
+fingerprint: string | null, 
+/**
+ * CLIENT-side (outbound relay) only — verify the upstream server's
+ * certificate against these names instead of the dial address. The
+ * sanctioned replacement for the removed `allowInsecure` when relaying
+ * to a server whose cert SAN doesn't match the address it's dialed by.
+ * Ignored on inbounds (the server build never reads it).
+ */
+verify_peer_cert_by_name: Array<string> | null, 
+/**
+ * CLIENT-side only — pin the upstream's certificate by SHA-256 (hex,
+ * optionally colon-separated, or base64). The strict alternative to
+ * `verify_peer_cert_by_name`. Ignored on inbounds.
+ */
+pinned_peer_cert_sha256: Array<string> | null, };

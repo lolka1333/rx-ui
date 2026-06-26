@@ -15,15 +15,16 @@ import { persist } from 'zustand/middleware';
  * (e.g. `/inbounds/:id`), this should be replaced by a router. For now,
  * localStorage + a tiny enum string is the right shape.
  */
-export type NavPage = 'dashboard' | 'inbounds' | 'clients';
+export type NavPage = 'dashboard' | 'inbounds' | 'outbounds' | 'clients';
 
 const VALID_PAGES: ReadonlySet<NavPage> = new Set([
   'dashboard',
   'inbounds',
+  'outbounds',
   'clients',
 ]);
 
-function isNavPage(value: unknown): value is NavPage {
+export function isNavPage(value: unknown): value is NavPage {
   return typeof value === 'string' && VALID_PAGES.has(value as NavPage);
 }
 

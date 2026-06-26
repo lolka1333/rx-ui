@@ -804,10 +804,78 @@ button {
   width: 100% !important;
   max-width: none !important;
 }
+/* 2-letter country/category code shown before a geo preset's name, both in
+   the dropdown option and on the selected chip (e.g. "RU Russia"). */
+.geo-code {
+  display: inline-block;
+  min-width: 1.7em;
+  margin-right: 7px;
+  font-size: 0.72em;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3, #8a93a5);
+  vertical-align: middle;
+}
+/* Multi-select tag lists (routing match lists) collect many chips — cap the
+   chip container at ~2.5 rows and scroll inside, instead of growing the
+   settings row unbounded. (This antd v6 build holds the chips in
+   `.ant-select-content`, not the older `.ant-select-selector`.) Single
+   strategy selects are one line and unaffected. */
+.app-settings-group .ant-select-multiple .ant-select-content {
+  max-height: 84px;
+  overflow-y: auto;
+  justify-content: flex-start !important;
+  align-content: flex-start !important;
+  margin-right: 0 !important;
+  gap: 2px 2px !important;
+}
+/* Chips don't grow and carry no margin of their own — the container `gap`
+   above is the single, tight source of spacing, so the chips read as one
+   dense block instead of sparse, spaced-out rows. */
+.app-settings-group .ant-select-multiple .ant-select-content-item {
+  margin: 0 !important;
+  flex: 0 0 auto !important;
+}
+.app-settings-group .ant-select-multiple .ant-tag {
+  margin: 0 !important;
+  padding: 0 5px;
+  font-size: 12px;
+  line-height: 19px;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+}
+.app-settings-group .ant-select-multiple .ant-tag .geo-code {
+  font-size: 10px;
+  min-width: 0;
+  margin-right: 3px;
+}
+/* No dropdown arrow on these tag lists — it never sits right across the
+   empty/short vs tall states. Click-to-open + the placeholder are enough. */
+.app-settings-group .ant-select-multiple .ant-select-suffix {
+  display: none;
+}
+/* Trim the right padding to ~3px so the scroll-thumb sits right against the
+   field edge (no arrow occupies that space anymore). */
+.app-settings-group .ant-select-multiple {
+  padding-right: 3px !important;
+}
 /* Help/error text sits under the control in the right column. */
 .app-settings-group .ant-form-item-explain,
 .app-settings-group .ant-form-item-extra {
   text-align: right;
+}
+/* Xray sub-page tabs — indigo active label + ink bar, overriding antd's
+   default primary. */
+.xray-tabs .ant-tabs-ink-bar {
+  background: #6366f1;
+}
+.xray-tabs .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: #6366f1;
+}
+.xray-tabs .ant-tabs-tab:hover .ant-tabs-tab-btn {
+  color: #8b88f5;
 }
 /* Standalone (non-Form) row — the language picker — same grid as a field. */
 .app-settings-group .app-settings-plaque {
@@ -1258,6 +1326,24 @@ button {
 @media (prefers-reduced-motion: reduce) {
   .app-settings-dirtybar { transition: none; }
   .app-settings-dirtybar-dot { animation: none; }
+}
+/* The "unsaved changes" label: keep it on one line, ellipsized — never let the
+   long word wrap character-by-character and blow past the bar's max-height. */
+.app-settings-dirtybar-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Phones: the label + both buttons can't share such a narrow row. Drop the
+   label (the pulsing dot + accent border already signal "unsaved") and let the
+   two buttons split the width into comfortable tap targets. */
+@media (max-width: 575px) {
+  .app-settings-dirtybar-text {
+    display: none;
+  }
+  .app-settings-dirtybar-inner .ant-btn {
+    flex: 1 1 0;
+  }
 }
 
 /* ====================================================================

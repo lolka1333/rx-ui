@@ -1,93 +1,93 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT panel_port, panel_base_path,\n                sub_enabled, sub_host_override, sub_update_interval_hours,\n                sub_brand_name, sub_service_url, sub_port\n            FROM panel_settings WHERE id = 1",
+  "query": "SELECT xray_freedom_strategy, xray_routing_strategy, xray_block_bittorrent,\n                xray_blocked_ips, xray_blocked_domains, xray_ipv4_domains,\n                xray_custom_rules, xray_rule_order\n            FROM panel_settings WHERE id = 1",
   "describe": {
     "columns": [
       {
-        "name": "panel_port",
+        "name": "xray_freedom_strategy",
         "ordinal": 0,
-        "type_info": "Integer",
+        "type_info": "Text",
         "origin": {
           "Table": {
             "table": "panel_settings",
-            "name": "panel_port"
+            "name": "xray_freedom_strategy"
           }
         }
       },
       {
-        "name": "panel_base_path",
+        "name": "xray_routing_strategy",
         "ordinal": 1,
         "type_info": "Text",
         "origin": {
           "Table": {
             "table": "panel_settings",
-            "name": "panel_base_path"
+            "name": "xray_routing_strategy"
           }
         }
       },
       {
-        "name": "sub_enabled",
+        "name": "xray_block_bittorrent",
         "ordinal": 2,
         "type_info": "Integer",
         "origin": {
           "Table": {
             "table": "panel_settings",
-            "name": "sub_enabled"
+            "name": "xray_block_bittorrent"
           }
         }
       },
       {
-        "name": "sub_host_override",
+        "name": "xray_blocked_ips",
         "ordinal": 3,
         "type_info": "Text",
         "origin": {
           "Table": {
             "table": "panel_settings",
-            "name": "sub_host_override"
+            "name": "xray_blocked_ips"
           }
         }
       },
       {
-        "name": "sub_update_interval_hours",
+        "name": "xray_blocked_domains",
         "ordinal": 4,
-        "type_info": "Integer",
+        "type_info": "Text",
         "origin": {
           "Table": {
             "table": "panel_settings",
-            "name": "sub_update_interval_hours"
+            "name": "xray_blocked_domains"
           }
         }
       },
       {
-        "name": "sub_brand_name",
+        "name": "xray_ipv4_domains",
         "ordinal": 5,
         "type_info": "Text",
         "origin": {
           "Table": {
             "table": "panel_settings",
-            "name": "sub_brand_name"
+            "name": "xray_ipv4_domains"
           }
         }
       },
       {
-        "name": "sub_service_url",
+        "name": "xray_custom_rules",
         "ordinal": 6,
         "type_info": "Text",
         "origin": {
           "Table": {
             "table": "panel_settings",
-            "name": "sub_service_url"
+            "name": "xray_custom_rules"
           }
         }
       },
       {
-        "name": "sub_port",
+        "name": "xray_rule_order",
         "ordinal": 7,
-        "type_info": "Integer",
+        "type_info": "Text",
         "origin": {
           "Table": {
             "table": "panel_settings",
-            "name": "sub_port"
+            "name": "xray_rule_order"
           }
         }
       }
@@ -106,5 +106,5 @@
       false
     ]
   },
-  "hash": "0bc053f5d82d992fc4310583cb25dacc6c00fa6f07a7e40d12deab9ee98c8870"
+  "hash": "75a5dfa4ba5add841980c962abeea7681ca7a92202414acb4ef5630f34531679"
 }

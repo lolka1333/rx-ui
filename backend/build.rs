@@ -38,6 +38,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // VLESS server-side protocol settings + account shape.
         "proto/proxy/vless/inbound/config.proto",
         "proto/proxy/vless/account.proto",
+        // VLESS client-side (outbound) settings — a single `vnext` endpoint.
+        // Used by custom outbounds to relay through an upstream VLESS server.
+        "proto/proxy/vless/outbound/config.proto",
         // Hysteria 2 — proxy + per-user account. ServerConfig carries the
         // users[]; per-user Account.auth is the shared secret. ClientConfig
         // is generated but unused (the panel never dials out).
@@ -91,8 +94,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // every page request. Detect it here with a loud, actionable error
     // instead.
     //
-    // Dev builds (debug_assertions) skip this — the frontend is served
-    // by Vite on :5173 during development, and an empty dist/ is normal
+    // Non-release builds (PROFILE != "release") skip this — the frontend is
+    // served by Vite on :5173 during development, and an empty dist/ is normal
     // when the developer hasn't built yet. Vite's HMR provides the page
     // content; the backend's static_assets fallback just returns "frontend
     // assets not embedded" which is fine because the operator browses on

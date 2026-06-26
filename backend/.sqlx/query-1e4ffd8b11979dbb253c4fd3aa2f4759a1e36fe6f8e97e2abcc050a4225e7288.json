@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT xray_custom_outbounds AS \"x!: String\" FROM panel_settings WHERE id = 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "x!: String",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_custom_outbounds"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "1e4ffd8b11979dbb253c4fd3aa2f4759a1e36fe6f8e97e2abcc050a4225e7288"
+}

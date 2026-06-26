@@ -1,9 +1,10 @@
 use anyhow::Context;
 use sqlx::{
     SqlitePool,
-    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
 };
 use std::str::FromStr;
+use std::time::Duration;
 
 pub type DbPool = SqlitePool;
 
@@ -14,7 +15,16 @@ pub async fn init_pool(database_url: &str) -> anyhow::Result<DbPool> {
     let opts = SqliteConnectOptions::from_str(database_url)
         .with_context(|| format!("invalid DATABASE_URL: {database_url}"))?
         .create_if_missing(true)
-        .foreign_keys(true);
+        .foreign_keys(true)
+        // WAL lets the 5s traffic-poller commit run without blocking the
+        // dashboard / auth / subscription reads (writer and readers stop
+        // serialising); busy_timeout makes a contended write wait instead of
+        // failing instantly with SQLITE_BUSY; synchronous=NORMAL is the safe WAL
+        // pairing (fsync at checkpoint, not on every commit). This is what keeps
+        // the panel responsive as the client count climbs.
+        .journal_mode(SqliteJournalMode::Wal)
+        .synchronous(SqliteSynchronous::Normal)
+        .busy_timeout(Duration::from_secs(5));
 
     // sqlite won't auto-create the directory, only the file.
     let path = opts.get_filename().to_path_buf();
