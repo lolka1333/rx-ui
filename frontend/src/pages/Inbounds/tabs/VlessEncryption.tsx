@@ -53,32 +53,36 @@ export function VlessEncryption() {
       message.error(apiErrorMessage(err) ?? t('inbounds.vlessEncRegenerateError')),
   });
 
-  // Auto-(re)generate keys in two distinct cases:
-  //   1. Operator just flipped the mode to PQ and the form has no keys
-  //      yet (fresh-create flow).
-  //   2. Operator changed the `auth` primitive (X25519 ↔ ML-KEM-768) —
-  //      the existing keys belong to the wrong primitive now, so they
-  //      have to be regenerated to match the new selection.
-  // We track the auth value the current keys were generated for in a
-  // ref; mismatch with the form value means a regeneration is due.
-  // For an inbound being edited, the ref initialises to the auth read
-  // from `inboundToForm`, so the effect stays inert until the operator
-  // actually changes the dropdown.
-  const prevAuthRef = useRef<VlessEncryptionAuth | undefined>(auth);
+  // (Re)generate the keypair in exactly two cases:
+  //   1. Fresh inbound — the operator enabled PQ but no keys exist yet.
+  //   2. The operator switched the `auth` primitive (X25519 ↔ ML-KEM-768),
+  //      so the current keys belong to the wrong one.
+  //
+  // The subtlety: the form populates asynchronously — `Form.useWatch` yields
+  // `undefined` on the first render and the loaded `auth` a tick later. Seeding
+  // the baseline from that first-render value would capture `undefined` and
+  // then read the real auth as a *change*, rotating the keypair on every
+  // edit-open (and breaking every existing client). So the ref starts
+  // `undefined`, and the first effect run — which only fires once `auth` is
+  // real — adopts the loaded auth as the baseline without touching the stored
+  // keys. Regeneration is then left to a genuine later switch.
+  const prevAuthRef = useRef<VlessEncryptionAuth | undefined>(undefined);
   useEffect(() => {
     if (!enabled || !auth || keygen.isPending) return;
-    const noKeys = !hasKeys;
-    const authChanged = prevAuthRef.current !== auth;
-    if (noKeys || authChanged) {
-      keygen.mutate(auth);
-      prevAuthRef.current = auth;
-    }
-    // `keygen` is stable; intentionally NOT in deps to avoid re-firing
-    // on its own onSuccess. `keygen.isPending` IS in deps so that an
-    // auth change made while a previous keygen is in flight gets picked
-    // up the moment the in-flight mutation settles.
+    const baseline = prevAuthRef.current;
+    prevAuthRef.current = auth;
+    // Keys read from the form store — authoritative regardless of useWatch
+    // timing (a freshly-edited inbound already has them; a new one doesn't).
+    const hasStoredKeys =
+      !!form.getFieldValue('vless_encryption_server_key') &&
+      !!form.getFieldValue('vless_encryption_client_key');
+    const regenerate = baseline === undefined ? !hasStoredKeys : baseline !== auth;
+    if (regenerate) keygen.mutate(auth);
+    // `keygen` is stable; intentionally not in deps to avoid re-firing on its
+    // own onSuccess. `keygen.isPending` IS, so an auth switch made while a
+    // previous keygen is in flight is picked up once it settles.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, hasKeys, auth, keygen.isPending]);
+  }, [enabled, auth, keygen.isPending]);
 
   return (
     <Section itemKey="vlessEncryption" labelKey="inbounds.vlessEncSection">
