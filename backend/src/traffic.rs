@@ -92,13 +92,13 @@ impl TrafficStore {
     }
 }
 
-/// Parse a counter name of shape `user>>>{email}>>>traffic>>>{kind}`
-/// into its `(email, kind)` pair. Returns `None` for shapes we don't
-/// care about (other prefixes, malformed names).
-fn parse_user_counter(name: &str) -> Option<(&str, &str)> {
-    let rest = name.strip_prefix("user>>>")?;
-    let (email, tail) = rest.split_once(">>>traffic>>>")?;
-    Some((email, tail))
+/// Parse a stats counter name of shape `{prefix}{key}>>>traffic>>>{kind}` into
+/// its `(key, kind)` pair. Returns `None` for other prefixes / malformed names.
+/// `prefix` is `"user>>>"` (per-client) or `"outbound>>>"` (per-outbound), so
+/// both pollers share one parser.
+pub fn parse_counter<'a>(name: &'a str, prefix: &str) -> Option<(&'a str, &'a str)> {
+    let rest = name.strip_prefix(prefix)?;
+    rest.split_once(">>>traffic>>>")
 }
 
 /// Spawn the polling task. It runs for the lifetime of the panel
@@ -123,7 +123,7 @@ pub fn spawn_traffic_poller(client: XrayClient, store: TrafficStore, db: DbPool)
             match client.query_user_stats().await {
                 Ok(resp) => {
                     let at = Instant::now();
-                    for (email, (uplink, downlink)) in fold_stats_to_totals(resp) {
+                    for (email, (uplink, downlink)) in fold_stats_to_totals(resp, "user>>>") {
                         prev.insert(
                             email,
                             PrevTick {
@@ -184,7 +184,7 @@ async fn poll_once(
         }
     };
     let online_set: std::collections::HashSet<String> = online_resp.users.into_iter().collect();
-    let xray_totals = fold_stats_to_totals(stats_resp);
+    let xray_totals = fold_stats_to_totals(stats_resp, "user>>>");
 
     // Read persisted lifetime totals for every email xray currently
     // knows about. One query, joined on email; the missing rows come
@@ -192,8 +192,20 @@ async fn poll_once(
     let db_totals = match load_db_totals(db).await {
         Ok(m) => m,
         Err(e) => {
-            tracing::warn!("traffic poller DB read failed: {e}");
-            HashMap::new()
+            // Skip the tick rather than degrade to an empty map. An empty
+            // `db_totals` shrinks the `all_emails` union below to just what
+            // xray reported this tick, and the wholesale store overwrite
+            // (`*store.inner.write() = next`) would then DROP every
+            // DB-known-but-xray-quiet client (idle users, or everyone right
+            // after an xray restart) — they'd render "—" until the next tick,
+            // i.e. traffic visibly disappears and reappears. A failed read
+            // carries no new information, so keeping last tick's snapshot is
+            // strictly correct. Same early-return contract as the two gRPC
+            // failures above; `flush_deltas` is additive and xray counters use
+            // `reset:false`, so the next good tick credits the accumulated
+            // bytes with no loss or double-count.
+            tracing::warn!("traffic poller DB read failed; keeping last snapshot this tick: {e}");
+            return;
         }
     };
 
@@ -264,22 +276,25 @@ async fn poll_once(
     *store.inner.write().await = next;
 }
 
-/// Roll the `query_user_stats` response into `email -> (uplink, downlink)`.
-/// Ignores counters that aren't of the form `user>>>email>>>traffic>>>kind`.
-fn fold_stats_to_totals(
+/// Roll a `QueryStats` response into `key -> (uplink, downlink)`, keeping only
+/// counters of the form `{prefix}{key}>>>traffic>>>{uplink|downlink}`. Shared by
+/// the per-client poller (`"user>>>"`) and the per-outbound poller
+/// (`"outbound>>>"`).
+pub fn fold_stats_to_totals(
     resp: crate::xray::proto::xray::app::stats::command::QueryStatsResponse,
+    prefix: &str,
 ) -> HashMap<String, (u64, u64)> {
     let mut totals: HashMap<String, (u64, u64)> = HashMap::new();
     for s in resp.stat {
-        let Some((email, kind)) = parse_user_counter(&s.name) else {
+        let Some((key, kind)) = parse_counter(&s.name, prefix) else {
             continue;
         };
-        // `stat.value` is `i64` in the proto but xray never sets it
-        // negative — `.max(0)` clamps the theoretical-only negative
-        // case, then the cast is exact (positive i64 always fits in u64).
+        // `stat.value` is `i64` in the proto but xray never sets it negative —
+        // `.max(0)` clamps the theoretical-only case, then the cast is exact
+        // (positive i64 always fits in u64).
         #[allow(clippy::cast_sign_loss)]
         let val = s.value.max(0) as u64;
-        let entry = totals.entry(email.to_owned()).or_default();
+        let entry = totals.entry(key.to_owned()).or_default();
         match kind {
             "uplink" => entry.0 = val,
             "downlink" => entry.1 = val,
@@ -613,12 +628,12 @@ async fn load_db_totals(db: &DbPool) -> sqlx::Result<HashMap<String, ClientMeta>
 
 #[cfg(test)]
 mod tests {
-    use super::parse_user_counter;
+    use super::parse_counter;
 
     #[test]
     fn parses_uplink() {
         assert_eq!(
-            parse_user_counter("user>>>alice@x>>>traffic>>>uplink"),
+            parse_counter("user>>>alice@x>>>traffic>>>uplink", "user>>>"),
             Some(("alice@x", "uplink"))
         );
     }
@@ -626,18 +641,21 @@ mod tests {
     #[test]
     fn parses_downlink_with_at() {
         assert_eq!(
-            parse_user_counter("user>>>bob@example.com>>>traffic>>>downlink"),
+            parse_counter("user>>>bob@example.com>>>traffic>>>downlink", "user>>>"),
             Some(("bob@example.com", "downlink"))
         );
     }
 
     #[test]
     fn rejects_non_user_prefix() {
-        assert_eq!(parse_user_counter("inbound>>>tag>>>traffic>>>uplink"), None);
+        assert_eq!(
+            parse_counter("inbound>>>tag>>>traffic>>>uplink", "user>>>"),
+            None
+        );
     }
 
     #[test]
     fn rejects_missing_traffic_segment() {
-        assert_eq!(parse_user_counter("user>>>alice@x>>>online"), None);
+        assert_eq!(parse_counter("user>>>alice@x>>>online", "user>>>"), None);
     }
 }
