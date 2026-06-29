@@ -1,7 +1,6 @@
 //! Per-inbound VLESS client model. One row = one user of one inbound.
 //!
-//! In Phase 1 the `clients` table existed but was inert — Phase 2 starts
-//! populating it. The columns are a direct mirror of what xray's
+//! The columns are a direct mirror of what xray's
 //! `proxy::vless::Account` proto needs: `id` (uuid) and `flow`, plus
 //! panel-side metadata (`email` for stats labels, `enabled` for runtime
 //! gating, `note` for the operator's eyes).

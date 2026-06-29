@@ -44,7 +44,7 @@ import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/api/client';
 import { apiErrorMessage } from '@/api/errors';
 import { useAuth } from '@/stores/auth';
-import { useLocale } from '@/stores/locale';
+import { setLocaleAndReload, useLocale } from '@/stores/locale';
 import { LOCALES } from '@/i18n';
 import type { PanelSettings, PanelSettingsUpdate, RoutingRule } from '@/api/types';
 import { RoutingRulesField } from '@/components/RoutingRulesField';
@@ -468,12 +468,6 @@ function AccountSection() {
   // "Password & security" group — sessions sit alongside the password
   // controls, so we merged the old standalone Session section in.
   const sessionInfo = useMemo(() => decodeSessionInfo(authToken), [authToken]);
-  // Re-render once a minute so the "valid for ~Nh" copy stays fresh.
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    const id = window.setInterval(() => setTick((n) => n + 1), 60_000);
-    return () => window.clearInterval(id);
-  }, []);
 
   const mutation = useMutation({
     mutationFn: async (values: CredentialsFormValues) => {
@@ -1004,46 +998,19 @@ function TlsSection({
 }
 
 /**
- * Standalone language picker rendered at the bottom of the Access section.
- * Writes the chosen locale straight to the localStorage key `useLocale`
- * reads from, then triggers a full page reload so the entire panel
- * re-boots in the new language. Bypasses the zustand setter on purpose:
- * calling it would notify subscribers and cause React to repaint the
- * tree with the new translations BEFORE the reload, which looked like a
- * jarring "snap then reload" two-stage transition. Writing storage
- * directly + reloading gives the operator a single clean transition —
- * click, browser reload spinner, fresh page on the new language.
- * Sits OUTSIDE the access form so the dirty-bar doesn't touch it.
+ * Standalone language picker at the bottom of the Access section; switches
+ * the UI language via `setLocaleAndReload` (which owns the write-storage-then-
+ * reload rationale). Sits OUTSIDE the access form so the dirty-bar doesn't
+ * touch it.
  */
 function LanguagePicker() {
   const { t } = useTranslation();
   const locale = useLocale((s) => s.locale);
-  const setLocale = useLocale((s) => s.set);
   const onChange = useCallback(
     (next: typeof locale) => {
-      if (next === locale) return;
-      // Zustand/persist storage shape is `{state:{...}, version:0}`.
-      // Merge into existing state so we don't clobber any future fields.
-      try {
-        const raw = localStorage.getItem('app-locale');
-        const parsed = raw ? (JSON.parse(raw) as { state?: unknown; version?: number }) : {};
-        const state = (parsed.state as Record<string, unknown> | undefined) ?? {};
-        localStorage.setItem(
-          'app-locale',
-          JSON.stringify({
-            state: { ...state, locale: next },
-            version: parsed.version ?? 0,
-          }),
-        );
-      } catch {
-        // localStorage unavailable (private mode / quota) — fall back to
-        // the zustand path. The reload still fires below so the operator
-        // gets the new language one way or another.
-        setLocale(next);
-      }
-      window.location.reload();
+      if (next !== locale) setLocaleAndReload(next);
     },
-    [locale, setLocale],
+    [locale],
   );
   return (
     <FieldGroup title={t('settings.interfaceGroup')}>

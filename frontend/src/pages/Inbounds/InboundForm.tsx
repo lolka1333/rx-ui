@@ -37,9 +37,9 @@ interface InboundFormProps {
   editing: Inbound | null;
   onFinish: (values: FormValues) => void;
   /** Replace the parent's `editing` row after a rotate-reality-keypair
-   *  succeeds — the textarea reads `realityPublicKey(editing)` directly
-   *  (not via the form instance) so a stale prop would keep showing the
-   *  old key after rotation. */
+   *  succeeds, so the freshly generated public key is re-seeded into the
+   *  form (RealityTab reads it via `Form.useWatch`) instead of the modal
+   *  keeping the pre-rotation value. */
   onEditingChange: (next: Inbound) => void;
 }
 

@@ -144,10 +144,10 @@ function AdminApp() {
 
   const onDrawerClose = useCallback(() => setDrawerOpen(false), []);
 
-  // The three tabs stay mounted (to preserve per-tab state) and each runs its
+  // The four pages stay mounted (to preserve per-page state) and each runs its
   // own pollers, so they are expensive trees to render. Without this, every
   // AdminApp re-render — including a drawer open/close, which flips
-  // `drawerOpen` — would synchronously re-render all three and stall the main
+  // `drawerOpen` — would synchronously re-render all four and stall the main
   // thread, which is exactly what made the mobile drawer feel laggy. Memoising
   // the elements gives React a stable reference so it bails out of re-rendering
   // them on unrelated state changes; they still update from their own hooks.
@@ -177,12 +177,12 @@ function AdminApp() {
             width: '100%',
           }}
         >
-          {/* Render all tabs in parallel and hide inactive ones with
+          {/* Render all pages in parallel and hide inactive ones with
               display:none rather than conditionally mounting. This preserves
-              per-tab local state (open modals, edit form contents in
+              per-page local state (open modals, edit form contents in
               Inbounds, scroll position) across navigation. The pollers
-              inside each tab keep running while hidden — for a single-admin
-              panel with ~2-3 tabs that's a negligible cost compared to the
+              inside each page keep running while hidden — for a single-admin
+              panel with four pages that's a negligible cost compared to the
               UX hit of losing the user's in-progress edits when they tap
               another nav item. */}
           <div

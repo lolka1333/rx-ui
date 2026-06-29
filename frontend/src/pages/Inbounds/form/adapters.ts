@@ -176,48 +176,72 @@ export function inboundToForm(inb: Inbound): FormValues {
   v.sockopt_tcp_fast_open = inb.sockopt.tcp_fast_open ?? null;
   v.sockopt_v6only = inb.sockopt.v6only ?? false;
 
-  // Active variants peel into their field set; inactive ones keep
-  // DEFAULTS so the operator sees placeholders when flipping the dropdown.
-  if (inb.finalmask.kind === 'sudoku') {
-    v.finalmask_kind = 'sudoku';
-    v.finalmask_sudoku_password = inb.finalmask.password;
-    // Backend's `ascii` is `String`; narrow to the operator-selectable
-    // union here so the form's typed union stays honest. Unknown values
-    // (forward-compat from a future xray release) collapse to `''`.
-    v.finalmask_sudoku_ascii =
-      inb.finalmask.ascii === 'prefer_entropy' || inb.finalmask.ascii === 'prefer_ascii'
-        ? inb.finalmask.ascii
-        : '';
-    v.finalmask_sudoku_padding_min = inb.finalmask.padding_min;
-    v.finalmask_sudoku_padding_max = inb.finalmask.padding_max;
-  } else if (inb.finalmask.kind === 'fragment') {
-    v.finalmask_kind = 'fragment';
-    // Recover the UI mode from the (from,to) pair xray stores: (0,1) is the
-    // tlshello shortcut, (0,0) is whole-stream segmentation, anything else is
-    // an explicit segment range.
-    const pf = inb.finalmask.packets_from ?? 0;
-    const pt = inb.finalmask.packets_to ?? 0;
-    v.finalmask_fragment_packets_mode =
-      pf === 0 && pt === 1 ? 'tlshello' : pf === 0 && pt === 0 ? 'all' : 'range';
-    v.finalmask_fragment_packets_from = inb.finalmask.packets_from;
-    v.finalmask_fragment_packets_to = inb.finalmask.packets_to;
-    // Render the backend's parallel min/max arrays back into comma-separated
-    // "min-max" lists for the form's text inputs.
-    const frag = inb.finalmask;
-    v.finalmask_fragment_lengths = frag.lengths_min
-      .map((min, i) => `${min}-${frag.lengths_max[i] ?? min}`)
-      .join(', ');
-    v.finalmask_fragment_delays = frag.delays_min
-      .map((min, i) => `${min}-${frag.delays_max[i] ?? min}`)
-      .join(', ');
-  } else if (inb.finalmask.kind === 'noise') {
-    v.finalmask_kind = 'noise';
-    v.finalmask_noise_packet_hex = inb.finalmask.packet_hex;
-    v.finalmask_noise_rand_min = inb.finalmask.rand_min;
-    v.finalmask_noise_rand_max = inb.finalmask.rand_max;
-  }
+  hydrateFinalMask(v, inb.finalmask);
 
   return v;
+}
+
+/** The flat `finalmask_*` form fields — the single source of truth for this key
+ *  list, shared by the inbound `FormValues` and the outbound form shape
+ *  (`OutboundFormValues extends FinalMaskFormFields`). */
+export type FinalMaskFormFields = Pick<
+  FormValues,
+  | 'finalmask_kind'
+  | 'finalmask_sudoku_password'
+  | 'finalmask_sudoku_ascii'
+  | 'finalmask_sudoku_padding_min'
+  | 'finalmask_sudoku_padding_max'
+  | 'finalmask_fragment_packets_mode'
+  | 'finalmask_fragment_packets_from'
+  | 'finalmask_fragment_packets_to'
+  | 'finalmask_fragment_lengths'
+  | 'finalmask_fragment_delays'
+  | 'finalmask_noise_packet_hex'
+  | 'finalmask_noise_rand_min'
+  | 'finalmask_noise_rand_max'
+>;
+
+/** Hydrate the flat `finalmask_*` form fields from a typed `FinalMask`. The
+ *  active variant peels into its field set; inactive variants are left
+ *  untouched (the caller seeds DEFAULTS so the operator sees placeholders when
+ *  flipping the dropdown). Shared by `inboundToForm` and the outbound
+ *  `outboundToForm` adapter — the reverse of the already-shared
+ *  `buildFinalMask`. */
+export function hydrateFinalMask(target: FinalMaskFormFields, fm: FinalMask): void {
+  if (fm.kind === 'sudoku') {
+    target.finalmask_kind = 'sudoku';
+    target.finalmask_sudoku_password = fm.password;
+    // Backend's `ascii` is `String`; narrow to the operator-selectable union
+    // here so the form's typed union stays honest. Unknown values (forward-
+    // compat from a future xray release) collapse to `''`.
+    target.finalmask_sudoku_ascii =
+      fm.ascii === 'prefer_entropy' || fm.ascii === 'prefer_ascii' ? fm.ascii : '';
+    target.finalmask_sudoku_padding_min = fm.padding_min;
+    target.finalmask_sudoku_padding_max = fm.padding_max;
+  } else if (fm.kind === 'fragment') {
+    target.finalmask_kind = 'fragment';
+    // Recover the UI mode from the (from,to) pair xray stores: (0,1) is the
+    // tlshello shortcut, (0,0) is whole-stream segmentation, else a range.
+    const pf = fm.packets_from ?? 0;
+    const pt = fm.packets_to ?? 0;
+    target.finalmask_fragment_packets_mode =
+      pf === 0 && pt === 1 ? 'tlshello' : pf === 0 && pt === 0 ? 'all' : 'range';
+    target.finalmask_fragment_packets_from = fm.packets_from;
+    target.finalmask_fragment_packets_to = fm.packets_to;
+    // Render the backend's parallel min/max arrays back into comma-separated
+    // "min-max" lists for the form's text inputs.
+    target.finalmask_fragment_lengths = fm.lengths_min
+      .map((min, i) => `${min}-${fm.lengths_max[i] ?? min}`)
+      .join(', ');
+    target.finalmask_fragment_delays = fm.delays_min
+      .map((min, i) => `${min}-${fm.delays_max[i] ?? min}`)
+      .join(', ');
+  } else if (fm.kind === 'noise') {
+    target.finalmask_kind = 'noise';
+    target.finalmask_noise_packet_hex = fm.packet_hex;
+    target.finalmask_noise_rand_min = fm.rand_min;
+    target.finalmask_noise_rand_max = fm.rand_max;
+  }
 }
 
 /** Build the typed `ProtocolConfig` from the flat form. Dispatches on

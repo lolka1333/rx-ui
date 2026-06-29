@@ -203,28 +203,11 @@ impl XrayController {
         Ok(format!("v{tag}"))
     }
 
-    /// Public, name-only entry kept for callers that don't know the full
-    /// binary path (e.g. `xray::reload::bootstrap` deciding whether to
-    /// attach). Internally we always match by absolute path — see
-    /// [`Self::detect_external_pid_for`].
-    pub fn detect_external_pid(binary_name: &str) -> Option<u32> {
-        // Best-effort wrapper: resolve `binary_name` against CWD-relative
-        // `data/xray/<name>` (the panel's default install dir) before
-        // falling back to a pure filename comparison. Matches both the
-        // self-installed case and a `XRAY_BINARY=/usr/local/bin/xray`
-        // override on Linux.
-        let candidate = std::path::Path::new("data/xray").join(binary_name);
-        if let Some(pid) = Self::detect_external_pid_for(&candidate) {
-            return Some(pid);
-        }
-        Self::detect_external_pid_loose(binary_name)
-    }
-
-    /// Strict variant: returns the PID of a running process whose executable
-    /// path equals `binary` (after normalisation via `std::path::absolute`).
-    /// This is what we want at boot — attaching to *our* xray instance, not
-    /// to some unrelated `xray.exe` that lives elsewhere on the host
-    /// (e.g. v2rayN's bundled copy under `Downloads/v2rayN-...`).
+    /// Returns the PID of a running process whose executable path equals
+    /// `binary` (after normalisation via `std::path::absolute`). The match is
+    /// by absolute path, not filename — at boot we want to attach to *our* xray
+    /// instance, not to some unrelated `xray.exe` that lives elsewhere on the
+    /// host (e.g. v2rayN's bundled copy under `Downloads/v2rayN-...`).
     pub fn detect_external_pid_for(binary: &std::path::Path) -> Option<u32> {
         let target = std::path::absolute(binary).ok()?;
         let mut sys = System::new_with_specifics(RefreshKind::nothing());
@@ -251,34 +234,6 @@ impl XrayController {
             })?;
             let exe_abs = std::path::absolute(&exe_path).ok()?;
             (exe_abs == target).then_some(pid.as_u32())
-        })
-    }
-
-    /// Loose filename-only match. Used only as a fallback when the strict
-    /// path-based check returned None (e.g. binary path canonicalisation
-    /// failed). Skips processes whose exe path lives outside our install
-    /// directory so we don't accidentally adopt v2rayN's xray and start
-    /// `SIGKILLing` it on stop.
-    fn detect_external_pid_loose(binary_name: &str) -> Option<u32> {
-        let mut sys = System::new_with_specifics(RefreshKind::nothing());
-        sys.refresh_processes_specifics(
-            ProcessesToUpdate::All,
-            true,
-            ProcessRefreshKind::nothing()
-                .with_cmd(UpdateKind::Always)
-                .with_exe(UpdateKind::Always),
-        );
-        let cwd = std::env::current_dir().ok()?;
-        sys.processes().iter().find_map(|(pid, p)| {
-            let exe = p.exe()?;
-            let file = exe.file_name()?.to_string_lossy();
-            if file != binary_name {
-                return None;
-            }
-            // Only adopt if the process lives under our CWD — avoids
-            // hijacking unrelated xray installs on the same host.
-            let abs = std::path::absolute(exe).ok()?;
-            abs.starts_with(&cwd).then_some(pid.as_u32())
         })
     }
 

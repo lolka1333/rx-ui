@@ -462,7 +462,7 @@ pub(crate) async fn reconcile_inbounds_with_xray(state: &AppState) -> anyhow::Re
         // Pull enabled clients in a separate per-inbound query — keeps
         // the reconciliation join-free and lets a client-query failure
         // skip just one inbound instead of poisoning the whole reload.
-        let clients = match crate::api::inbounds::load_enabled_clients(&state.db, &inb.id).await {
+        let clients = match crate::api::clients::load_enabled_clients(&state.db, &inb.id).await {
             Ok(v) => v,
             Err(e) => {
                 tracing::warn!("inbound tag={} client query failed, skipping: {e}", r.tag);

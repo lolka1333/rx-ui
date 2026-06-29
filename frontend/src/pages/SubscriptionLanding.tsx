@@ -26,7 +26,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { LOCALES, type Locale } from '@/i18n';
-import { useLocale } from '@/stores/locale';
+import { setLocaleAndReload, useLocale } from '@/stores/locale';
 import {
   AppleOutlined,
   AndroidOutlined,
@@ -766,27 +766,11 @@ function pct(used: number, total: number): number {
  *  belongs to one operator across both surfaces. */
 function SubLocalePicker() {
   const locale = useLocale((s) => s.locale);
-  const setLocale = useLocale((s) => s.set);
   const onChange = useCallback(
     (next: Locale) => {
-      if (next === locale) return;
-      try {
-        const raw = localStorage.getItem('app-locale');
-        const parsed = raw ? (JSON.parse(raw) as { state?: unknown; version?: number }) : {};
-        const state = (parsed.state as Record<string, unknown> | undefined) ?? {};
-        localStorage.setItem(
-          'app-locale',
-          JSON.stringify({
-            state: { ...state, locale: next },
-            version: parsed.version ?? 0,
-          }),
-        );
-      } catch {
-        setLocale(next);
-      }
-      window.location.reload();
+      if (next !== locale) setLocaleAndReload(next);
     },
-    [locale, setLocale],
+    [locale],
   );
   return (
     <Select

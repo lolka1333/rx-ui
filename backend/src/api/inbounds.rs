@@ -753,7 +753,7 @@ async fn sync_inbound_update_to_xray(
         let _ = state.xray_client.remove_inbound(&before.tag).await;
     }
     if after.enabled && (layers_changed || basics_changed || toggled) {
-        let clients = load_enabled_clients(&state.db, id).await?;
+        let clients = crate::api::clients::load_enabled_clients(&state.db, id).await?;
         let handler = crate::xray::orchestrator::inbound_to_handler_config(after, &clients)
             .map_err(AppError::Internal)?;
         if let Err(e) = state.xray_client.add_inbound(handler).await {
@@ -824,19 +824,7 @@ async fn rotate_reality_keypair(
 
     let after = row_to_inbound(read_row(&state, &id).await?)?;
     if after.enabled {
-        let clients = load_enabled_clients(&state.db, &id).await?;
-        let _ = state.xray_client.remove_inbound(&after.tag).await;
-        let handler = crate::xray::orchestrator::inbound_to_handler_config(&after, &clients)
-            .map_err(AppError::Internal)?;
-        if let Err(e) = state.xray_client.add_inbound(handler).await {
-            tracing::error!(
-                "inbound {} reality key rotated in DB but xray re-add failed: {e}",
-                after.tag
-            );
-            return Err(AppError::Internal(anyhow::anyhow!(
-                "rotated in DB but not applied to xray: {e}"
-            )));
-        }
+        reapply_inbound_to_xray(&state, &after, "reality key rotated").await?;
     }
 
     Ok(Json(after))
@@ -887,19 +875,7 @@ async fn regenerate_vless_encryption_keypair(
 
     let after = row_to_inbound(read_row(&state, &id).await?)?;
     if after.enabled {
-        let clients = load_enabled_clients(&state.db, &id).await?;
-        let _ = state.xray_client.remove_inbound(&after.tag).await;
-        let handler = crate::xray::orchestrator::inbound_to_handler_config(&after, &clients)
-            .map_err(AppError::Internal)?;
-        if let Err(e) = state.xray_client.add_inbound(handler).await {
-            tracing::error!(
-                "inbound {} vless-encryption regenerated in DB but xray re-add failed: {e}",
-                after.tag
-            );
-            return Err(AppError::Internal(anyhow::anyhow!(
-                "regenerated in DB but not applied to xray: {e}"
-            )));
-        }
+        reapply_inbound_to_xray(&state, &after, "vless-encryption regenerated").await?;
     }
     Ok(Json(after))
 }
@@ -907,6 +883,27 @@ async fn regenerate_vless_encryption_keypair(
 // =============================================================================
 // Small helpers
 // =============================================================================
+
+/// Re-push an inbound to xray after an in-place key change (Reality / VLESS-
+/// encryption rotation): drop the old handler and re-add it with the current
+/// enabled clients. `what` names the change for the log / error text. Callers
+/// invoke this only when the inbound is enabled.
+async fn reapply_inbound_to_xray(state: &AppState, after: &Inbound, what: &str) -> AppResult<()> {
+    let clients = crate::api::clients::load_enabled_clients(&state.db, &after.id).await?;
+    let _ = state.xray_client.remove_inbound(&after.tag).await;
+    let handler = crate::xray::orchestrator::inbound_to_handler_config(after, &clients)
+        .map_err(AppError::Internal)?;
+    if let Err(e) = state.xray_client.add_inbound(handler).await {
+        tracing::error!(
+            "inbound {} {what} in DB but xray re-add failed: {e}",
+            after.tag
+        );
+        return Err(AppError::Internal(anyhow::anyhow!(
+            "{what} in DB but not applied to xray: {e}"
+        )));
+    }
+    Ok(())
+}
 
 async fn read_row(state: &AppState, id: &str) -> AppResult<Row> {
     sqlx::query_as!(
@@ -966,46 +963,6 @@ pub async fn fetch_inbounds_batch(
         out.insert(id, row_to_inbound(r)?);
     }
     Ok(out)
-}
-
-/// Load the enabled clients of one inbound, mapped to `models::Client`.
-///
-/// Takes a bare `&DbPool` (not `&AppState`) so the startup reconciler in
-/// `main` can share this single source of truth for the row→`Client`
-/// mapping instead of duplicating it.
-pub async fn load_enabled_clients(
-    db: &crate::db::DbPool,
-    inbound_id: &str,
-) -> AppResult<Vec<crate::models::Client>> {
-    let rows = sqlx::query!(
-        r#"SELECT id, inbound_id, email, uuid, auth, flow, enabled, note,
-                  traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at
-           FROM clients
-           WHERE inbound_id = ? AND enabled = 1
-           ORDER BY created_at ASC"#,
-        inbound_id
-    )
-    .fetch_all(db)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|r| crate::models::Client {
-            id: r.id,
-            inbound_id: r.inbound_id,
-            email: r.email,
-            uuid: r.uuid,
-            auth: r.auth,
-            flow: r.flow,
-            enabled: r.enabled != 0,
-            note: r.note,
-            traffic_limit_bytes: r.traffic_limit_bytes,
-            disabled_reason: r.disabled_reason,
-            expires_at: r.expires_at,
-            sub_token: r.sub_token,
-            created_at: r.created_at,
-            updated_at: r.updated_at,
-        })
-        .collect())
 }
 
 #[cfg(test)]

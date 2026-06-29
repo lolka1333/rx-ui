@@ -18,10 +18,6 @@ export function vlessFlow(inb: Inbound): VlessFlow {
   return inb.protocol.kind === 'vless' ? inb.protocol.flow : 'none';
 }
 
-export function realityPublicKey(inb: Inbound): string {
-  return inb.security.kind === 'reality' ? inb.security.public_key : '';
-}
-
 /** uTLS fingerprint presets exposed by both Reality and (future) TLS+uTLS.
  *  Values must match xray's whitelist — `PresetFingerprints` +
  *  `ModernFingerprints` in `transport/internet/tls/tls.go` (the latter

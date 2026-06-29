@@ -116,6 +116,17 @@ impl TlsSecurity {
             .unwrap_or(fallback)
     }
 
+    /// uTLS fingerprint the client emulates, defaulting to "chrome" (the safest
+    /// blanket value behind CDNs/inspectors) when unset or blank. Mirrors
+    /// `RealitySecurity::effective_fingerprint`.
+    fn effective_fingerprint(&self) -> &str {
+        self.fingerprint
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("chrome")
+    }
+
     fn build_one_certificate(spec: &TlsCertificate) -> anyhow::Result<XrayCertificate> {
         let cert_trim = spec.cert.trim();
         let key_trim = spec.key.trim();
@@ -179,16 +190,8 @@ impl Security for TlsSecurity {
         {
             params.push(("alpn".to_owned(), alpn.join(",")));
         }
-        // uTLS fingerprint the client emulates. Operator-chosen; defaults
-        // to chrome (safest blanket value behind CDNs / inspectors) when
-        // unset, matching the value pinned before the field existed.
-        let fp = self
-            .fingerprint
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .unwrap_or("chrome");
-        params.push(("fp".to_owned(), fp.to_owned()));
+        // uTLS fingerprint the client emulates (defaults to chrome when unset).
+        params.push(("fp".to_owned(), self.effective_fingerprint().to_owned()));
         // Public ECH config list. xray-compatible clients (NekoBox,
         // v2rayN, Stash, sing-box) read `ech=` from the URL and feed
         // it into TLS Client Hello — no out-of-band copy-paste.
@@ -199,6 +202,7 @@ impl Security for TlsSecurity {
         }
         params
     }
+
     fn build_settings(&self) -> anyhow::Result<Option<TypedMessage>> {
         if self.certificates.is_empty() {
             anyhow::bail!("security=tls requires at least one certificate");
@@ -276,15 +280,9 @@ impl Security for TlsSecurity {
             .clone()
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "1.2".to_owned());
-        // Match the share-link default ("chrome") so the relay's emulated
-        // ClientHello lines up with what the operator advertises to clients.
-        let fingerprint = self
-            .fingerprint
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .unwrap_or("chrome")
-            .to_owned();
+        // Match the share-link default so the relay's emulated ClientHello
+        // lines up with what the operator advertises to clients.
+        let fingerprint = self.effective_fingerprint().to_owned();
         let pinned_peer_cert_sha256 = self
             .pinned_peer_cert_sha256
             .clone()

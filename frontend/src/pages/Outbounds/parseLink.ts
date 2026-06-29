@@ -89,7 +89,7 @@ export function parseOutboundLink(raw: string): Partial<OutboundFormValues> {
 
   // --- VLESS encryption ---
   const enc = get('encryption');
-  if (enc && enc !== 'none' && enc.startsWith('mlkem768x25519plus')) {
+  if (enc && enc.startsWith('mlkem768x25519plus')) {
     // mlkem768x25519plus . <xor> . 0rtt [ . <pad> ] . <client_key>
     const parts = enc.split('.');
     out.encryption_mode = 'mlkem768x25519plus';

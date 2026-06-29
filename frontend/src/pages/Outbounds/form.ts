@@ -16,7 +16,12 @@ import type {
 // Reuse the inbound form's header collapser + finalmask builder so ws/xhttp
 // headers and the FinalMask cipher serialize identically on both sides.
 import { uuid } from '@/lib/id';
-import { buildFinalMask, collapseHeaders } from '@/pages/Inbounds/form/adapters';
+import {
+  buildFinalMask,
+  collapseHeaders,
+  hydrateFinalMask,
+  type FinalMaskFormFields,
+} from '@/pages/Inbounds/form/adapters';
 import { DEFAULTS as INB_DEFAULTS } from '@/pages/Inbounds/form/defaults';
 import type { FormValues as InbFormValues } from '@/pages/Inbounds/form/types';
 
@@ -26,29 +31,10 @@ export interface HeaderPair {
   value: string;
 }
 
-/** The finalmask form-field slice, borrowed verbatim from the inbound form so
- *  the shared `FinalMaskTab` + `buildFinalMask` work unchanged on outbounds. */
-type FinalMaskFields = Pick<
-  InbFormValues,
-  | 'finalmask_kind'
-  | 'finalmask_sudoku_password'
-  | 'finalmask_sudoku_ascii'
-  | 'finalmask_sudoku_padding_min'
-  | 'finalmask_sudoku_padding_max'
-  | 'finalmask_fragment_packets_mode'
-  | 'finalmask_fragment_packets_from'
-  | 'finalmask_fragment_packets_to'
-  | 'finalmask_fragment_lengths'
-  | 'finalmask_fragment_delays'
-  | 'finalmask_noise_packet_hex'
-  | 'finalmask_noise_rand_min'
-  | 'finalmask_noise_rand_max'
->;
-
 export type OutboundNetwork = 'tcp' | 'ws' | 'xhttp';
 export type OutboundSecurity = 'none' | 'tls' | 'reality';
 
-export interface OutboundFormValues extends FinalMaskFields {
+export interface OutboundFormValues extends FinalMaskFormFields {
   tag: string;
   enabled: boolean;
   // VLESS endpoint
@@ -304,7 +290,7 @@ export function formToOutbound(
     transport: buildTransport(v),
     security: buildSecurity(v),
     // `buildFinalMask` reads only the finalmask_* fields, which OutboundFormValues
-    // carries via FinalMaskFields — the cast just bridges the wider param type.
+    // carries via FinalMaskFormFields — the cast just bridges the wider param type.
     finalmask: buildFinalMask(v as unknown as InbFormValues),
     mux: { enabled: v.mux_enabled, concurrency: v.mux_concurrency },
     send_through: v.send_through.trim(),
@@ -383,34 +369,7 @@ export function outboundToForm(ob: CustomOutbound): OutboundFormValues {
   d.send_through = ob.send_through;
   d.proxy_tag = ob.proxy_tag;
 
-  // FinalMask hydration — mirrors the inbound form's mapping.
-  const fm = ob.finalmask;
-  if (fm.kind === 'sudoku') {
-    d.finalmask_kind = 'sudoku';
-    d.finalmask_sudoku_password = fm.password;
-    d.finalmask_sudoku_ascii =
-      fm.ascii === 'prefer_entropy' || fm.ascii === 'prefer_ascii' ? fm.ascii : '';
-    d.finalmask_sudoku_padding_min = fm.padding_min;
-    d.finalmask_sudoku_padding_max = fm.padding_max;
-  } else if (fm.kind === 'fragment') {
-    d.finalmask_kind = 'fragment';
-    const pf = fm.packets_from ?? 0;
-    const pt = fm.packets_to ?? 0;
-    d.finalmask_fragment_packets_mode =
-      pf === 0 && pt === 1 ? 'tlshello' : pf === 0 && pt === 0 ? 'all' : 'range';
-    d.finalmask_fragment_packets_from = fm.packets_from;
-    d.finalmask_fragment_packets_to = fm.packets_to;
-    d.finalmask_fragment_lengths = fm.lengths_min
-      .map((min, i) => `${min}-${fm.lengths_max[i] ?? min}`)
-      .join(', ');
-    d.finalmask_fragment_delays = fm.delays_min
-      .map((min, i) => `${min}-${fm.delays_max[i] ?? min}`)
-      .join(', ');
-  } else if (fm.kind === 'noise') {
-    d.finalmask_kind = 'noise';
-    d.finalmask_noise_packet_hex = fm.packet_hex;
-    d.finalmask_noise_rand_min = fm.rand_min;
-    d.finalmask_noise_rand_max = fm.rand_max;
-  }
+  // FinalMask hydration — shares the inbound adapter's mapper.
+  hydrateFinalMask(d, ob.finalmask);
   return d;
 }

@@ -149,14 +149,13 @@ export function Sidebar({
 
   const handleMenuClick = useCallback(
     (e: { key: string }) => {
-      if (e.key === 'logout') logout();
-      else if (e.key.startsWith('theme-')) {
+      if (e.key.startsWith('theme-')) {
         // handled in inline controls
       } else {
         onNavigate(e.key);
       }
     },
-    [logout, onNavigate],
+    [onNavigate],
   );
 
   const menuNode = (

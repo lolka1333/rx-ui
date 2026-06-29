@@ -359,7 +359,6 @@ export const en: Dict = {
     testFail: 'No egress: {{error}}',
     testError: 'Test failed',
     deleteConfirm: 'Delete outbound?',
-    empty: 'No custom outbounds yet',
     builtin: 'built-in',
     builtinDirect: 'Direct connection',
     builtinBlocked: 'Drops traffic (block)',

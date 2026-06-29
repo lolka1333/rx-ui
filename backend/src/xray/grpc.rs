@@ -27,7 +27,6 @@ use prost::Message;
 
 use crate::xray::proto::xray::app::proxyman::command::{
     AddInboundRequest, AddOutboundRequest, AddUserOperation, AlterInboundRequest,
-    ListInboundsRequest, ListInboundsResponse, ListOutboundsRequest, ListOutboundsResponse,
     RemoveInboundRequest, RemoveOutboundRequest, RemoveUserOperation,
     handler_service_client::HandlerServiceClient,
 };
@@ -236,36 +235,6 @@ impl XrayClient {
                 )
             })?;
         Ok(())
-    }
-
-    /// List currently-registered outbound handlers. Currently unused —
-    /// reserved for future drift detection (mirrors `list_inbounds`).
-    pub async fn list_outbounds(&self) -> anyhow::Result<ListOutboundsResponse> {
-        let channel = self.channel().await?;
-        let mut client = HandlerServiceClient::new(channel);
-        let resp = client
-            .list_outbounds(ListOutboundsRequest {})
-            .await
-            .map_err(|s| {
-                anyhow::anyhow!("xray list_outbounds failed: {} {}", s.code(), s.message())
-            })?;
-        Ok(resp.into_inner())
-    }
-
-    /// List currently-registered inbound handlers. Currently unused — reserved
-    /// for future drift detection between the panel DB and xray's in-memory state.
-    pub async fn list_inbounds(&self) -> anyhow::Result<ListInboundsResponse> {
-        let channel = self.channel().await?;
-        let mut client = HandlerServiceClient::new(channel);
-        let resp = client
-            .list_inbounds(ListInboundsRequest {
-                is_only_tags: false,
-            })
-            .await
-            .map_err(|s| {
-                anyhow::anyhow!("xray list_inbounds failed: {} {}", s.code(), s.message())
-            })?;
-        Ok(resp.into_inner())
     }
 
     /// Pull every `user>>>*` counter in one RPC. xray's `GetUsersStats`

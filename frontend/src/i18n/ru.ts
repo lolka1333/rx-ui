@@ -359,7 +359,6 @@ export const ru = {
     testFail: 'Не выходит: {{error}}',
     testError: 'Ошибка теста',
     deleteConfirm: 'Удалить исходящее?',
-    empty: 'Пользовательских исходящих пока нет',
     builtin: 'встроенный',
     builtinDirect: 'Прямое соединение',
     builtinBlocked: 'Блокировка трафика',

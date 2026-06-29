@@ -649,6 +649,29 @@ fn row_to_client(r: Row) -> Client {
     }
 }
 
+/// Load the enabled clients of an inbound, oldest first — the set xray needs
+/// when (re)building that inbound's handler. Takes a bare `&DbPool` (not
+/// `&AppState`) so the startup reconciler in `main` can share this single
+/// source of truth, and is reused by the inbound CRUD + key-rotation paths in
+/// [`super::inbounds`].
+pub async fn load_enabled_clients(
+    db: &crate::db::DbPool,
+    inbound_id: &str,
+) -> AppResult<Vec<Client>> {
+    let rows = sqlx::query_as!(
+        Row,
+        r#"SELECT id, inbound_id, email, uuid, auth, flow, enabled, note,
+                  traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at
+           FROM clients
+           WHERE inbound_id = ? AND enabled = 1
+           ORDER BY created_at ASC"#,
+        inbound_id
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(rows.into_iter().map(row_to_client).collect())
+}
+
 /// Normalize a client-supplied ISO-8601 expiry to the DB's UTC
 /// `YYYY-MM-DD HH:MM:SS` shape (the `datetime('now')` format the poller
 /// compares against). `None` passes through; unparsable input is a 400.
