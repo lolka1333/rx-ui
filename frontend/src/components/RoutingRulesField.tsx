@@ -43,6 +43,7 @@ import { useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'r
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/api/client';
+import { uuid } from '@/lib/id';
 import type { Client, CustomOutbound, Inbound, RoutingRule } from '@/api/types';
 // Reuse the inbound editor's form widgets so this modal matches the rest of
 // the panel — compact 12px field spacing, pill ChipGroups, and the collapsible
@@ -688,7 +689,7 @@ function RuleModal({
     const base = initial ?? EMPTY_RULE;
     onSave({
       ...base,
-      id: base.id || crypto.randomUUID(),
+      id: base.id || uuid(),
       enabled: initial?.enabled ?? true,
       name: (v.name ?? '').trim(),
       domain: v.domain ?? [],

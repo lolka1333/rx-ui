@@ -15,6 +15,7 @@ import type {
 } from '@/api/types';
 // Reuse the inbound form's header collapser + finalmask builder so ws/xhttp
 // headers and the FinalMask cipher serialize identically on both sides.
+import { uuid } from '@/lib/id';
 import { buildFinalMask, collapseHeaders } from '@/pages/Inbounds/form/adapters';
 import { DEFAULTS as INB_DEFAULTS } from '@/pages/Inbounds/form/defaults';
 import type { FormValues as InbFormValues } from '@/pages/Inbounds/form/types';
@@ -283,7 +284,7 @@ export function formToOutbound(
 ): CustomOutbound {
   const now = new Date().toISOString();
   return {
-    id: existing?.id ?? crypto.randomUUID(),
+    id: existing?.id ?? uuid(),
     tag: v.tag.trim(),
     enabled: v.enabled,
     protocol: {
