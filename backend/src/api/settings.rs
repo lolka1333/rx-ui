@@ -368,26 +368,8 @@ fn validate_panel_update(body: &PanelSettingsUpdate) -> AppResult<NormalizedPane
     }
 
     // Service URL: empty OR `http(s)://` + content. Restricting the scheme
-    // blocks `javascript:` / `data:` payloads from the landing page's
-    // `<a href>`. 2048 = de-facto safe URL length. Cheapest checks first.
-    let sub_service_url = body.sub_service_url.trim();
-    if !sub_service_url.is_empty() {
-        if sub_service_url.chars().any(char::is_control) {
-            return Err(AppError::BadRequest(
-                "sub_service_url contains control characters".to_owned(),
-            ));
-        }
-        if !sub_service_url.starts_with("http://") && !sub_service_url.starts_with("https://") {
-            return Err(AppError::BadRequest(
-                "sub_service_url must start with http:// or https://".to_owned(),
-            ));
-        }
-        if sub_service_url.len() > 2048 {
-            return Err(AppError::BadRequest(
-                "sub_service_url is too long (max 2048 chars)".to_owned(),
-            ));
-        }
-    }
+    // blocks `javascript:` / `data:` payloads from the landing page's `<a href>`.
+    let sub_service_url = validate_optional_http_url(&body.sub_service_url, "sub_service_url")?;
 
     // Sub-port: 0 = disabled OR valid TCP port, and must differ from the
     // panel port (binding the same port twice conflicts AND lets the full
@@ -413,7 +395,7 @@ fn validate_panel_update(body: &PanelSettingsUpdate) -> AppResult<NormalizedPane
         base_path,
         sub_host: sub_host.to_owned(),
         sub_brand,
-        sub_service_url: sub_service_url.to_owned(),
+        sub_service_url,
         xray_freedom_strategy,
         xray_routing_strategy,
         xray_test_url,
@@ -447,26 +429,9 @@ fn validate_xray_settings(body: &PanelSettingsUpdate) -> AppResult<(String, Stri
 
     // Test URL: empty OR `http(s)://` + content (same rule the test endpoint
     // enforces on use). Scheme restriction blocks file:// and the like.
-    let test_url = body.xray_test_url.trim();
-    if !test_url.is_empty() {
-        if test_url.chars().any(char::is_control) {
-            return Err(AppError::BadRequest(
-                "xray_test_url contains control characters".to_owned(),
-            ));
-        }
-        if !test_url.starts_with("http://") && !test_url.starts_with("https://") {
-            return Err(AppError::BadRequest(
-                "xray_test_url must start with http:// or https://".to_owned(),
-            ));
-        }
-        if test_url.len() > 2048 {
-            return Err(AppError::BadRequest(
-                "xray_test_url is too long (max 2048 chars)".to_owned(),
-            ));
-        }
-    }
+    let test_url = validate_optional_http_url(&body.xray_test_url, "xray_test_url")?;
 
-    Ok((freedom.to_owned(), routing.to_owned(), test_url.to_owned()))
+    Ok((freedom.to_owned(), routing.to_owned(), test_url))
 }
 
 /// Validate the routing block (the "basic connections" lists + bittorrent
@@ -479,6 +444,33 @@ fn validate_xray_routing(body: &PanelSettingsUpdate) -> AppResult<(bool, String,
         validate_match_list(&body.xray_blocked_domains, "xray_blocked_domains")?,
         validate_match_list(&body.xray_ipv4_domains, "xray_ipv4_domains")?,
     ))
+}
+
+/// Validate an optional `http(s)://` URL field. Empty is allowed; otherwise the
+/// value must contain no control characters, start with `http://` or
+/// `https://`, and be at most 2048 chars. Returns the trimmed value ready to
+/// store. `field` is spliced into the error messages so the sub-service and
+/// xray-test URL validators share one implementation.
+fn validate_optional_http_url(value: &str, field: &str) -> AppResult<String> {
+    let url = value.trim();
+    if !url.is_empty() {
+        if url.chars().any(char::is_control) {
+            return Err(AppError::BadRequest(format!(
+                "{field} contains control characters"
+            )));
+        }
+        if !url.starts_with("http://") && !url.starts_with("https://") {
+            return Err(AppError::BadRequest(format!(
+                "{field} must start with http:// or https://"
+            )));
+        }
+        if url.len() > 2048 {
+            return Err(AppError::BadRequest(format!(
+                "{field} is too long (max 2048 chars)"
+            )));
+        }
+    }
+    Ok(url.to_owned())
 }
 
 /// Caps shared by every routing match list (the basic block-lists and the
@@ -671,10 +663,13 @@ async fn swap_panel_listener(
             });
         }
     } else if prefix_changed {
-        // Same port, new prefix: tear down old listener first, then bind a
-        // fresh one on the same port. The 100ms beat lets the OS release
-        // the socket — without it Windows sometimes returns EADDRINUSE on
-        // the immediate re-bind.
+        // Same port, new prefix: tear the old listener down, then bind a fresh
+        // one on the same port. We have to drop the old socket first (a second
+        // listener can't share the port), so the re-bind races the OS releasing
+        // it — `rebind_with_retry` retries through that window. CRITICAL: once
+        // the old listener is gone, a re-bind failure would leave the panel with
+        // nothing bound and unreachable until a manual restart, so the bind must
+        // not be a single fallible attempt.
         let old_tx = {
             let mut guard = state.listener_shutdown.write().await;
             guard.take()
@@ -682,15 +677,8 @@ async fn swap_panel_listener(
         if let Some(old_tx) = old_tx {
             let _ = old_tx.send(());
         }
-        tokio::time::sleep(Duration::from_millis(100)).await;
         let app = build_router(state.clone()).await;
-        let new_tx = spawn_listener("0.0.0.0", current_port, app, tls)
-            .await
-            .map_err(|e| {
-                AppError::Internal(anyhow::anyhow!(
-                    "failed to re-bind listener on port {current_port}: {e}"
-                ))
-            })?;
+        let new_tx = rebind_with_retry("0.0.0.0", current_port, app, tls).await?;
         *state.listener_shutdown.write().await = Some(new_tx);
         tracing::info!(
             "panel prefix swapped {previous_prefix:?} → {normalised:?} \
@@ -698,6 +686,53 @@ async fn swap_panel_listener(
         );
     }
     Ok(())
+}
+
+/// Re-bind a listener on a just-freed port, retrying through the OS socket-
+/// release window. The prefix-change swap has to drop the old same-port
+/// listener *before* binding the new one, so the re-bind races the kernel
+/// releasing the socket (Windows in particular returns EADDRINUSE for a short
+/// window). A single attempt could therefore strand the panel with nothing
+/// bound; retrying with a short beat between tries keeps a transient release
+/// delay from taking the panel down. Carries the operator's TLS config so the
+/// re-bound listener keeps serving HTTPS.
+async fn rebind_with_retry(
+    host: &str,
+    port: u16,
+    app: Router,
+    tls: Option<PanelTls>,
+) -> AppResult<oneshot::Sender<()>> {
+    // ~4s total budget with escalating backoff (100ms → 500ms). The OS frees
+    // the listening socket the moment the old listener drops it (axum-server
+    // drops it on the graceful-shutdown signal, not after the connection
+    // grace), so a single beat almost always suffices — the generous budget
+    // just makes a transient release delay impossible to lose on.
+    const ATTEMPTS: u32 = 10;
+    let mut last_err: Option<std::io::Error> = None;
+    for attempt in 1..=ATTEMPTS {
+        tokio::time::sleep(Duration::from_millis(u64::from(attempt.min(5)) * 100)).await;
+        match spawn_listener(host, port, app.clone(), tls.clone()).await {
+            Ok(tx) => return Ok(tx),
+            Err(e) => {
+                tracing::warn!(
+                    "panel re-bind on port {port} attempt {attempt}/{ATTEMPTS} failed: {e}"
+                );
+                last_err = Some(e);
+            }
+        }
+    }
+    // Exhausting the budget means the port is genuinely held by something else
+    // (not our own just-closed socket) — unrecoverable without operator action.
+    // Log loudly: the propagated 500 can't reach the operator (their request was
+    // on the now-dead old listener), so the process log is the only signal.
+    let detail = last_err.map_or_else(|| "unknown error".to_owned(), |e| e.to_string());
+    tracing::error!(
+        "panel listener could NOT be re-bound on port {port} after {ATTEMPTS} attempts \
+         ({detail}); the panel is unreachable — restart the process to recover"
+    );
+    Err(AppError::Internal(anyhow::anyhow!(
+        "failed to re-bind panel listener on port {port} after {ATTEMPTS} attempts: {detail}"
+    )))
 }
 
 /// Sub-only listener swap, independent of the main listener. `new_sub_port`
