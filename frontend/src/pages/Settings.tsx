@@ -34,6 +34,7 @@ import {
   LoadingOutlined,
   LogoutOutlined,
   RightOutlined,
+  SafetyCertificateOutlined,
   UserOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -48,7 +49,7 @@ import { LOCALES } from '@/i18n';
 import type { PanelSettings, PanelSettingsUpdate, RoutingRule } from '@/api/types';
 import { RoutingRulesField } from '@/components/RoutingRulesField';
 
-type SectionKey = 'account' | 'access' | 'subscription' | 'xray';
+type SectionKey = 'account' | 'access' | 'subscription' | 'xray' | 'tls';
 
 /** Fallback values for the subscription side of `PanelSettings`, consumed by
  *  `mergePanelSettings` (the whole-row PUT merge, when the cache isn't
@@ -79,6 +80,17 @@ const XRAY_DEFAULTS = {
   xray_ipv4_domains: [] as string[],
   xray_custom_rules: [] as RoutingRule[],
   xray_rule_order: [] as string[],
+} as const;
+
+/** Fallback values for the panel-HTTPS side of `PanelSettings`, mirroring the
+ *  backend column defaults in `backend/migrations/0036_panel_tls.sql`. The
+ *  private key is never read back from the server (only `panel_tls_key_set`),
+ *  so the merge always sends `panel_tls_key: ''` — the backend reads empty as
+ *  "keep the stored key", and the TLS section overrides it only when the
+ *  operator pastes a replacement. */
+const TLS_DEFAULTS = {
+  panel_tls_enabled: false,
+  panel_tls_cert: '',
 } as const;
 
 /** `PUT /settings/panel` replaces the whole row, so every save must send all
@@ -120,6 +132,12 @@ function mergePanelSettings(
       current?.xray_custom_rules ?? XRAY_DEFAULTS.xray_custom_rules,
     xray_rule_order:
       current?.xray_rule_order ?? XRAY_DEFAULTS.xray_rule_order,
+    panel_tls_enabled:
+      current?.panel_tls_enabled ?? TLS_DEFAULTS.panel_tls_enabled,
+    panel_tls_cert: current?.panel_tls_cert ?? TLS_DEFAULTS.panel_tls_cert,
+    // Empty ≡ keep the stored key; the TLS section overrides this with the
+    // pasted PEM when (and only when) the operator supplies a new key.
+    panel_tls_key: '',
     ...overrides,
   };
 }
@@ -177,6 +195,7 @@ const SETTINGS_GROUPS: {
     titleKey: 'settings.groupPanel',
     items: [
       { key: 'access', labelKey: 'settings.navAccess', icon: <ControlOutlined /> },
+      { key: 'tls', labelKey: 'settings.navTls', icon: <SafetyCertificateOutlined /> },
       { key: 'subscription', labelKey: 'settings.navSubscription', icon: <LinkOutlined /> },
     ],
   },
@@ -242,6 +261,10 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
   );
   const onXrayDirty = useCallback(
     (h: DirtyHandle | null) => setDirty('xray', h),
+    [setDirty],
+  );
+  const onTlsDirty = useCallback(
+    (h: DirtyHandle | null) => setDirty('tls', h),
     [setDirty],
   );
 
@@ -362,6 +385,9 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
               </div>
               <div style={{ display: lastDetail === 'access' ? 'block' : 'none' }}>
                 <AccessSection onDirtyChange={onAccessDirty} />
+              </div>
+              <div style={{ display: lastDetail === 'tls' ? 'block' : 'none' }}>
+                <TlsSection onDirtyChange={onTlsDirty} />
               </div>
               <div style={{ display: lastDetail === 'subscription' ? 'block' : 'none' }}>
                 <SubscriptionSection onDirtyChange={onSubscriptionDirty} />
@@ -774,6 +800,205 @@ function AccessSection({
           `useLocale`, not a server-side panel setting, so it skips the
           dirty-bar / Save flow and applies immediately on change. */}
       {data && <LanguagePicker />}
+    </SectionFrame>
+  );
+}
+
+// =============================================================================
+// HTTPS / TLS — serve the panel over HTTPS with an operator-provided cert+key
+// =============================================================================
+
+interface TlsFormValues {
+  panel_tls_enabled: boolean;
+  panel_tls_cert: string;
+  panel_tls_key: string;
+}
+
+const PEM_HEADER_RE = /-----BEGIN [A-Z0-9 ]+-----/;
+
+/** Validator: accept empty (the required check is separate) or any PEM-shaped
+ *  blob — strict enough to catch a wrong paste, loose on the header word. */
+function pemRule(msg: string) {
+  return {
+    validator: (_: unknown, v: string) =>
+      !v || PEM_HEADER_RE.test(v) ? Promise.resolve() : Promise.reject(new Error(msg)),
+  };
+}
+
+function TlsSection({
+  onDirtyChange,
+}: {
+  onDirtyChange: (h: DirtyHandle | null) => void;
+}) {
+  const { t } = useTranslation();
+  const { message, modal } = App.useApp();
+  const qc = useQueryClient();
+  const [form] = Form.useForm<TlsFormValues>();
+  const [dirty, setDirty] = useState(false);
+
+  const settingsQuery = useQuery<PanelSettings>({
+    queryKey: ['panel-settings'],
+    queryFn: async () => (await apiClient.get<PanelSettings>('/settings/panel')).data,
+  });
+
+  const mutation = useMutation({
+    mutationFn: async (values: TlsFormValues) => {
+      // PUT replaces the whole row; mergePanelSettings forwards every field this
+      // section doesn't own. The key is sent only when the operator pasted one
+      // (empty ≡ the backend keeps the stored key).
+      const current = settingsQuery.data;
+      await apiClient.put(
+        '/settings/panel',
+        mergePanelSettings(current, {
+          panel_tls_enabled: values.panel_tls_enabled,
+          panel_tls_cert: values.panel_tls_cert,
+          panel_tls_key: values.panel_tls_key?.trim() ?? '',
+        }),
+      );
+      return values;
+    },
+    onSuccess: (values) => {
+      // Only offer the restart when something TLS-relevant actually moved —
+      // toggling HTTPS, swapping the cert, or pasting a new key.
+      const old = settingsQuery.data;
+      const tlsChanged =
+        old != null &&
+        (values.panel_tls_enabled !== old.panel_tls_enabled ||
+          values.panel_tls_cert !== old.panel_tls_cert ||
+          !!values.panel_tls_key.trim());
+      qc.invalidateQueries({ queryKey: ['panel-settings'] });
+      setDirty(false);
+      // The key is stored now and never re-fetched — drop it from the form so
+      // it isn't re-sent or left on screen.
+      form.setFieldValue('panel_tls_key', '');
+      if (!tlsChanged || old == null) {
+        message.success(t('settings.panelSaved'));
+        return;
+      }
+      // TLS binds at process start, so the change lands only after a restart.
+      const scheme = values.panel_tls_enabled ? 'https' : 'http';
+      const path = normaliseClientPrefix(old.panel_base_path);
+      const url = `${scheme}://${window.location.hostname}:${old.panel_port}${path}/`;
+      modal.confirm({
+        title: t('settings.tlsRestartTitle'),
+        content: t('settings.tlsRestartBody'),
+        okText: t('settings.tlsRestartConfirm'),
+        cancelText: t('settings.xrayRestartLater'),
+        okButtonProps: { danger: true },
+        onOk: async () => {
+          try {
+            await apiClient.post('/settings/panel/restart');
+          } catch {
+            // The process exits mid-response, so a transport error is expected.
+          }
+          message.success({ content: t('settings.tlsRestarting', { url }), duration: 10 });
+          window.setTimeout(() => {
+            window.location.href = url;
+          }, 4000);
+        },
+      });
+    },
+    onError: (err: unknown) =>
+      message.error(apiErrorMessage(err) ?? t('settings.panelSaveError')),
+  });
+
+  useEffect(() => {
+    onDirtyChange(
+      dirty
+        ? {
+            saving: mutation.isPending,
+            onSave: () => form.submit(),
+            onDiscard: () => {
+              form.resetFields();
+              setDirty(false);
+            },
+          }
+        : null,
+    );
+  }, [dirty, mutation.isPending, form, onDirtyChange]);
+
+  const data = settingsQuery.data;
+  return (
+    <SectionFrame title={t('settings.tlsSection')} description={t('settings.tlsSectionHint')}>
+      {data && (
+        <Form<TlsFormValues>
+          form={form}
+          layout="vertical"
+          autoComplete="off"
+          key={`tls-${data.panel_tls_enabled}-${data.panel_tls_key_set}`}
+          initialValues={{
+            panel_tls_enabled: data.panel_tls_enabled,
+            panel_tls_cert: data.panel_tls_cert,
+            panel_tls_key: '',
+          }}
+          disabled={mutation.isPending}
+          onValuesChange={() => setDirty(true)}
+          onFinish={(v) => mutation.mutate(v)}
+        >
+          <FieldGroup>
+            <Form.Item
+              name="panel_tls_enabled"
+              label={t('settings.tlsEnabled')}
+              tooltip={t('settings.tlsEnabledHint')}
+              valuePropName="checked"
+            >
+              <Switch />
+            </Form.Item>
+            <Form.Item
+              name="panel_tls_cert"
+              label={t('settings.tlsCert')}
+              tooltip={t('settings.tlsCertHint')}
+              rules={[
+                pemRule(t('settings.tlsCertInvalid')),
+                ({ getFieldValue }) => ({
+                  validator: (_: unknown, v: string) =>
+                    getFieldValue('panel_tls_enabled') && !v?.trim()
+                      ? Promise.reject(new Error(t('settings.tlsCertRequired')))
+                      : Promise.resolve(),
+                }),
+              ]}
+            >
+              <Input.TextArea
+                rows={5}
+                spellCheck={false}
+                placeholder="-----BEGIN CERTIFICATE-----"
+                style={{
+                  fontFamily: 'ui-monospace, "JetBrains Mono", Consolas, monospace',
+                  fontSize: 12,
+                }}
+              />
+            </Form.Item>
+            <Form.Item
+              name="panel_tls_key"
+              label={t('settings.tlsKey')}
+              tooltip={t('settings.tlsKeyHint')}
+              rules={[
+                pemRule(t('settings.tlsKeyInvalid')),
+                ({ getFieldValue }) => ({
+                  validator: (_: unknown, v: string) =>
+                    getFieldValue('panel_tls_enabled') && !data.panel_tls_key_set && !v?.trim()
+                      ? Promise.reject(new Error(t('settings.tlsKeyRequired')))
+                      : Promise.resolve(),
+                }),
+              ]}
+            >
+              <Input.TextArea
+                rows={5}
+                spellCheck={false}
+                placeholder={
+                  data.panel_tls_key_set
+                    ? t('settings.tlsKeyStoredPlaceholder')
+                    : '-----BEGIN PRIVATE KEY-----'
+                }
+                style={{
+                  fontFamily: 'ui-monospace, "JetBrains Mono", Consolas, monospace',
+                  fontSize: 12,
+                }}
+              />
+            </Form.Item>
+          </FieldGroup>
+        </Form>
+      )}
     </SectionFrame>
   );
 }

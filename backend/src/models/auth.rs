@@ -31,6 +31,10 @@ pub struct RoutingRule {
 /// access fields are applied live (port via dual-listener swap, base
 /// path via router rebuild); subscription fields are read on every
 /// subscription request, so they take effect immediately.
+// A flat settings DTO mirroring the panel_settings columns 1:1 — the bool
+// fields are independent toggles, not a state machine, so the "refactor into
+// enums" advice doesn't apply here.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../frontend/src/api/types/settings.ts")]
 pub struct PanelSettings {
@@ -93,6 +97,17 @@ pub struct PanelSettings {
     pub xray_custom_rules: Vec<RoutingRule>,
     /// Full evaluation order as tokens (system keys + custom rule ids).
     pub xray_rule_order: Vec<String>,
+    /// Whether the panel serves its own port over HTTPS using an
+    /// operator-provided cert+key. TLS binds at process start, so a change
+    /// applies on the next panel restart.
+    pub panel_tls_enabled: bool,
+    /// PEM certificate (chain) for the panel HTTPS listener. Public material,
+    /// round-tripped to the UI so the operator can review and replace it.
+    pub panel_tls_cert: String,
+    /// Whether a private key is stored. The key itself is never returned to the
+    /// client — the UI shows a "key configured" state and only transmits a key
+    /// when the operator pastes a replacement.
+    pub panel_tls_key_set: bool,
 }
 
 /// Body for `PUT /api/settings/panel`. Same shape as the read view —
@@ -121,6 +136,15 @@ pub struct PanelSettingsUpdate {
     pub xray_custom_rules: Vec<RoutingRule>,
     #[serde(default)]
     pub xray_rule_order: Vec<String>,
+    #[serde(default)]
+    pub panel_tls_enabled: bool,
+    #[serde(default)]
+    pub panel_tls_cert: String,
+    /// New private key (PEM). Empty string ≡ keep the stored key — so saving any
+    /// other settings section doesn't wipe it and the key need only be pasted
+    /// once. A non-empty value replaces the stored key.
+    #[serde(default)]
+    pub panel_tls_key: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]

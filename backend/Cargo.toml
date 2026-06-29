@@ -13,6 +13,12 @@ workspace = true
 # Web framework
 axum = { version = "0.8", features = ["tower-log"] }
 tower-http = { version = "0.6", features = ["cors", "trace"] }
+# Operator-provided HTTPS for the panel's own listener. `tls-rustls-no-provider`
+# reuses the aws-lc-rs CryptoProvider already in the tree (rustls/reqwest) instead
+# of pulling a second `ring` provider — we install it explicitly at startup so the
+# process-default is unambiguous regardless of feature unification.
+axum-server = { version = "0.8", features = ["tls-rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs"] }
 
 # Async runtime
 tokio = { version = "1.52", features = ["full"] }

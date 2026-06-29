@@ -116,7 +116,24 @@ xray_custom_rules: Array<RoutingRule>,
 /**
  * Full evaluation order as tokens (system keys + custom rule ids).
  */
-xray_rule_order: Array<string>, };
+xray_rule_order: Array<string>, 
+/**
+ * Whether the panel serves its own port over HTTPS using an
+ * operator-provided cert+key. TLS binds at process start, so a change
+ * applies on the next panel restart.
+ */
+panel_tls_enabled: boolean, 
+/**
+ * PEM certificate (chain) for the panel HTTPS listener. Public material,
+ * round-tripped to the UI so the operator can review and replace it.
+ */
+panel_tls_cert: string, 
+/**
+ * Whether a private key is stored. The key itself is never returned to the
+ * client — the UI shows a "key configured" state and only transmits a key
+ * when the operator pastes a replacement.
+ */
+panel_tls_key_set: boolean, };
 
 /**
  * Body for `PUT /api/settings/panel`. Same shape as the read view —
@@ -124,7 +141,13 @@ xray_rule_order: Array<string>, };
  * allowlist, log level, etc.) may carry different validation than
  * the read response.
  */
-export type PanelSettingsUpdate = { panel_port: number, panel_base_path: string, sub_enabled: boolean, sub_host_override: string, sub_update_interval_hours: number, sub_brand_name: string, sub_service_url: string, sub_port: number, xray_freedom_strategy: string, xray_routing_strategy: string, xray_test_url: string, xray_block_bittorrent: boolean, xray_blocked_ips: Array<string>, xray_blocked_domains: Array<string>, xray_ipv4_domains: Array<string>, xray_custom_rules: Array<RoutingRule>, xray_rule_order: Array<string>, };
+export type PanelSettingsUpdate = { panel_port: number, panel_base_path: string, sub_enabled: boolean, sub_host_override: string, sub_update_interval_hours: number, sub_brand_name: string, sub_service_url: string, sub_port: number, xray_freedom_strategy: string, xray_routing_strategy: string, xray_test_url: string, xray_block_bittorrent: boolean, xray_blocked_ips: Array<string>, xray_blocked_domains: Array<string>, xray_ipv4_domains: Array<string>, xray_custom_rules: Array<RoutingRule>, xray_rule_order: Array<string>, panel_tls_enabled: boolean, panel_tls_cert: string, 
+/**
+ * New private key (PEM). Empty string ≡ keep the stored key — so saving any
+ * other settings section doesn't wipe it and the key need only be pasted
+ * once. A non-empty value replaces the stored key.
+ */
+panel_tls_key: string, };
 
 /**
  * One operator-defined routing rule. Stored (by id) in `xray_custom_rules`;

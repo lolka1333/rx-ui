@@ -99,6 +99,11 @@ async fn main() -> anyhow::Result<()> {
         })
         .init();
 
+    // Pin aws-lc-rs as the process-default rustls CryptoProvider for the
+    // optional panel HTTPS listener. Idempotent; the redundant-install error
+    // is ignored.
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
     // Default: SQLite file next to the working directory. On a Linux server
     // this means `<cwd>/data/panel.db` — no hand-tweaked absolute paths, the
     // same binary works on Windows and Linux.
@@ -197,16 +202,19 @@ async fn main() -> anyhow::Result<()> {
     // `spawn_listener` + the settings handler's swap path).
     let app = build_router(state.clone()).await;
 
-    // Bind initial listener and stash its shutdown channel so the
-    // settings handler can later swap it for a new one.
-    let initial_tx = api::settings::spawn_listener(&host, port, app).await?;
+    // Bind the initial listener (HTTPS if the operator configured a cert/key,
+    // else plain HTTP) and stash its shutdown channel so the settings handler
+    // can later swap it for a new one.
+    let (initial_tx, served_tls) =
+        api::settings::spawn_main_listener(&state, &host, port, app).await?;
     *state.listener_shutdown.write().await = Some(initial_tx);
+    let scheme = if served_tls { "https" } else { "http" };
     let display_path = if base_path.is_empty() {
         "/"
     } else {
         base_path.as_str()
     };
-    tracing::info!("backend listening on http://{host}:{port}{display_path}");
+    tracing::info!("backend listening on {scheme}://{host}:{port}{display_path}");
 
     // Optional sub-only listener — bound only when the operator has
     // configured a non-zero sub_port. Bind failures (port in use,
@@ -216,7 +224,8 @@ async fn main() -> anyhow::Result<()> {
     if let Ok(sub_port) = u16::try_from(db_sub_port)
         && sub_port != 0
     {
-        match api::settings::spawn_listener(&host, sub_port, build_sub_router(state.clone())).await
+        match api::settings::spawn_listener(&host, sub_port, build_sub_router(state.clone()), None)
+            .await
         {
             Ok(tx) => {
                 *state.sub_listener_shutdown.write().await = Some(tx);

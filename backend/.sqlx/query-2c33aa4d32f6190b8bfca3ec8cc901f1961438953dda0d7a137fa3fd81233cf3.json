@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT panel_tls_enabled,\n                  panel_tls_cert AS \"panel_tls_cert!: String\",\n                  panel_tls_key AS \"panel_tls_key!: String\"\n            FROM panel_settings WHERE id = 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "panel_tls_enabled",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "panel_tls_enabled"
+          }
+        }
+      },
+      {
+        "name": "panel_tls_cert!: String",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "panel_tls_cert"
+          }
+        }
+      },
+      {
+        "name": "panel_tls_key!: String",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "panel_tls_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "2c33aa4d32f6190b8bfca3ec8cc901f1961438953dda0d7a137fa3fd81233cf3"
+}

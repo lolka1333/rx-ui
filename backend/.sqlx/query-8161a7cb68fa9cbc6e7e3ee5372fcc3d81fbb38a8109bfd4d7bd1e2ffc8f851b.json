@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT panel_port, panel_base_path,\n                sub_enabled, sub_host_override, sub_update_interval_hours,\n                sub_brand_name, sub_service_url, sub_port,\n                xray_freedom_strategy, xray_routing_strategy, xray_test_url,\n                xray_block_bittorrent, xray_blocked_ips, xray_blocked_domains,\n                xray_ipv4_domains, xray_custom_rules, xray_rule_order\n            FROM panel_settings WHERE id = 1",
+  "query": "SELECT panel_port, panel_base_path,\n                sub_enabled, sub_host_override, sub_update_interval_hours,\n                sub_brand_name, sub_service_url, sub_port,\n                xray_freedom_strategy, xray_routing_strategy, xray_test_url,\n                xray_block_bittorrent, xray_blocked_ips, xray_blocked_domains,\n                xray_ipv4_domains, xray_custom_rules, xray_rule_order,\n                panel_tls_enabled, panel_tls_cert, panel_tls_key\n            FROM panel_settings WHERE id = 1",
   "describe": {
     "columns": [
       {
@@ -189,6 +189,39 @@
             "name": "xray_rule_order"
           }
         }
+      },
+      {
+        "name": "panel_tls_enabled",
+        "ordinal": 17,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "panel_tls_enabled"
+          }
+        }
+      },
+      {
+        "name": "panel_tls_cert",
+        "ordinal": 18,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "panel_tls_cert"
+          }
+        }
+      },
+      {
+        "name": "panel_tls_key",
+        "ordinal": 19,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "panel_tls_key"
+          }
+        }
       }
     ],
     "parameters": {
@@ -211,8 +244,11 @@
       false,
       false,
       false,
+      false,
+      false,
+      false,
       false
     ]
   },
-  "hash": "235fa98a6a114b7fdcc7bee2ab410a5edd61a4ed491bbdf5240543d914d481c1"
+  "hash": "8161a7cb68fa9cbc6e7e3ee5372fcc3d81fbb38a8109bfd4d7bd1e2ffc8f851b"
 }

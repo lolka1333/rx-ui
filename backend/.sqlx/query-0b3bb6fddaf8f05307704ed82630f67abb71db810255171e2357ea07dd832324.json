@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT panel_tls_key AS \"panel_tls_key!: String\" FROM panel_settings WHERE id = 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "panel_tls_key!: String",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "panel_tls_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "0b3bb6fddaf8f05307704ed82630f67abb71db810255171e2357ea07dd832324"
+}

@@ -28,7 +28,31 @@ export const en: Dict = {
     groupPanel: 'Panel',
     navAccount: 'Account',
     navAccess: 'General',
+    navTls: 'HTTPS',
     navSubscription: 'Subscription',
+    tlsSection: 'Panel HTTPS',
+    tlsSectionHint:
+      'Serve the panel over HTTPS with your own certificate and private key. Applied on the next panel restart. A self-signed certificate works for a LAN — your browser warns once, or trust your own CA.',
+    tlsEnabled: 'Enable HTTPS',
+    tlsEnabledHint:
+      'When on, the panel serves its existing port over TLS instead of plain HTTP. If the certificate or key is invalid at startup, it falls back to plain HTTP so a bad paste cannot lock you out.',
+    tlsCert: 'Certificate (PEM)',
+    tlsCertHint:
+      'The full certificate chain in PEM format, starting with -----BEGIN CERTIFICATE-----.',
+    tlsCertInvalid: "That doesn't look like a PEM certificate",
+    tlsCertRequired: 'A certificate is required to enable HTTPS',
+    tlsKey: 'Private key (PEM)',
+    tlsKeyHint:
+      'The private key matching the certificate. Stored on the server and never shown again — leave blank to keep the current key.',
+    tlsKeyInvalid: "That doesn't look like a PEM private key",
+    tlsKeyRequired: 'A private key is required to enable HTTPS',
+    tlsKeyStoredPlaceholder: 'A key is stored — paste a new one to replace it',
+    tlsRestartTitle: 'Restart panel to apply HTTPS?',
+    tlsRestartBody:
+      'HTTPS settings apply when the panel restarts. The panel exits and comes back automatically under Docker (restart: unless-stopped) or systemd; without a supervisor, start it again yourself. Active VPN traffic is briefly interrupted while the panel restarts.',
+    tlsRestartConfirm: 'Restart now',
+    tlsRestarting:
+      'Restarting — reopening at {{url}} in a few seconds. Accept the browser warning for a self-signed certificate.',
     groupEngine: 'Engine',
     navXray: 'Xray',
     xraySection: 'Xray',

@@ -23,8 +23,14 @@ use crate::{
     error::{AppError, AppResult},
     models::{PanelSettings, PanelSettingsUpdate, RoutingRule},
 };
-use axum::{Json, Router, extract::State, http::StatusCode, routing::get};
-use std::{sync::atomic::Ordering, time::Duration};
+use axum::{
+    Json, Router,
+    extract::State,
+    http::StatusCode,
+    routing::{get, post},
+};
+use axum_server::{Handle, tls_rustls::RustlsConfig};
+use std::{net::TcpListener as StdTcpListener, sync::atomic::Ordering, time::Duration};
 use tokio::{net::TcpListener, sync::oneshot};
 
 /// How long we keep the old listener alive after a port change. Five
@@ -53,7 +59,19 @@ const FREEDOM_STRATEGIES: &[&str] = &[
 const ROUTING_STRATEGIES: &[&str] = &["AsIs", "IPIfNonMatch", "IPOnDemand"];
 
 pub fn routes() -> Router<AppState> {
-    Router::new().route("/panel", get(get_panel).put(update_panel))
+    Router::new()
+        .route("/panel", get(get_panel).put(update_panel))
+        .route("/panel/restart", post(restart_panel))
+}
+
+/// Operator-provided TLS material for the panel's own HTTPS listener.
+/// Both blobs are PEM. Validity is checked when a listener is bound
+/// (`RustlsConfig::from_pem`); a malformed pair is rejected at save time and
+/// falls back to plain HTTP at boot.
+#[derive(Clone)]
+pub struct PanelTls {
+    pub cert_pem: String,
+    pub key_pem: String,
 }
 
 async fn get_panel(
@@ -66,7 +84,8 @@ async fn get_panel(
                 sub_brand_name, sub_service_url, sub_port,
                 xray_freedom_strategy, xray_routing_strategy, xray_test_url,
                 xray_block_bittorrent, xray_blocked_ips, xray_blocked_domains,
-                xray_ipv4_domains, xray_custom_rules, xray_rule_order
+                xray_ipv4_domains, xray_custom_rules, xray_rule_order,
+                panel_tls_enabled, panel_tls_cert, panel_tls_key
             FROM panel_settings WHERE id = 1"
     )
     .fetch_one(&state.db)
@@ -94,6 +113,10 @@ async fn get_panel(
         xray_ipv4_domains: list(&row.xray_ipv4_domains),
         xray_custom_rules,
         xray_rule_order: list(&row.xray_rule_order),
+        panel_tls_enabled: row.panel_tls_enabled != 0,
+        panel_tls_cert: row.panel_tls_cert,
+        // Never echo the private key back to the client — only whether one is set.
+        panel_tls_key_set: !row.panel_tls_key.trim().is_empty(),
     }))
 }
 
@@ -122,6 +145,11 @@ async fn update_panel(
     let valid_targets = valid_rule_targets(&state.db).await?;
     let (custom_rules_json, rule_order_json) = validate_custom_routing(&body, &valid_targets)?;
 
+    // Panel HTTPS: validate + resolve the cert/key (an empty incoming key keeps
+    // the stored one) before persisting — a bad pair fails here as a clean 400
+    // the operator sees in the form, not as a failed restart later.
+    let (tls_enabled_i, tls_cert, tls_key) = resolve_panel_tls(&state.db, &body).await?;
+
     let sub_enabled_i = i64::from(body.sub_enabled);
     let xray_bittorrent_i = i64::from(xray_block_bittorrent);
     sqlx::query!(
@@ -143,6 +171,9 @@ async fn update_panel(
                 xray_ipv4_domains = ?,
                 xray_custom_rules = ?,
                 xray_rule_order = ?,
+                panel_tls_enabled = ?,
+                panel_tls_cert = ?,
+                panel_tls_key = ?,
                 updated_at = datetime('now')
             WHERE id = 1",
         body.panel_port,
@@ -162,6 +193,9 @@ async fn update_panel(
         xray_ipv4_domains,
         custom_rules_json,
         rule_order_json,
+        tls_enabled_i,
+        tls_cert,
+        tls_key,
     )
     .execute(&state.db)
     .await?;
@@ -194,6 +228,40 @@ async fn update_panel(
     swap_sub_listener(&state, new_sub_port, current_sub_port).await?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Resolve + validate the panel TLS fields for a settings write. An empty
+/// incoming key keeps the stored one (so saving any other section can't wipe
+/// it); enabling HTTPS requires both halves and that they form a usable pair.
+/// Returns `(enabled_flag, cert_pem, key_pem)` ready to bind into the UPDATE.
+async fn resolve_panel_tls(
+    db: &crate::db::DbPool,
+    body: &PanelSettingsUpdate,
+) -> AppResult<(i64, String, String)> {
+    let stored_key: String = sqlx::query_scalar!(
+        r#"SELECT panel_tls_key AS "panel_tls_key!: String" FROM panel_settings WHERE id = 1"#
+    )
+    .fetch_one(db)
+    .await?;
+    let cert = body.panel_tls_cert.trim().to_owned();
+    let key = if body.panel_tls_key.trim().is_empty() {
+        stored_key
+    } else {
+        body.panel_tls_key.trim().to_owned()
+    };
+    if body.panel_tls_enabled {
+        if cert.is_empty() || key.is_empty() {
+            return Err(AppError::BadRequest(
+                "HTTPS requires both a certificate and a private key".to_owned(),
+            ));
+        }
+        RustlsConfig::from_pem(cert.clone().into_bytes(), key.clone().into_bytes())
+            .await
+            .map_err(|e| {
+                AppError::BadRequest(format!("invalid TLS certificate or private key: {e}"))
+            })?;
+    }
+    Ok((i64::from(body.panel_tls_enabled), cert, key))
 }
 
 /// Validated + normalised form of a `PanelSettingsUpdate`. Owns its
@@ -574,9 +642,12 @@ async fn swap_panel_listener(
     previous_prefix: &str,
     normalised: &str,
 ) -> AppResult<()> {
+    // Preserve the current HTTPS state across a listener rebind — a port or
+    // prefix change shouldn't silently drop TLS until the next restart.
+    let tls = load_tls_for_boot(&state.db).await;
     if new_port != current_port {
         let app = build_router(state.clone()).await;
-        let new_tx = spawn_listener("0.0.0.0", new_port, app)
+        let new_tx = spawn_listener("0.0.0.0", new_port, app, tls)
             .await
             .map_err(|e| {
                 AppError::Internal(anyhow::anyhow!(
@@ -613,7 +684,7 @@ async fn swap_panel_listener(
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
         let app = build_router(state.clone()).await;
-        let new_tx = spawn_listener("0.0.0.0", current_port, app)
+        let new_tx = spawn_listener("0.0.0.0", current_port, app, tls)
             .await
             .map_err(|e| {
                 AppError::Internal(anyhow::anyhow!(
@@ -655,7 +726,9 @@ async fn swap_sub_listener(
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     let app = crate::build_sub_router(state.clone());
-    let new_tx = spawn_listener("0.0.0.0", new_sub_port, app)
+    // The public subscription endpoint stays plain HTTP — panel TLS covers the
+    // admin listener only.
+    let new_tx = spawn_listener("0.0.0.0", new_sub_port, app, None)
         .await
         .map_err(|e| {
             AppError::Internal(anyhow::anyhow!(
@@ -690,21 +763,121 @@ pub async fn spawn_listener(
     host: &str,
     port: u16,
     app: Router,
+    tls: Option<PanelTls>,
 ) -> std::io::Result<oneshot::Sender<()>> {
     let addr = format!("{host}:{port}");
-    let listener = TcpListener::bind(&addr).await?;
     let (tx, rx) = oneshot::channel::<()>();
-    tokio::spawn(async move {
-        let server = axum::serve(listener, app).with_graceful_shutdown(async move {
+    if let Some(t) = tls {
+        // Build the rustls config first so a bad cert/key surfaces as an
+        // InvalidInput error here (caller can fall back to plain HTTP), not
+        // silently inside the serve task.
+        let config = RustlsConfig::from_pem(t.cert_pem.into_bytes(), t.key_pem.into_bytes())
+            .await
+            .map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("invalid panel TLS cert/key: {e}"),
+                )
+            })?;
+        // Pre-bind a std listener so EADDRINUSE surfaces here too — parity with
+        // the plain-HTTP path and the listener-swap error handling.
+        let listener = StdTcpListener::bind(&addr)?;
+        listener.set_nonblocking(true)?;
+        let handle = Handle::new();
+        let shutdown_handle = handle.clone();
+        // axum-server 0.8: `from_tcp_rustls` returns `io::Result` (the std→tokio
+        // listener conversion can fail). Build the server up front so that error
+        // propagates to the caller too, before spawning the serve task.
+        let server = axum_server::from_tcp_rustls(listener, config)?.handle(handle);
+        tokio::spawn(async move {
             let _ = rx.await;
+            shutdown_handle.graceful_shutdown(Some(Duration::from_secs(3)));
         });
-        if let Err(e) = server.await {
-            tracing::warn!("axum listener on {addr} exited: {e}");
-        } else {
-            tracing::info!("axum listener on {addr} drained and stopped");
-        }
-    });
+        tokio::spawn(async move {
+            if let Err(e) = server.serve(app.into_make_service()).await {
+                tracing::warn!("axum HTTPS listener on {addr} exited: {e}");
+            } else {
+                tracing::info!("axum HTTPS listener on {addr} drained and stopped");
+            }
+        });
+    } else {
+        let listener = TcpListener::bind(&addr).await?;
+        tokio::spawn(async move {
+            let server = axum::serve(listener, app).with_graceful_shutdown(async move {
+                let _ = rx.await;
+            });
+            if let Err(e) = server.await {
+                tracing::warn!("axum listener on {addr} exited: {e}");
+            } else {
+                tracing::info!("axum listener on {addr} drained and stopped");
+            }
+        });
+    }
     Ok(tx)
+}
+
+/// Bind the main panel listener at boot, honouring operator-provided HTTPS.
+/// Falls back to plain HTTP — logging loudly — if the configured cert/key is
+/// malformed, so a bad paste can never lock the operator out. Returns the
+/// listener's shutdown handle plus whether TLS is actually being served.
+pub async fn spawn_main_listener(
+    state: &AppState,
+    host: &str,
+    port: u16,
+    app: Router,
+) -> std::io::Result<(oneshot::Sender<()>, bool)> {
+    let tls = load_tls_for_boot(&state.db).await;
+    let tls_requested = tls.is_some();
+    match spawn_listener(host, port, app.clone(), tls).await {
+        Ok(tx) => Ok((tx, tls_requested)),
+        Err(e) if tls_requested => {
+            tracing::error!(
+                "panel HTTPS failed to start ({e}); falling back to plain HTTP on port {port}"
+            );
+            Ok((spawn_listener(host, port, app, None).await?, false))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Boot/runtime read of operator-provided panel TLS. Returns `Some` only when
+/// HTTPS is enabled AND both PEM blobs are present; otherwise `None` (serve
+/// plain HTTP). Validity of the pair is checked when the listener binds.
+pub async fn load_tls_for_boot(db: &crate::db::DbPool) -> Option<PanelTls> {
+    let row = sqlx::query!(
+        r#"SELECT panel_tls_enabled,
+                  panel_tls_cert AS "panel_tls_cert!: String",
+                  panel_tls_key AS "panel_tls_key!: String"
+            FROM panel_settings WHERE id = 1"#
+    )
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten()?;
+    if row.panel_tls_enabled == 0
+        || row.panel_tls_cert.trim().is_empty()
+        || row.panel_tls_key.trim().is_empty()
+    {
+        return None;
+    }
+    Some(PanelTls {
+        cert_pem: row.panel_tls_cert,
+        key_pem: row.panel_tls_key,
+    })
+}
+
+/// Restart the panel process. TLS binds at startup, so flipping HTTPS on/off (or
+/// swapping the cert) is applied by exiting and letting the supervisor respawn —
+/// `restart: unless-stopped` under Docker, a unit under systemd. With no
+/// supervisor the process simply stops and must be started again by hand. Exits
+/// after a short beat so the 202 response reaches the UI first.
+async fn restart_panel(_user: AuthUser) -> StatusCode {
+    tracing::warn!("panel restart requested via API — exiting so the supervisor respawns");
+    tokio::spawn(async {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        std::process::exit(0);
+    });
+    StatusCode::ACCEPTED
 }
 
 /// Boot-time read. Returns the canonical `(panel_port, base_path,
