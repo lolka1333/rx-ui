@@ -15,7 +15,9 @@ use crate::{
     AppState,
     auth::AuthUser,
     error::{AppError, AppResult},
-    models::CustomOutbound,
+    models::{CustomOutbound, OutboundProtocolConfig},
+    security::SecurityConfig,
+    transports::TransportConfig,
     xray::orchestrator,
     xray::outbound_test::{OutboundTestResult, test_direct, test_outbound},
 };
@@ -253,6 +255,41 @@ fn validate_outbounds(outbounds: &[CustomOutbound]) -> AppResult<()> {
             return Err(AppError::BadRequest(format!(
                 "duplicate outbound tag '{tag}'"
             )));
+        }
+        // Hysteria 2 is a QUIC proxy where the protocol and transport are one
+        // and the same, so they must be paired — and the connection needs a
+        // password, carried on the transport (where xray's dialer reads it).
+        match (&o.protocol, &o.transport) {
+            (OutboundProtocolConfig::Hysteria(h), TransportConfig::Hysteria(t)) => {
+                if h.address.trim().is_empty() {
+                    return Err(AppError::BadRequest(format!(
+                        "outbound '{tag}': hysteria2 server address is required"
+                    )));
+                }
+                if t.auth.as_deref().unwrap_or_default().trim().is_empty() {
+                    return Err(AppError::BadRequest(format!(
+                        "outbound '{tag}': hysteria2 requires a password"
+                    )));
+                }
+                // QUIC is always TLS — xray's hysteria dialer refuses to start
+                // with a nil tls config ("tls config is nil").
+                if !matches!(o.security, SecurityConfig::Tls(_)) {
+                    return Err(AppError::BadRequest(format!(
+                        "outbound '{tag}': hysteria2 requires TLS security"
+                    )));
+                }
+            }
+            (OutboundProtocolConfig::Hysteria(_), _) => {
+                return Err(AppError::BadRequest(format!(
+                    "outbound '{tag}': the hysteria2 protocol requires the hysteria transport"
+                )));
+            }
+            (_, TransportConfig::Hysteria(_)) => {
+                return Err(AppError::BadRequest(format!(
+                    "outbound '{tag}': the hysteria transport requires the hysteria2 protocol"
+                )));
+            }
+            _ => {}
         }
     }
     Ok(())

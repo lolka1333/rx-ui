@@ -13,8 +13,7 @@
 //! builds the transport proto as-is and the *client* variant of the security
 //! proto (`Security::build_client_settings`).
 //!
-//! v1 protocol scope: VLESS (the protocols the panel models). Hysteria is an
-//! additive variant to follow.
+//! Protocol scope: VLESS and Hysteria 2 (the protocols the panel models).
 
 use crate::protocols::vless::{VlessEncryptionMode, VlessXorMode};
 use crate::security::SecurityConfig;
@@ -64,7 +63,7 @@ pub struct CustomOutbound {
 #[ts(export, export_to = "../../frontend/src/api/types/outbound.ts")]
 pub enum OutboundProtocolConfig {
     Vless(VlessOutbound),
-    // Hysteria(HysteriaOutbound) — follow-up.
+    Hysteria(HysteriaOutbound),
 }
 
 /// VLESS client settings → xray `settings.vnext[0]`. One endpoint, one user.
@@ -96,6 +95,21 @@ pub struct VlessOutbound {
     pub encryption_client_key: Option<String>,
     #[serde(default)]
     pub encryption_padding: Option<String>,
+}
+
+/// Hysteria 2 client settings → xray `protocol: "hysteria"` settings, which is
+/// just `ClientConfig { version: 2, server: { address, port } }`. Everything
+/// else is reused as-is by the orchestrator, mirroring the inbound pairing:
+/// the auth (password) and QUIC / masquerade knobs ride on the paired
+/// `hysteria` transport (`HysteriaTransport.auth` etc.), and client TLS
+/// (serverName / allowInsecure / pinned cert) on the `security` block.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../frontend/src/api/types/outbound.ts")]
+pub struct HysteriaOutbound {
+    /// Remote server address (domain or IP).
+    pub address: String,
+    /// Remote server port.
+    pub port: u16,
 }
 
 /// Mux settings → xray `mux`. Disabled by default.

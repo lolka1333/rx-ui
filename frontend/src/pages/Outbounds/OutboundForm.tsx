@@ -1,8 +1,10 @@
 //! Create/edit form for a custom outbound. Single vertical form (no tabs —
-//! the shape is small): VLESS endpoint + transport + client-side security,
-//! with Mux and Advanced (sendThrough / chaining) tucked into collapsible
-//! sections. Transport/security sub-fields appear inline the moment their
-//! kind is picked, since several carry required values (Reality publicKey…).
+//! the shape is small): a VLESS or Hysteria 2 endpoint + transport + client-side
+//! security, with Mux and Advanced (sendThrough / chaining) tucked into
+//! collapsible sections. The protocol picker swaps the protocol-specific block
+//! (VLESS UUID/flow/encryption vs. the Hysteria 2 password); transport/security
+//! sub-fields appear inline the moment their kind is picked, since several carry
+//! required values (Reality publicKey…).
 
 import { App, Button, Form, Input, InputNumber, Select, Space, Typography } from 'antd';
 import { memo, useCallback, useLayoutEffect, useMemo, useState, type ReactNode } from 'react';
@@ -15,6 +17,7 @@ import { LinkParseError, parseOutboundLink } from './parseLink';
 // Reality/TLS tabs use (chrome … 360/qq … hello*_NNN version-pinned).
 import { FINGERPRINT_OPTIONS } from '@/pages/Inbounds/helpers';
 import {
+  AddonLabel,
   HeaderListField,
   InputField,
   Section,
@@ -26,6 +29,7 @@ import {
   outboundToForm,
   type OutboundFormValues,
   type OutboundNetwork,
+  type OutboundProtocol,
   type OutboundSecurity,
 } from './form';
 
@@ -35,6 +39,11 @@ interface OutboundFormProps {
   editing: CustomOutbound | null;
   onFinish: (values: OutboundFormValues) => void;
 }
+
+const PROTOCOL_OPTIONS = [
+  { value: 'vless', label: 'VLESS' },
+  { value: 'hysteria', label: 'Hysteria2' },
+];
 
 const NETWORK_OPTIONS = [
   { value: 'tcp', label: 'TCP' },
@@ -47,6 +56,9 @@ const SECURITY_OPTIONS = [
   { value: 'tls', label: 'TLS' },
   { value: 'reality', label: 'Reality' },
 ];
+
+// Hysteria 2 rides on QUIC, which is always TLS — the only valid security.
+const HYSTERIA_SECURITY_OPTIONS = [{ value: 'tls', label: 'TLS' }];
 
 const XHTTP_MODE_OPTIONS = [
   { value: 'auto', label: 'auto' },
@@ -87,6 +99,8 @@ export const OutboundForm = memo(function OutboundForm({
   onFinish,
 }: OutboundFormProps) {
   const { t } = useTranslation();
+  const protocol = Form.useWatch('protocol_kind', form) as OutboundProtocol | undefined;
+  const isHysteria = protocol === 'hysteria';
   const network = Form.useWatch('network', form) as OutboundNetwork | undefined;
   const security = Form.useWatch('security', form) as OutboundSecurity | undefined;
   const encryptionMode = Form.useWatch('encryption_mode', form) as
@@ -96,9 +110,9 @@ export const OutboundForm = memo(function OutboundForm({
   const { message } = App.useApp();
   const [linkText, setLinkText] = useState('');
 
-  // Paste a vless:// share-link → overlay its fields on a clean default base.
-  // Keep the operator's tag (use the link's #name only when the tag is empty)
-  // and the enabled flag.
+  // Paste a vless:// or hysteria2:// share-link → overlay its fields on a clean
+  // default base. Keep the operator's tag (use the link's #name only when the
+  // tag is empty) and the enabled flag.
   const applyLink = useCallback(() => {
     const text = linkText.trim();
     if (!text) return;
@@ -138,15 +152,16 @@ export const OutboundForm = memo(function OutboundForm({
       onFinish={onFinish}
       style={{ marginTop: 8 }}
     >
-      {/* Paste a vless:// link to auto-fill the whole form. */}
+      {/* Paste a vless:// or hysteria2:// link to auto-fill the whole form. */}
       <Space.Compact style={{ display: 'flex', marginBottom: 16 }}>
+        <AddonLabel side="before">{t('outbounds.link')}</AddonLabel>
         <Input
           value={linkText}
           onChange={(e) => setLinkText(e.target.value)}
           onPressEnter={applyLink}
           placeholder={t('outbounds.linkPlaceholder')}
-          addonBefore={t('outbounds.link')}
           allowClear
+          style={{ flex: 1, minWidth: 0 }}
         />
         <Button type="primary" ghost icon={<ImportOutlined />} onClick={applyLink}>
           {t('outbounds.linkParse')}
@@ -160,7 +175,17 @@ export const OutboundForm = memo(function OutboundForm({
         rules={[{ required: true, message: t('outbounds.tagRequired') }]}
       />
 
-      {/* VLESS endpoint */}
+      <Form.Item name="protocol_kind" label={t('outbounds.protocol')} style={{ marginBottom: 12 }}>
+        <Select
+          options={PROTOCOL_OPTIONS}
+          onChange={(val) => {
+            // QUIC mandates TLS — snap security to it the moment hysteria is picked.
+            if (val === 'hysteria') form.setFieldsValue({ security: 'tls' });
+          }}
+        />
+      </Form.Item>
+
+      {/* Endpoint — remote server address/port (shared by both protocols) */}
       <div style={{ display: 'flex', gap: 12 }}>
         <Form.Item
           name="address"
@@ -180,82 +205,101 @@ export const OutboundForm = memo(function OutboundForm({
         </Form.Item>
       </div>
 
-      <InputField
-        name="uuid"
-        labelKey="outbounds.uuid"
-        rules={[{ required: true, message: t('outbounds.uuidRequired') }]}
-      />
-
-      <div style={{ display: 'flex', gap: 12 }}>
-        <Form.Item name="flow" label={t('outbounds.flow')} style={{ flex: 1, marginBottom: 12 }}>
-          <Select
-            options={[
-              { value: '', label: t('outbounds.flowNone') },
-              { value: 'xtls-rprx-vision', label: 'xtls-rprx-vision' },
-            ]}
-          />
-        </Form.Item>
-        <Form.Item
-          name="encryption_mode"
-          label={t('outbounds.encryption')}
-          tooltip={t('outbounds.encryptionHint')}
-          style={{ flex: 1, marginBottom: 12 }}
-        >
-          <Select
-            options={[
-              { value: 'none', label: 'none' },
-              { value: 'mlkem768x25519plus', label: 'mlkem768x25519plus' },
-            ]}
-          />
-        </Form.Item>
-      </div>
-
-      {encryptionMode === 'mlkem768x25519plus' && (
+      {!isHysteria && (
         <>
-          <SubHeader>{t('outbounds.encSection')}</SubHeader>
           <InputField
-            name="encryption_client_key"
-            labelKey="outbounds.encClientKey"
-            tooltipKey="outbounds.encClientKeyHint"
-            rules={[{ required: true, message: t('outbounds.encClientKeyRequired') }]}
+            name="uuid"
+            labelKey="outbounds.uuid"
+            rules={[{ required: true, message: t('outbounds.uuidRequired') }]}
           />
+
           <div style={{ display: 'flex', gap: 12 }}>
-            <Form.Item
-              name="encryption_xor_mode"
-              label={t('outbounds.encXorMode')}
-              style={{ flex: 1, marginBottom: 0 }}
-            >
+            <Form.Item name="flow" label={t('outbounds.flow')} style={{ flex: 1, marginBottom: 12 }}>
               <Select
                 options={[
-                  { value: 'native', label: 'native' },
-                  { value: 'xorpub', label: 'xorpub' },
-                  { value: 'random', label: 'random' },
+                  { value: '', label: t('outbounds.flowNone') },
+                  { value: 'xtls-rprx-vision', label: 'xtls-rprx-vision' },
                 ]}
               />
             </Form.Item>
             <Form.Item
-              name="encryption_padding"
-              label={t('outbounds.encPadding')}
-              tooltip={t('outbounds.encPaddingHint')}
-              style={{ flex: 1, marginBottom: 0 }}
+              name="encryption_mode"
+              label={t('outbounds.encryption')}
+              tooltip={t('outbounds.encryptionHint')}
+              style={{ flex: 1, marginBottom: 12 }}
             >
-              <Input placeholder="100-111-1111.75-0-111" />
+              <Select
+                options={[
+                  { value: 'none', label: 'none' },
+                  { value: 'mlkem768x25519plus', label: 'mlkem768x25519plus' },
+                ]}
+              />
             </Form.Item>
           </div>
+
+          {encryptionMode === 'mlkem768x25519plus' && (
+            <>
+              <SubHeader>{t('outbounds.encSection')}</SubHeader>
+              <InputField
+                name="encryption_client_key"
+                labelKey="outbounds.encClientKey"
+                tooltipKey="outbounds.encClientKeyHint"
+                rules={[{ required: true, message: t('outbounds.encClientKeyRequired') }]}
+              />
+              <div style={{ display: 'flex', gap: 12 }}>
+                <Form.Item
+                  name="encryption_xor_mode"
+                  label={t('outbounds.encXorMode')}
+                  style={{ flex: 1, marginBottom: 0 }}
+                >
+                  <Select
+                    options={[
+                      { value: 'native', label: 'native' },
+                      { value: 'xorpub', label: 'xorpub' },
+                      { value: 'random', label: 'random' },
+                    ]}
+                  />
+                </Form.Item>
+                <Form.Item
+                  name="encryption_padding"
+                  label={t('outbounds.encPadding')}
+                  tooltip={t('outbounds.encPaddingHint')}
+                  style={{ flex: 1, marginBottom: 0 }}
+                >
+                  <Input placeholder="100-111-1111.75-0-111" />
+                </Form.Item>
+              </div>
+            </>
+          )}
         </>
       )}
 
+      {isHysteria && (
+        <InputField
+          name="hysteria_auth"
+          labelKey="outbounds.hysteriaAuth"
+          tooltipKey="outbounds.hysteriaAuthHint"
+          rules={[{ required: true, message: t('outbounds.hysteriaAuthRequired') }]}
+        />
+      )}
+
       <div style={{ display: 'flex', gap: 12 }}>
-        <Form.Item name="network" label={t('outbounds.network')} style={{ flex: 1, marginBottom: 12 }}>
-          <Select options={NETWORK_OPTIONS} />
-        </Form.Item>
+        {!isHysteria && (
+          <Form.Item
+            name="network"
+            label={t('outbounds.network')}
+            style={{ flex: 1, marginBottom: 12 }}
+          >
+            <Select options={NETWORK_OPTIONS} />
+          </Form.Item>
+        )}
         <Form.Item name="security" label={t('outbounds.security')} style={{ flex: 1, marginBottom: 12 }}>
-          <Select options={SECURITY_OPTIONS} />
+          <Select options={isHysteria ? HYSTERIA_SECURITY_OPTIONS : SECURITY_OPTIONS} />
         </Form.Item>
       </div>
 
-      {/* Transport sub-fields */}
-      {network === 'ws' && (
+      {/* Transport sub-fields (VLESS only — hysteria IS its own transport) */}
+      {!isHysteria && network === 'ws' && (
         <>
           <SubHeader>{t('outbounds.transportWs')}</SubHeader>
           <InputField name="ws_path" labelKey="outbounds.wsPath" />
@@ -279,7 +323,7 @@ export const OutboundForm = memo(function OutboundForm({
           </Section>
         </>
       )}
-      {network === 'xhttp' && (
+      {!isHysteria && network === 'xhttp' && (
         <>
           <SubHeader>{t('outbounds.transportXhttp')}</SubHeader>
           <InputField name="xhttp_path" labelKey="outbounds.xhttpPath" />

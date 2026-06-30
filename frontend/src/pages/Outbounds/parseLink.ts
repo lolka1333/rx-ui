@@ -1,8 +1,6 @@
-//! Parse a `vless://` share-link into outbound form values, so the operator can
-//! paste a link and have the form fill itself. Mirrors the field mapping the
-//! backend round-trips (the same parse validated end-to-end against a real
-//! production link). Only VLESS is supported — it's the one protocol a custom
-//! outbound models today; other schemes raise a clear message.
+//! Parse a `vless://` or `hysteria2://` share-link into outbound form values, so
+//! the operator can paste a link and have the form fill itself. Mirrors the
+//! field mapping the backend round-trips. Other schemes raise a clear message.
 
 import type {
   OutboundFormValues,
@@ -43,17 +41,22 @@ function splitHostPort(hostport: string): [string, string] {
 }
 
 /**
- * Parse a VLESS share-link into a partial set of outbound form values. Returns
- * only the keys the link specifies; the caller overlays them on the defaults.
- * Throws {@link LinkParseError} (with a friendly message) on any problem.
+ * Parse a vless:// or hysteria2:// share-link into a partial set of outbound
+ * form values (hysteria2:// / hy2:// dispatch to {@link parseHysteriaLink}).
+ * Returns only the keys the link specifies; the caller overlays them on the
+ * defaults. Throws {@link LinkParseError} (with a friendly message) on any
+ * problem.
  */
 export function parseOutboundLink(raw: string): Partial<OutboundFormValues> {
   const link = raw.trim();
   if (!link) throw new LinkParseError('outbounds.linkErrEmpty');
 
   const scheme = link.slice(0, link.indexOf('://')).toLowerCase();
+  if (scheme === 'hysteria2' || scheme === 'hy2') {
+    return parseHysteriaLink(link.slice(link.indexOf('://') + 3));
+  }
   if (scheme !== 'vless') {
-    const known = ['vmess', 'trojan', 'ss', 'hysteria2', 'hy2'];
+    const known = ['vmess', 'trojan', 'ss'];
     throw known.includes(scheme)
       ? new LinkParseError('outbounds.linkErrScheme', { scheme })
       : new LinkParseError('outbounds.linkErrUnknown');
@@ -143,6 +146,56 @@ export function parseOutboundLink(raw: string): Partial<OutboundFormValues> {
   // --- FinalMask (fm) ---
   applyFinalMask(out, get('fm'));
 
+  return out;
+}
+
+/**
+ * Parse a `hysteria2://` (or `hy2://`) share-link. Shape:
+ * `hysteria2://PASSWORD@HOST:PORT/?sni=…&insecure=1&pinSHA256=…#NAME`. The
+ * password is the auth; QUIC is always TLS, so security is fixed to `tls` and
+ * the cert knobs (sni / pin / accept-by-name) map onto the TLS security block.
+ * Salamander `obfs` has no xray equivalent and is ignored.
+ */
+function parseHysteriaLink(body: string): Partial<OutboundFormValues> {
+  const hashAt = body.indexOf('#');
+  const name = hashAt >= 0 ? safeDecode(body.slice(hashAt + 1)) : '';
+  const beforeHash = hashAt >= 0 ? body.slice(0, hashAt) : body;
+  const qAt = beforeHash.indexOf('?');
+  const query = qAt >= 0 ? beforeHash.slice(qAt + 1) : '';
+  const authority = qAt >= 0 ? beforeHash.slice(0, qAt) : beforeHash;
+
+  const at = authority.lastIndexOf('@');
+  const auth = at >= 0 ? safeDecode(authority.slice(0, at)) : '';
+  // Drop any path after `host:port` (links often carry a bare trailing `/`).
+  let hostPart = at >= 0 ? authority.slice(at + 1) : authority;
+  const slash = hostPart.indexOf('/');
+  if (slash >= 0) hostPart = hostPart.slice(0, slash);
+  const [host, portStr] = splitHostPort(hostPart);
+  if (!host) throw new LinkParseError('outbounds.linkErrNoHost');
+
+  const q = new URLSearchParams(query);
+  const get = (k: string) => q.get(k) ?? '';
+  // Fall back to the host as serverName when the link omits `sni` (common when
+  // the host is already the cert's domain).
+  const serverName = get('sni') || host;
+
+  const out: Partial<OutboundFormValues> = {
+    tag: name,
+    protocol_kind: 'hysteria',
+    address: host,
+    port: parsePort(portStr),
+    hysteria_auth: auth,
+    security: 'tls',
+    tls_server_name: serverName,
+  };
+  const pin = get('pinSHA256') || get('pinsha256');
+  if (pin) {
+    out.tls_pinned_peer_cert_sha256 = [pin];
+  } else if (get('insecure') === '1' || get('insecure') === 'true') {
+    // The panel models no plain allowInsecure — accept-by-name is the closest
+    // equivalent for the typical self-signed hysteria server.
+    out.tls_verify_peer_cert_by_name = [serverName];
+  }
   return out;
 }
 

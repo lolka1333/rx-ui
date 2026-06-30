@@ -40,6 +40,24 @@ send_through: string,
 proxy_tag: string, created_at: string, updated_at: string, };
 
 /**
+ * Hysteria 2 client settings → xray `protocol: "hysteria"` settings, which is
+ * just `ClientConfig { version: 2, server: { address, port } }`. Everything
+ * else is reused as-is by the orchestrator, mirroring the inbound pairing:
+ * the auth (password) and QUIC / masquerade knobs ride on the paired
+ * `hysteria` transport (`HysteriaTransport.auth` etc.), and client TLS
+ * (serverName / allowInsecure / pinned cert) on the `security` block.
+ */
+export type HysteriaOutbound = { 
+/**
+ * Remote server address (domain or IP).
+ */
+address: string, 
+/**
+ * Remote server port.
+ */
+port: number, };
+
+/**
  * Mux settings → xray `mux`. Disabled by default.
  */
 export type OutboundMux = { enabled: boolean, 
@@ -52,7 +70,7 @@ concurrency: number, };
  * Protocol-specific outbound settings. Tagged enum mirrors the inbound
  * `ProtocolConfig` shape so the frontend form can dispatch the same way.
  */
-export type OutboundProtocolConfig = { "kind": "vless" } & VlessOutbound;
+export type OutboundProtocolConfig = { "kind": "vless" } & VlessOutbound | { "kind": "hysteria" } & HysteriaOutbound;
 
 export type OutboundTestResult = { 
 /**

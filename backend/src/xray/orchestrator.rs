@@ -21,6 +21,7 @@ use crate::xray::proto::xray::common::net::{IpOrDomain, PortList, PortRange, ip_
 use crate::xray::proto::xray::common::protocol::{ServerEndpoint, User};
 use crate::xray::proto::xray::common::serial::TypedMessage;
 use crate::xray::proto::xray::core::{InboundHandlerConfig, OutboundHandlerConfig};
+use crate::xray::proto::xray::proxy::hysteria::ClientConfig as HysteriaClientConfig;
 use crate::xray::proto::xray::proxy::vless::Account as VlessAccount;
 use crate::xray::proto::xray::proxy::vless::outbound::Config as VlessOutboundConfig;
 use crate::xray::proto::xray::transport::internet::{ProxyConfig, StreamConfig};
@@ -29,6 +30,7 @@ const TYPE_RECEIVER_CONFIG: &str = "xray.app.proxyman.ReceiverConfig";
 const TYPE_SENDER_CONFIG: &str = "xray.app.proxyman.SenderConfig";
 const TYPE_VLESS_OUTBOUND: &str = "xray.proxy.vless.outbound.Config";
 const TYPE_VLESS_ACCOUNT: &str = "xray.proxy.vless.Account";
+const TYPE_HYSTERIA_OUTBOUND: &str = "xray.proxy.hysteria.ClientConfig";
 
 /// Build the `InboundHandlerConfig` proto from an `Inbound` + its
 /// enabled-only client list. Caller filters out disabled clients —
@@ -178,6 +180,24 @@ pub fn outbound_to_handler_config(ob: &CustomOutbound) -> anyhow::Result<Outboun
             };
             TypedMessage {
                 r#type: TYPE_VLESS_OUTBOUND.to_owned(),
+                value: prost::Message::encode_to_vec(&cfg),
+            }
+        }
+        OutboundProtocolConfig::Hysteria(h) => {
+            // `protocol: "hysteria"` carries only the endpoint — version + the
+            // server address/port. The password (`auth`) lives on the paired
+            // hysteria TRANSPORT (xray's dialer reads it as RequestHeaderAuth),
+            // and client TLS on the security block, both built generically above.
+            let cfg = HysteriaClientConfig {
+                version: 2,
+                server: Some(ServerEndpoint {
+                    address: Some(parse_listen_address(&h.address)),
+                    port: u32::from(h.port),
+                    user: None,
+                }),
+            };
+            TypedMessage {
+                r#type: TYPE_HYSTERIA_OUTBOUND.to_owned(),
                 value: prost::Message::encode_to_vec(&cfg),
             }
         }
@@ -368,12 +388,13 @@ mod tests {
     //! xray's `ReceiverConfig.SniffingConfig` (the field rides in the gRPC
     //! inbound config, not the share-link, so it needs its own coverage).
     use super::*;
-    use crate::models::Sniffing;
+    use crate::models::{HysteriaOutbound, OutboundMux, Sniffing};
     use crate::protocols::ProtocolConfig;
     use crate::protocols::vless::{VlessEncryptionMode, VlessFlow, VlessProtocol};
     use crate::security::{NoneSecurity, SecurityConfig};
     use crate::transports::TransportConfig;
     use crate::transports::finalmask::FinalMask;
+    use crate::transports::hysteria::{HysteriaMasquerade, HysteriaTransport};
     use crate::transports::sockopt::SocketOpt;
     use crate::transports::tcp::TcpTransport;
     use prost::Message as _;
@@ -523,5 +544,54 @@ mod tests {
             "default Sniffing keeps route_only/metadata_only off (behaviour-preserving)"
         );
         assert!(sniff.domains_excluded.is_empty() && sniff.ips_excluded.is_empty());
+    }
+
+    fn hysteria_outbound() -> CustomOutbound {
+        CustomOutbound {
+            id: "ob1".into(),
+            tag: "hy".into(),
+            enabled: true,
+            protocol: OutboundProtocolConfig::Hysteria(HysteriaOutbound {
+                address: "example.com".into(),
+                port: 443,
+            }),
+            transport: TransportConfig::Hysteria(HysteriaTransport {
+                auth: Some("secret".into()),
+                udp_idle_timeout: None,
+                masquerade: HysteriaMasquerade::default(),
+                quic_params: None,
+            }),
+            security: SecurityConfig::None(NoneSecurity {}),
+            finalmask: FinalMask::None,
+            mux: OutboundMux::default(),
+            send_through: String::new(),
+            proxy_tag: String::new(),
+            created_at: "now".into(),
+            updated_at: "now".into(),
+        }
+    }
+
+    #[test]
+    fn hysteria_outbound_builds_client_config_and_transport() {
+        let cfg = outbound_to_handler_config(&hysteria_outbound()).unwrap();
+
+        // Protocol settings = xray's hysteria ClientConfig: version 2, the
+        // endpoint, and NO user — the password rides on the transport, exactly
+        // as the JSON `HysteriaClientConfig.Build` produces it.
+        let proxy = cfg.proxy_settings.expect("proxy settings");
+        assert_eq!(proxy.r#type, "xray.proxy.hysteria.ClientConfig");
+        let client = HysteriaClientConfig::decode(&proxy.value[..]).unwrap();
+        assert_eq!(client.version, 2);
+        let server = client.server.expect("server endpoint");
+        assert_eq!(server.port, 443);
+        assert!(
+            server.user.is_none(),
+            "hysteria auth lives on the transport, not the protocol user"
+        );
+
+        // The stream rides the hysteria transport.
+        let sender = SenderConfig::decode(&cfg.sender_settings.unwrap().value[..]).unwrap();
+        let stream = sender.stream_settings.expect("stream settings");
+        assert_eq!(stream.protocol_name, "hysteria");
     }
 }

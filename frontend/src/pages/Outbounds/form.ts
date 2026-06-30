@@ -1,9 +1,9 @@
 //! Flat form-value shape for the outbound editor + adapters to/from the typed
-//! `CustomOutbound`. Mirrors the inbound `form/` split but far smaller: one
-//! protocol (VLESS), client-side security (no certs / keypair), no
-//! users/sniffing/finalmask. The transport/security objects are built to the
-//! same `TransportConfig` / `SecurityConfig` shapes the backend reuses — only
-//! the client-relevant fields are populated; the rest stay null/empty.
+//! `CustomOutbound`. Mirrors the inbound `form/` split but far smaller: two
+//! protocols (VLESS and Hysteria 2), client-side security (no certs / keypair),
+//! no users/sniffing. The transport/security objects are built to the same
+//! `TransportConfig` / `SecurityConfig` shapes the backend reuses — only the
+//! client-relevant fields are populated; the rest stay null/empty.
 
 import type {
   CustomOutbound,
@@ -31,13 +31,17 @@ export interface HeaderPair {
   value: string;
 }
 
+export type OutboundProtocol = 'vless' | 'hysteria';
 export type OutboundNetwork = 'tcp' | 'ws' | 'xhttp';
 export type OutboundSecurity = 'none' | 'tls' | 'reality';
 
 export interface OutboundFormValues extends FinalMaskFormFields {
   tag: string;
   enabled: boolean;
-  // VLESS endpoint
+  /** Outbound protocol — VLESS or Hysteria 2. Drives which protocol/transport
+   *  blocks the form builds. */
+  protocol_kind: OutboundProtocol;
+  // Endpoint — the remote server address/port (shared by VLESS and Hysteria 2).
   address: string;
   port: number;
   uuid: string;
@@ -47,6 +51,9 @@ export interface OutboundFormValues extends FinalMaskFormFields {
   encryption_xor_mode: VlessXorMode;
   encryption_client_key: string; // server's public client_key
   encryption_padding: string;
+  // Hysteria 2 password. Stored on the transport in the model, but the form
+  // surfaces it as a protocol-level credential (it IS the connection secret).
+  hysteria_auth: string;
   // transport
   network: OutboundNetwork;
   ws_path: string;
@@ -95,6 +102,7 @@ export interface OutboundFormValues extends FinalMaskFormFields {
 export const OUTBOUND_DEFAULTS: OutboundFormValues = {
   tag: '',
   enabled: true,
+  protocol_kind: 'vless',
   address: '',
   port: 443,
   uuid: '',
@@ -103,6 +111,7 @@ export const OUTBOUND_DEFAULTS: OutboundFormValues = {
   encryption_xor_mode: 'native',
   encryption_client_key: '',
   encryption_padding: '',
+  hysteria_auth: '',
   network: 'tcp',
   ws_path: '/',
   ws_host: '',
@@ -273,21 +282,36 @@ export function formToOutbound(
     id: existing?.id ?? uuid(),
     tag: v.tag.trim(),
     enabled: v.enabled,
-    protocol: {
-      kind: 'vless',
-      address: v.address.trim(),
-      port: v.port,
-      id: v.uuid.trim(),
-      flow: v.flow,
-      encryption_mode: v.encryption_mode,
-      // null out the cipher detail when not using native encryption.
-      encryption_xor_mode: v.encryption_mode === 'none' ? null : v.encryption_xor_mode,
-      encryption_client_key:
-        v.encryption_mode === 'none' ? null : v.encryption_client_key.trim() || null,
-      encryption_padding:
-        v.encryption_mode === 'none' ? null : v.encryption_padding.trim() || null,
-    },
-    transport: buildTransport(v),
+    protocol:
+      v.protocol_kind === 'hysteria'
+        ? { kind: 'hysteria', address: v.address.trim(), port: v.port }
+        : {
+            kind: 'vless',
+            address: v.address.trim(),
+            port: v.port,
+            id: v.uuid.trim(),
+            flow: v.flow,
+            encryption_mode: v.encryption_mode,
+            // null out the cipher detail when not using native encryption.
+            encryption_xor_mode: v.encryption_mode === 'none' ? null : v.encryption_xor_mode,
+            encryption_client_key:
+              v.encryption_mode === 'none' ? null : v.encryption_client_key.trim() || null,
+            encryption_padding:
+              v.encryption_mode === 'none' ? null : v.encryption_padding.trim() || null,
+          },
+    // Hysteria 2 IS its transport: the password rides on the hysteria transport
+    // (where xray's dialer reads it), masquerade is server-only so a client
+    // leaves it at the no-op `notfound`, and the QUIC knobs stay at defaults.
+    transport:
+      v.protocol_kind === 'hysteria'
+        ? {
+            kind: 'hysteria',
+            auth: v.hysteria_auth.trim() || null,
+            udp_idle_timeout: null,
+            masquerade: { kind: 'notfound' },
+            quic_params: null,
+          }
+        : buildTransport(v),
     security: buildSecurity(v),
     // `buildFinalMask` reads only the finalmask_* fields, which OutboundFormValues
     // carries via FinalMaskFormFields — the cast just bridges the wider param type.
@@ -308,6 +332,7 @@ export function outboundToForm(ob: CustomOutbound): OutboundFormValues {
 
   if (ob.protocol.kind === 'vless') {
     const p = ob.protocol;
+    d.protocol_kind = 'vless';
     d.address = p.address;
     d.port = p.port;
     d.uuid = p.id;
@@ -316,10 +341,20 @@ export function outboundToForm(ob: CustomOutbound): OutboundFormValues {
     d.encryption_xor_mode = p.encryption_xor_mode ?? 'native';
     d.encryption_client_key = p.encryption_client_key ?? '';
     d.encryption_padding = p.encryption_padding ?? '';
+  } else if (ob.protocol.kind === 'hysteria') {
+    d.protocol_kind = 'hysteria';
+    d.address = ob.protocol.address;
+    d.port = ob.protocol.port;
   }
 
   const tr = ob.transport;
+  // A hysteria transport pairs only with the hysteria protocol; its `network`
+  // field has no slot in the VLESS-style transport selector, so map it to tcp
+  // and pull the password out into the hysteria-specific field below.
   d.network = tr.kind === 'hysteria' ? 'tcp' : tr.kind;
+  if (tr.kind === 'hysteria') {
+    d.hysteria_auth = tr.auth ?? '';
+  }
   const toPairs = (h: { [k: string]: string } | null): HeaderPair[] =>
     h ? Object.entries(h).map(([name, value]) => ({ name, value })) : [];
   if (tr.kind === 'ws') {

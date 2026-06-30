@@ -319,10 +319,69 @@ export function SwitchField({ name, labelKey, tooltipKey, last }: FieldProps) {
 }
 
 // =============================================================================
-// NumberWithUnit — InputNumber + non-interactive unit suffix, styled to look
-// like one control. Antd v6 deprecated `addonAfter` on InputNumber, so we
-// pair with a styled <span> inside Space.Compact instead of <Input> (which
-// ignores width:auto and grabs ~180px).
+// AddonLabel — non-interactive label that looks like antd's deprecated
+// Input/InputNumber `addonBefore`/`addonAfter`. antd v6 deprecated those props
+// in favour of composing inside `Space.Compact`; this IS that composed piece.
+// `side` picks which edge merges (borderless, square corners) with the
+// neighbouring control so the pair reads as one rounded control.
+// =============================================================================
+
+export function AddonLabel({
+  side,
+  children,
+}: {
+  side: 'before' | 'after';
+  children: ReactNode;
+}) {
+  const { token } = theme.useToken();
+  // Memoize on primitive token fields rather than the `token` object — antd's
+  // `useToken` returns a fresh object every render, so `[token]` would
+  // invalidate immediately and the memo would do nothing.
+  const style = useMemo<CSSProperties>(() => {
+    const base: CSSProperties = {
+      flex: '0 0 auto',
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      height: token.controlHeight,
+      paddingInline: 10,
+      border: `${token.lineWidth}px solid ${token.colorBorder}`,
+      background: token.colorFillTertiary,
+      color: token.colorTextSecondary,
+      fontSize: token.fontSize,
+      lineHeight: 1,
+      whiteSpace: 'nowrap',
+      userSelect: 'none',
+    };
+    if (side === 'after') {
+      // Drop the left border + left rounding so it merges with the control
+      // on its left.
+      base.borderInlineStart = 0;
+      base.borderStartEndRadius = token.borderRadius;
+      base.borderEndEndRadius = token.borderRadius;
+    } else {
+      // Mirror image — merge with the control on its right.
+      base.borderInlineEnd = 0;
+      base.borderStartStartRadius = token.borderRadius;
+      base.borderEndStartRadius = token.borderRadius;
+    }
+    return base;
+  }, [
+    side,
+    token.controlHeight,
+    token.lineWidth,
+    token.colorBorder,
+    token.borderRadius,
+    token.colorFillTertiary,
+    token.colorTextSecondary,
+    token.fontSize,
+  ]);
+  return <span style={style}>{children}</span>;
+}
+
+// =============================================================================
+// NumberWithUnit — InputNumber + a unit suffix (via AddonLabel), styled to look
+// like one control (a plain <Input> suffix ignores width:auto and grabs ~180px).
 // =============================================================================
 
 interface NumberWithUnitProps {
@@ -339,39 +398,6 @@ interface NumberWithUnitProps {
 const NUMBER_FLEX_STYLE = { flex: 1, minWidth: 0 } as const;
 
 export function NumberWithUnit({ value, onChange, unit, min, placeholder }: NumberWithUnitProps) {
-  const { token } = theme.useToken();
-  // Memoize on primitive token fields rather than the `token` object — antd's
-  // `useToken` returns a fresh object every render, so `[token]` would
-  // invalidate immediately and the memo would do nothing.
-  const suffixStyle = useMemo<CSSProperties>(
-    () => ({
-      flex: '0 0 auto',
-      display: 'inline-flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      height: token.controlHeight,
-      paddingInline: 10,
-      border: `${token.lineWidth}px solid ${token.colorBorder}`,
-      borderInlineStart: 0,
-      borderStartEndRadius: token.borderRadius,
-      borderEndEndRadius: token.borderRadius,
-      background: token.colorFillTertiary,
-      color: token.colorTextSecondary,
-      fontSize: token.fontSize,
-      lineHeight: 1,
-      whiteSpace: 'nowrap',
-      userSelect: 'none',
-    }),
-    [
-      token.controlHeight,
-      token.lineWidth,
-      token.colorBorder,
-      token.borderRadius,
-      token.colorFillTertiary,
-      token.colorTextSecondary,
-      token.fontSize,
-    ],
-  );
   return (
     <Space.Compact block>
       <InputNumber
@@ -385,7 +411,7 @@ export function NumberWithUnit({ value, onChange, unit, min, placeholder }: Numb
         // default inside `Space.Compact`.
         style={NUMBER_FLEX_STYLE}
       />
-      <span style={suffixStyle}>{unit}</span>
+      <AddonLabel side="after">{unit}</AddonLabel>
     </Space.Compact>
   );
 }
