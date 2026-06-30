@@ -873,7 +873,7 @@ export function Clients() {
               <Switch
                 size="small"
                 checked={g.allEnabled}
-                disabled={
+                loading={
                   toggleGroup.isPending && toggleGroup.variables?.email === g.email
                 }
                 onChange={(v) =>
