@@ -708,7 +708,10 @@ function AccessSection({
       const portChanged = oldPort != null && values.panel_port !== oldPort;
       const pathChanged = normalisedPath !== oldPath;
       if (portChanged || pathChanged) {
-        const newUrl = `${window.location.protocol}//${window.location.hostname}:${values.panel_port}${normalisedPath}/`;
+        // No trailing slash on a prefix (`/secret`, not `/secret/`) — the SPA
+        // is served at the no-slash form and the injected <base href> handles
+        // relative resolution. Root collapses to `/`.
+        const newUrl = `${window.location.protocol}//${window.location.hostname}:${values.panel_port}${normalisedPath || '/'}`;
         message.success({
           content: t('settings.panelSavedHotRedirect', { url: newUrl }),
           duration: 6,
@@ -872,7 +875,7 @@ function TlsSection({
       // TLS binds at process start, so the change lands only after a restart.
       const scheme = values.panel_tls_enabled ? 'https' : 'http';
       const path = normaliseClientPrefix(old.panel_base_path);
-      const url = `${scheme}://${window.location.hostname}:${old.panel_port}${path}/`;
+      const url = `${scheme}://${window.location.hostname}:${old.panel_port}${path || '/'}`;
       modal.confirm({
         title: t('settings.tlsRestartTitle'),
         content: t('settings.tlsRestartBody'),

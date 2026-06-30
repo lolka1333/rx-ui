@@ -1,25 +1,22 @@
-//! Single-binary mode: serve the built frontend (`frontend/dist/`)
-//! embedded directly into the backend executable via `rust-embed`.
+//! Single-binary mode: serve the built frontend (`frontend/dist/`) embedded
+//! directly into the backend executable via `rust-embed`.
 //!
-//! The macro reads every file under `../frontend/dist/` at COMPILE TIME
-//! and stores its bytes (gzip-compressed) inside the binary. At runtime
-//! we look up the requested path against the embedded set, fall back to
-//! `index.html` for SPA-style client-routed paths, and return a `404`
-//! only for truly unknown files (e.g. an asset path that doesn't exist).
+//! The macro reads every file under `../frontend/dist/` at COMPILE TIME and
+//! stores its bytes (gzip-compressed) inside the binary. At runtime we look up
+//! the requested path against the embedded set, fall back to `index.html` for
+//! SPA-style client-routed paths, and return `404` only for truly unknown
+//! files (e.g. an asset path that doesn't exist).
 //!
-//! Why a fallback to `index.html` instead of `404` for unknown paths:
-//! Vite produces a single-page-app; React would handle `/inbounds` /
-//! `/dashboard` etc. client-side once `index.html` loads. Returning the
-//! HTML for any non-asset path is what every SPA reverse-proxy config
-//! does. Real asset 404s are still distinguishable: paths starting with
-//! `/assets/` always have a file extension; if we can't find a
-//! `/assets/foo.js`, returning index.html would just confuse the JS
-//! loader, so we return 404 for those instead of the fallback.
+//! The panel can be mounted under a secret URL prefix (`panel_base_path`). To
+//! make the SPA work both at the root and under a prefix, the frontend is built
+//! with `base: './'` (relative asset URLs) and a relative axios `baseURL`, and
+//! the served `index.html` carries an injected `<base href="{prefix}/">` so all
+//! of those relative URLs resolve under the actual mount — see `render_index`.
 
+use crate::AppState;
 use axum::{
-    Router,
     body::Body,
-    extract::Request,
+    extract::{Request, State},
     http::{StatusCode, Uri, header},
     response::{IntoResponse, Response},
 };
@@ -38,71 +35,97 @@ struct Asset;
 // matters.
 const _: &str = include_str!(concat!(env!("OUT_DIR"), "/dist_fingerprint.txt"));
 
-/// Returns an axum router that serves the embedded frontend on every
-/// path NOT already claimed by an `/api/*` nest. Wire it via
-/// `Router::fallback_service(static_assets::router())` AFTER all `nest`
-/// calls have been made — the fallback runs last by definition.
-pub fn router<S: Clone + Send + Sync + 'static>() -> Router<S> {
-    Router::new().fallback(serve)
+/// SPA fallback for the ADMIN listener. Reads the panel's current mount prefix
+/// from state so the served `index.html` carries the right `<base href>` (the
+/// panel may be mounted under a secret URL prefix). Wire via `.fallback(serve)`
+/// as the last layer (BEFORE `.with_state`, so it can extract `State`) — it
+/// catches everything not claimed by an `/api/*` nest.
+pub async fn serve(State(state): State<AppState>, req: Request) -> Response {
+    let base_path = state.base_path.read().await.clone();
+    serve_with_base(&base_path, &req)
 }
 
-async fn serve(req: Request) -> Response {
+/// Handler for the exact mount root. Wired as `.route("/", get(serve_index_root))`
+/// because axum's `nest` does NOT route the bare `{prefix}/` (trailing slash) to
+/// the inner fallback — without an explicit `/` route, visiting the secret-prefix
+/// root (`/secret/`) 404s. Serves the SPA with the prefix's `<base href>`.
+pub async fn serve_index_root(State(state): State<AppState>) -> Response {
+    let base_path = state.base_path.read().await.clone();
+    render_index(&base_path, None)
+}
+
+/// SPA fallback for the SUBSCRIPTION listener, which always serves from the
+/// root (the public `/sub` endpoint is never under the admin prefix), so its
+/// `<base href>` is always `/`.
+pub async fn serve_root(req: Request) -> Response {
+    serve_with_base("", &req)
+}
+
+fn serve_with_base(base_path: &str, req: &Request) -> Response {
     let path = req.uri().path().trim_start_matches('/');
-    // Empty path = the operator typed bare `http://host:port/` — serve
-    // index.html so the SPA boots.
+    // Empty path = the mount root (`/` or the prefix root `/secret/`) — serve
+    // the SPA so it boots.
     if path.is_empty() {
-        return serve_index();
+        return render_index(base_path, None);
     }
     if let Some(asset) = Asset::get(path) {
         return asset_response(path, asset);
     }
-    // Asset-y paths (anything under /assets/, or with a recognisable
-    // file extension) that we couldn't find are real 404s — not SPA
-    // routes. Returning HTML for `/assets/foo.js` would confuse the
-    // browser's module loader. Everything else (e.g. `/inbounds`,
-    // `/dashboard`) gets the SPA fallback.
+    // Asset-y paths (under `assets/` or with a file extension) that don't exist
+    // are real 404s — returning HTML for `/assets/foo.js` would confuse the
+    // module loader. Everything else (e.g. `/inbounds`) is a client route → SPA.
     if is_asset_like(path) {
         not_found_for_uri(req.uri())
     } else {
-        serve_index()
+        render_index(base_path, None)
     }
 }
 
-/// Serve the embedded SPA `index.html` with the `<title>` element
-/// rewritten to `title`. Used by the subscription endpoint so a
-/// browser visit to `/sub/{token}` lands on a page that already
-/// carries the operator-configured brand in the tab — no
-/// `document.title = ...` from React and no flash from the static
-/// "Admin Panel" placeholder. `title` is HTML-escaped here so a
-/// brand string with `<` / `&` can't break out of the element. Empty
-/// `title` (operator hasn't set a brand) falls through to the
-/// unmodified default.
+/// Serve `index.html` with the `<title>` rewritten to `title`. Used by the
+/// subscription landing so the operator brand shows in the tab from the first
+/// paint (no flash from the static "Admin Panel" placeholder). Rendered at the
+/// root mount — subscriptions live at `/sub`, never under the admin prefix.
 pub fn serve_index_with_title(title: &str) -> Response {
-    if title.is_empty() {
-        return serve_index();
-    }
+    render_index("", (!title.is_empty()).then_some(title))
+}
+
+/// Render the SPA `index.html`: inject `<base href="{base_path}/">` so the
+/// frontend's relative asset (`./assets/...`) and API URLs resolve correctly
+/// whether the panel is mounted at the root or under a secret prefix, and
+/// optionally override the `<title>`. `base_path` is validated to URL-safe
+/// chars upstream (`normalize_base_path`), so it needs no attribute escaping.
+fn render_index(base_path: &str, title: Option<&str>) -> Response {
     let Some(asset) = Asset::get("index.html") else {
         return missing_index_response();
     };
     let Ok(original) = std::str::from_utf8(&asset.data) else {
         return asset_response("index.html", asset);
     };
-    // Substring swap on `<title>...</title>`. If the placeholder isn't
-    // where we expect (someone edited index.html without coordinating)
-    // the served HTML stays unchanged — degrades to the React-side
-    // setter rather than crashing.
-    let Some(open) = original.find("<title>") else {
-        return asset_response("index.html", asset);
+    let mut html = original.to_owned();
+    let base_href = if base_path.is_empty() {
+        "/".to_owned()
+    } else {
+        format!("{base_path}/")
     };
-    let Some(close_rel) = original[open..].find("</title>") else {
-        return asset_response("index.html", asset);
-    };
-    let close = open + close_rel;
-    let mut rewritten = String::with_capacity(original.len() + title.len());
-    rewritten.push_str(&original[..open + "<title>".len()]);
-    push_html_escaped(&mut rewritten, title);
-    rewritten.push_str(&original[close..]);
-    html_response(rewritten)
+    // Inject right after `<head>` (Vite always emits one). If it's absent the
+    // page degrades to the unmodified HTML rather than crashing.
+    if let Some(head) = html.find("<head>") {
+        html.insert_str(
+            head + "<head>".len(),
+            &format!("<base href=\"{base_href}\">"),
+        );
+    }
+    // Optional `<title>` override, HTML-escaped so a brand with `<`/`&` can't
+    // break out of the element.
+    if let Some(title) = title
+        && let (Some(open), Some(close)) = (html.find("<title>"), html.find("</title>"))
+        && open < close
+    {
+        let mut escaped = String::new();
+        push_html_escaped(&mut escaped, title);
+        html.replace_range(open + "<title>".len()..close, &escaped);
+    }
+    html_response(html)
 }
 
 fn push_html_escaped(out: &mut String, s: &str) {
@@ -139,16 +162,6 @@ fn missing_index_response() -> Response {
         .into_response()
 }
 
-/// Serve the embedded SPA `index.html` verbatim. Used by the admin
-/// shell and the static-fallback router; subscription HTML responses
-/// go through `serve_index_with_title` so the tab title is right
-/// from the first paint.
-pub fn serve_index() -> Response {
-    Asset::get("index.html").map_or_else(missing_index_response, |content| {
-        asset_response("index.html", content)
-    })
-}
-
 fn asset_response(path: &str, asset: rust_embed::EmbeddedFile) -> Response {
     let mime = mime_guess::from_path(path).first_or_octet_stream();
     let body = Body::from(asset.data.into_owned());
@@ -183,11 +196,10 @@ fn not_found_for_uri(uri: &Uri) -> Response {
         .into_response()
 }
 
-/// Heuristic to distinguish "real asset request" (must 404 if missing)
-/// from "client-routed SPA path" (must fall back to index.html). Asset
-/// paths in Vite output always sit under `assets/` (hashed filenames)
-/// or are top-level files with extensions (`favicon.ico`, `vite.svg`).
-/// Client routes are extension-less (`/inbounds`, `/dashboard/foo`).
+/// Heuristic to distinguish a "real asset request" (must 404 if missing) from a
+/// "client-routed SPA path" (must fall back to index.html). Asset paths in Vite
+/// output always sit under `assets/` (hashed filenames) or are top-level files
+/// with extensions (`favicon.ico`, `vite.svg`); client routes are extension-less.
 fn is_asset_like(path: &str) -> bool {
     path.starts_with("assets/") || path.contains('.')
 }

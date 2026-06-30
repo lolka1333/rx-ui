@@ -23,7 +23,7 @@ use crate::{
     logs::LogBuffer,
     xray::{XrayClient, XrayController, grpc},
 };
-use axum::extract::FromRef;
+use axum::{extract::FromRef, response::IntoResponse};
 use std::{
     path::PathBuf,
     str::FromStr,
@@ -296,7 +296,24 @@ pub async fn build_router(state: AppState) -> axum::Router {
     let routed = if base_path.is_empty() {
         inner
     } else {
-        axum::Router::new().nest(&base_path, inner)
+        // axum's `nest` does not route the bare `{prefix}/` (trailing slash) to
+        // the inner router, so an outer fallback redirects `{prefix}/` to the
+        // no-slash form the SPA is served at, and 404s anything outside the
+        // prefix. Temporary (307) so a later prefix change isn't cached stale.
+        let bare = base_path.clone();
+        let with_slash = format!("{base_path}/");
+        axum::Router::new()
+            .nest(&base_path, inner)
+            .fallback(move |req: axum::extract::Request| {
+                let (bare, with_slash) = (bare.clone(), with_slash.clone());
+                async move {
+                    if req.uri().path() == with_slash {
+                        axum::response::Redirect::temporary(&bare).into_response()
+                    } else {
+                        axum::http::StatusCode::NOT_FOUND.into_response()
+                    }
+                }
+            })
     };
     let mut app = routed.layer(TraceLayer::new_for_http());
     if cfg!(debug_assertions) {
@@ -317,7 +334,9 @@ pub fn build_sub_router(state: AppState) -> axum::Router {
     let app = axum::Router::new()
         .nest("/sub", api::subscription::routes())
         .with_state(state)
-        .fallback_service(static_assets::router())
+        // Subscription listener always serves from the root, so its SPA
+        // fallback stamps `<base href="/">` (no admin prefix here).
+        .fallback(static_assets::serve_root)
         .layer(TraceLayer::new_for_http());
     if cfg!(debug_assertions) {
         app.layer(CorsLayer::permissive())

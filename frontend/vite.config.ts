@@ -2,7 +2,13 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
+  // Relative asset base for the production build so the SPA works both at the
+  // root AND under a secret URL prefix: index.html emits `./assets/...` and
+  // chunks load via `import.meta.url`, all resolved against the `<base href>`
+  // the backend stamps in. Dev stays at '/' so Vite's HMR + module URLs are
+  // clean (the dev server serves at the root and proxies /api).
+  base: command === 'build' ? './' : '/',
   plugins: [react()],
   resolve: {
     alias: {
@@ -93,4 +99,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

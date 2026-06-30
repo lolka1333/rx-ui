@@ -20,7 +20,12 @@ export const queryClient = new QueryClient({
 });
 
 export const apiClient = axios.create({
-  baseURL: '/api',
+  // Relative on purpose: resolves against the document's `<base href>` (which
+  // the backend stamps as `/` at the root or `/<prefix>/` under a secret URL
+  // prefix), so API calls land under the same mount as the SPA. An absolute
+  // `/api` would always hit the host root and 404 whenever the panel is mounted
+  // under a prefix.
+  baseURL: 'api',
   timeout: 15_000,
 });
 

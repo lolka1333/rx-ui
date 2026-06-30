@@ -14,6 +14,10 @@ use axum::{Router, routing::get};
 
 pub fn router(state: AppState) -> Router {
     Router::new()
+        // Explicit mount-root route: serves the SPA at `/` (root mode) and at
+        // the prefix root after nest-strip (`/secret/`), which axum's `nest`
+        // won't route to the fallback on its own.
+        .route("/", get(static_assets::serve_index_root))
         .route("/api/health", get(|| async { "ok" }))
         .nest("/api/auth", auth::routes())
         .nest("/api/dashboard", dashboard::routes())
@@ -36,12 +40,13 @@ pub fn router(state: AppState) -> Router {
         // URL with no JWT in scope. Token is the credential.
         .nest("/sub", subscription::routes())
         .nest("/api/xray", xray::routes())
+        // Frontend SPA fallback — catches everything not claimed by an `/api/*`
+        // nest above. Added BEFORE `.with_state` so it can extract `State` to
+        // read the mount prefix and stamp the right `<base href>` into the
+        // served index.html. In dev mode the embedded assets directory may be
+        // empty (Vite serves the live frontend on :5173 directly), so hitting /
+        // on :8080 in dev returns a "frontend assets not embedded" 500 — that's
+        // intentional, browse via the Vite dev server.
+        .fallback(static_assets::serve)
         .with_state(state)
-        // Frontend SPA. MUST be the last router merge — `fallback_service`
-        // catches everything not claimed by an /api/* nest above. In dev
-        // mode the embedded assets directory may be empty (Vite serves
-        // the live frontend on :5173 directly), so hitting / on :8080 in
-        // dev will return a "frontend assets not embedded" 500 — that's
-        // intentional, you should be browsing via the Vite dev server.
-        .fallback_service(static_assets::router())
 }
