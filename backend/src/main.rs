@@ -315,17 +315,22 @@ pub async fn build_router(state: AppState) -> axum::Router {
                 }
             })
     };
-    // Mount the public `/sub` endpoint and the `/healthz` liveness probe at the
-    // ROOT, OUTSIDE any base_path nest:
+    // Mount the public endpoints at the ROOT, OUTSIDE any base_path nest:
     //   * `/sub` — client apps (v2rayN, Hiddify, …) pull from a bare
     //     `host/sub/token`, so it must stay reachable even when the panel is
-    //     hidden under a secret prefix. (The browser landing page's SPA assets
-    //     do live under the prefix; for a fully-rendered landing use a
-    //     dedicated `sub_port`.)
+    //     hidden under a secret prefix.
+    //   * `/assets/*` — the public `/sub` landing page loads its SPA bundle via
+    //     a root `<base href>`, so the fingerprinted asset files must resolve at
+    //     the root too. Only the asset files are exposed here (no SPA shell, no
+    //     secret path baked in); the admin UI still lives under the prefix.
     //   * `/healthz` — so the container HEALTHCHECK passes when `/` 404s under a
     //     prefix. Bare "ok", nothing that identifies the admin panel.
     let mut app = routed
         .nest("/sub", api::subscription::routes().with_state(state))
+        .route(
+            "/assets/{*path}",
+            axum::routing::get(static_assets::serve_asset),
+        )
         .route("/healthz", axum::routing::get(|| async { "ok" }))
         .layer(TraceLayer::new_for_http());
     if cfg!(debug_assertions) {

@@ -16,7 +16,7 @@
 use crate::AppState;
 use axum::{
     body::Body,
-    extract::{Request, State},
+    extract::{Path, Request, State},
     http::{StatusCode, Uri, header},
     response::{IntoResponse, Response},
 };
@@ -59,6 +59,21 @@ pub async fn serve_index_root(State(state): State<AppState>) -> Response {
 /// `<base href>` is always `/`.
 pub async fn serve_root(req: Request) -> Response {
     serve_with_base("", &req)
+}
+
+/// Serve an embedded `assets/{path}` file at the ROOT, outside any admin URL
+/// prefix. The public subscription landing (`/sub/{token}`, also served at the
+/// root) loads its bundle via relative `./assets/...` against a root
+/// `<base href>`, so the fingerprinted asset files must stay reachable at the
+/// root even when the admin panel is hidden under a secret prefix. Only the
+/// asset files are exposed this way — the SPA shell and client routes stay
+/// under the prefix, and the bundle carries no copy of the secret path.
+pub async fn serve_asset(Path(path): Path<String>) -> Response {
+    let rel = format!("assets/{path}");
+    Asset::get(&rel).map_or_else(
+        || (StatusCode::NOT_FOUND, format!("asset not found: /{rel}")).into_response(),
+        |asset| asset_response(&rel, asset),
+    )
 }
 
 fn serve_with_base(base_path: &str, req: &Request) -> Response {
