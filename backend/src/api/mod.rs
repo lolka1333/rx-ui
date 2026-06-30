@@ -35,11 +35,11 @@ pub fn router(state: AppState) -> Router {
         .nest("/api/logs", logs::routes())
         .nest("/api/outbounds", outbounds::routes())
         .nest("/api/settings", settings::routes())
-        // Public subscription URL — no `/api/` prefix because client
-        // apps (v2rayN, Hiddify, sing-box, NekoBox) pull from a bare
-        // URL with no JWT in scope. Token is the credential.
-        .nest("/sub", subscription::routes())
         .nest("/api/xray", xray::routes())
+        // NOTE: the public `/sub` endpoint is intentionally NOT mounted here —
+        // it's added at the ROOT in `build_router`, OUTSIDE the optional admin
+        // URL prefix, so client apps keep pulling from a bare `host/sub/token`
+        // even when the panel itself is hidden under a secret path.
         // Frontend SPA fallback — catches everything not claimed by an `/api/*`
         // nest above. Added BEFORE `.with_state` so it can extract `State` to
         // read the mount prefix and stamp the right `<base href>` into the

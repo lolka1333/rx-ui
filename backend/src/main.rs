@@ -315,11 +315,17 @@ pub async fn build_router(state: AppState) -> axum::Router {
                 }
             })
     };
-    // Liveness probe mounted at the ROOT, OUTSIDE any base_path nest, so the
-    // container HEALTHCHECK keeps passing when the panel is hidden under a
-    // secret prefix (where `/` 404s). Returns a bare "ok" with nothing that
-    // identifies it as the admin panel.
+    // Mount the public `/sub` endpoint and the `/healthz` liveness probe at the
+    // ROOT, OUTSIDE any base_path nest:
+    //   * `/sub` — client apps (v2rayN, Hiddify, …) pull from a bare
+    //     `host/sub/token`, so it must stay reachable even when the panel is
+    //     hidden under a secret prefix. (The browser landing page's SPA assets
+    //     do live under the prefix; for a fully-rendered landing use a
+    //     dedicated `sub_port`.)
+    //   * `/healthz` — so the container HEALTHCHECK passes when `/` 404s under a
+    //     prefix. Bare "ok", nothing that identifies the admin panel.
     let mut app = routed
+        .nest("/sub", api::subscription::routes().with_state(state))
         .route("/healthz", axum::routing::get(|| async { "ok" }))
         .layer(TraceLayer::new_for_http());
     if cfg!(debug_assertions) {
