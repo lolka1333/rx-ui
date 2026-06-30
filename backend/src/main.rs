@@ -315,7 +315,13 @@ pub async fn build_router(state: AppState) -> axum::Router {
                 }
             })
     };
-    let mut app = routed.layer(TraceLayer::new_for_http());
+    // Liveness probe mounted at the ROOT, OUTSIDE any base_path nest, so the
+    // container HEALTHCHECK keeps passing when the panel is hidden under a
+    // secret prefix (where `/` 404s). Returns a bare "ok" with nothing that
+    // identifies it as the admin panel.
+    let mut app = routed
+        .route("/healthz", axum::routing::get(|| async { "ok" }))
+        .layer(TraceLayer::new_for_http());
     if cfg!(debug_assertions) {
         app = app.layer(CorsLayer::permissive());
     }

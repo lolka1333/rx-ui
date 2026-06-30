@@ -80,9 +80,13 @@ VOLUME ["/app/data"]
 
 EXPOSE 8080
 
-# The SPA index answers 200 once the HTTP listener is up.
+# `/healthz` is a root-level liveness probe that answers 200 regardless of the
+# secret URL prefix (a bare `/` 404s when the panel is mounted under one). The
+# HTTPS fallback (`-k`, self-signed ok) keeps the check green when the operator
+# has enabled panel HTTPS on this same port.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD curl -fsS "http://127.0.0.1:${PANEL_PORT}/" >/dev/null || exit 1
+    CMD curl -fsS "http://127.0.0.1:${PANEL_PORT}/healthz" >/dev/null \
+        || curl -fsSk "https://127.0.0.1:${PANEL_PORT}/healthz" >/dev/null || exit 1
 
 # Runs as root by design. Under host networking the supervised xray-core child
 # binds operator-chosen inbound ports — commonly privileged ones (443, 80,
