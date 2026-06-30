@@ -760,7 +760,7 @@ function RuleModal({
             mode="tags"
             options={DOMAIN_PRESETS}
             optionLabelProp="value"
-            filterOption={(input, option) => presetFilter(input, option?.value, option?.label)}
+            showSearch={{ filterOption: (input, option) => presetFilter(input, option?.value, option?.label) }}
             tokenSeparators={[',', ' ']}
             placeholder="geosite:netflix, full:example.com"
           />
@@ -770,7 +770,7 @@ function RuleModal({
             mode="tags"
             options={IP_PRESETS}
             optionLabelProp="value"
-            filterOption={(input, option) => presetFilter(input, option?.value, option?.label)}
+            showSearch={{ filterOption: (input, option) => presetFilter(input, option?.value, option?.label) }}
             tokenSeparators={[',', ' ']}
             placeholder="geoip:ru, 10.0.0.0/8"
           />
@@ -791,7 +791,7 @@ function RuleModal({
               mode="tags"
               options={IP_PRESETS}
               optionLabelProp="value"
-              filterOption={(input, option) => presetFilter(input, option?.value, option?.label)}
+              showSearch={{ filterOption: (input, option) => presetFilter(input, option?.value, option?.label) }}
               tokenSeparators={[',', ' ']}
               placeholder="geoip:ru, 10.0.0.0/8"
             />
@@ -813,7 +813,7 @@ function RuleModal({
               tokenSeparators={[',', ' ']}
               placeholder="inbound-tag"
               options={inboundTagOptions}
-              optionFilterProp="value"
+              showSearch={{ optionFilterProp: 'value' }}
             />
           </Form.Item>
           <Form.Item name="user" label={t('settings.ruleUser')} style={{ marginBottom: 0 }}>
@@ -822,7 +822,7 @@ function RuleModal({
               tokenSeparators={[',', ' ']}
               placeholder="user@email"
               options={userEmailOptions}
-              optionFilterProp="value"
+              showSearch={{ optionFilterProp: 'value' }}
             />
           </Form.Item>
         </Section>
