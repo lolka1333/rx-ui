@@ -92,9 +92,9 @@ export const en: Dict = {
     xrayBlockedDomains: 'Blocked domains',
     xrayBlockedDomainsHint:
       'Drop traffic to these domains or geosite matchers (e.g. example.com, geosite:category-ads-all).',
-    xrayIpv4Domains: 'IPv4 rules',
+    xrayIpv4Domains: 'IPv4-only domains',
     xrayIpv4DomainsHint:
-      'Force egress over IPv4 for these domains (useful when a domain has broken/unreachable IPv6).',
+      'Force egress over IPv4 for these domains (useful when a domain has broken/unreachable IPv6). Domains only — to route IP addresses or subnets, use the routing rules below.',
     xrayListPlaceholder: 'Entry + Enter (or paste a comma-separated list)',
     xrayGeoPlaceholder: 'Pick from the list or type your own (domain/IP/geoip:/geosite:)',
     // Custom routing rules (ordered, first-match-wins, after the basic ones)
