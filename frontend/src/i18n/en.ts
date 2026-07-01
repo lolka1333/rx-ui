@@ -895,6 +895,7 @@ export const en: Dict = {
     noBuild: 'no build for your platform',
     installError: 'Install failed',
     installed: 'Xray {{tag}} installed',
+    stableLabel: 'stable',
   },
   sub: {
     defaultBrand: 'Subscription',

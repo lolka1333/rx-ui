@@ -3,14 +3,12 @@ import {
   Modal,
   Collapse,
   Alert,
-  Radio,
-  Tag,
   Typography,
   Button,
   Grid,
   theme,
 } from 'antd';
-import { ToolOutlined, GlobalOutlined } from '@ant-design/icons';
+import { ToolOutlined, GlobalOutlined, CheckOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -30,8 +28,32 @@ function fmtSize(bytes: number | null | undefined): string {
   return `${mb.toFixed(1)} MB`;
 }
 
+// Relative "published" time (e.g. "3 days ago" / "3 дня назад") via the
+// built-in Intl API — no dayjs plugin needed, and it localizes off the active
+// i18n language. Picks the largest sensible unit down to minutes.
+function fmtAgo(iso: string | null | undefined, locale: string): string {
+  if (!iso) return '';
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return '';
+  const diffSec = Math.round((then - Date.now()) / 1000);
+  const abs = Math.abs(diffSec);
+  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
+  const units: [Intl.RelativeTimeFormatUnit, number][] = [
+    ['year', 31_536_000],
+    ['month', 2_592_000],
+    ['week', 604_800],
+    ['day', 86_400],
+    ['hour', 3_600],
+    ['minute', 60],
+  ];
+  for (const [unit, secs] of units) {
+    if (abs >= secs) return rtf.format(Math.round(diffSec / secs), unit);
+  }
+  return rtf.format(diffSec, 'second');
+}
+
 export function XrayUpdatesModal({ open, onClose, currentVersion }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { message } = App.useApp();
   const qc = useQueryClient();
   const screens = Grid.useBreakpoint();
@@ -102,6 +124,12 @@ export function XrayUpdatesModal({ open, onClose, currentVersion }: Props) {
     </div>
   ) : undefined;
 
+  const rowLabels = {
+    preRelease: t('xrayUpdates.preRelease'),
+    stable: t('xrayUpdates.stableLabel'),
+    noBuild: t('xrayUpdates.noBuild'),
+  };
+
   return (
     <Modal
       open={open}
@@ -139,6 +167,7 @@ export function XrayUpdatesModal({ open, onClose, currentVersion }: Props) {
       wrapClassName={isMobile ? 'app-modal-fullscreen' : undefined}
       footer={footer}
     >
+      {/* Xray + Geofiles are both collapsible; Xray is open by default. */}
       <Collapse
         defaultActiveKey={['xray']}
         ghost
@@ -154,32 +183,26 @@ export function XrayUpdatesModal({ open, onClose, currentVersion }: Props) {
             ),
             children: (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <Alert
-                  type="warning"
-                  showIcon
-                  title={t('xrayUpdates.warning')}
-                />
+                <Alert type="warning" showIcon title={t('xrayUpdates.warning')} />
                 {isLoading && <ReleaseSkeletonList />}
                 {!isLoading && releases && (
-                  <Radio.Group
-                    value={selected}
-                    onChange={(e) => setSelected(e.target.value as string)}
+                  <div
+                    role="radiogroup"
                     style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}
                   >
-                    {releases.map((r) => (
+                    {releases.map((r, idx) => (
                       <ReleaseRow
                         key={r.tag}
                         release={r}
                         isCurrent={r.tag === currentVersion}
+                        isLatest={idx === 0 && r.tag !== currentVersion}
                         isSelected={r.tag === selected}
                         onSelect={() => r.asset_url && setSelected(r.tag)}
-                        labels={{
-                          preRelease: t('xrayUpdates.preRelease'),
-                          noBuild: t('xrayUpdates.noBuild'),
-                        }}
+                        published={fmtAgo(r.published_at, i18n.language)}
+                        labels={rowLabels}
                       />
                     ))}
-                  </Radio.Group>
+                  </div>
                 )}
               </div>
             ),
@@ -201,13 +224,15 @@ export function XrayUpdatesModal({ open, onClose, currentVersion }: Props) {
         ]}
       />
       <style>{`
-        /* Subtle "section" feel for the two collapse panels — ghost mode by
-           itself looked like floating plain text. Round the row, give it a
-           background tint, and let hover bump the tint slightly so they read
-           as interactive. Body padding trimmed since the icon already adds
-           breathing room on the left. */
+        /* Subtle "section" feel for the collapse panels — ghost mode by itself
+           looked like floating plain text. Round the row, give it a background
+           tint, and let hover bump the tint slightly so it reads as
+           interactive. A gap between panels keeps them from touching. */
         .app-updates-collapse .ant-collapse-item {
-          margin-bottom: 6px;
+          margin-bottom: 10px;
+        }
+        .app-updates-collapse .ant-collapse-item:last-child {
+          margin-bottom: 0;
         }
         .app-updates-collapse .ant-collapse-header {
           border-radius: 10px !important;
@@ -228,19 +253,7 @@ export function XrayUpdatesModal({ open, onClose, currentVersion }: Props) {
           padding: 12px 4px 8px !important;
         }
 
-        /* Make the radio circle big enough to tap on phones. Antd's default
-           is 16px which is below the 44px touch-target guideline. */
         @media (max-width: 575px) {
-          .app-release-row .ant-radio-inner {
-            width: 22px;
-            height: 22px;
-          }
-          .app-release-row .ant-radio-inner::after {
-            width: 22px;
-            height: 22px;
-            margin-block-start: -11px;
-            margin-inline-start: -11px;
-          }
           /* Snap-to-edge feel for the modal on phones (antd v6 doesn't expose
              a styles.content slot, so we override by wrapper class). */
           .app-modal-fullscreen .ant-modal-content {
@@ -256,30 +269,55 @@ export function XrayUpdatesModal({ open, onClose, currentVersion }: Props) {
 interface ReleaseRowProps {
   release: XrayRelease;
   isCurrent: boolean;
+  isLatest: boolean;
   isSelected: boolean;
   onSelect: () => void;
-  labels: { preRelease: string; noBuild: string };
+  published: string;
+  labels: {
+    preRelease: string;
+    stable: string;
+    noBuild: string;
+  };
 }
 
-function ReleaseRow({ release, isCurrent, isSelected, onSelect, labels }: ReleaseRowProps) {
+function ReleaseRow({
+  release,
+  isCurrent,
+  isLatest,
+  isSelected,
+  onSelect,
+  published,
+  labels,
+}: ReleaseRowProps) {
   const { token } = theme.useToken();
   const noAsset = !release.asset_url;
-
-  // Collapse all secondary info into one nowrap text line so a tag like
-  // "v26.4.25" never wraps below "pre-release" on a 320px-wide phone.
-  const meta = [
-    release.prerelease ? labels.preRelease : null,
-    noAsset ? labels.noBuild : null,
-    fmtSize(release.asset_size),
-  ]
-    .filter(Boolean)
-    .join(' · ');
+  // Per-row meta = size (or "no build") + when it was published. The channel
+  // ("pre-release") is stated once in the section header, not repeated here.
+  const channel = release.prerelease ? labels.preRelease : labels.stable;
+  const size = noAsset ? labels.noBuild : fmtSize(release.asset_size);
+  const meta = [channel, size, published].filter(Boolean).join(' · ');
+  const selected = isSelected && !noAsset;
+  // Status shows as the colour of the version pill itself: green = installed,
+  // accent = latest, warm amber for the rest (the pre-release channel's hue).
+  // installed/latest still stand out, so it's not the old "wall of orange".
+  const pillFg = isCurrent
+    ? token.colorSuccess
+    : isLatest
+      ? token.colorPrimary
+      : token.colorWarningText;
+  const pillBg = isCurrent
+    ? `${token.colorSuccess}30`
+    : isLatest
+      ? `${token.colorPrimary}30`
+      : token.colorWarningBg;
 
   return (
     <div
       className="app-release-row"
       onClick={noAsset ? undefined : onSelect}
-      role="button"
+      role="radio"
+      aria-checked={selected}
+      aria-disabled={noAsset}
       tabIndex={noAsset ? -1 : 0}
       onKeyDown={(e) => {
         if (!noAsset && (e.key === 'Enter' || e.key === ' ')) {
@@ -290,56 +328,72 @@ function ReleaseRow({ release, isCurrent, isSelected, onSelect, labels }: Releas
       style={{
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'space-between',
         gap: 12,
-        padding: '12px 14px',
+        padding: '12px 15px',
+        minHeight: 52,
         borderRadius: 10,
-        border: `1px solid ${
-          isSelected && !noAsset ? token.colorPrimary : token.colorBorderSecondary
-        }`,
-        background: isSelected && !noAsset ? `${token.colorPrimary}14` : 'transparent',
+        // Each release is its own raised card. Status lives in the coloured
+        // version pill (below). A faint glassy top-highlight lifts every card;
+        // the selected one is marked by an accent wash + a thin 1px accent
+        // border — no outer halo, which read as too heavy.
+        background: selected ? `${token.colorPrimary}14` : token.colorFillQuaternary,
+        border: `1px solid ${selected ? token.colorPrimaryBorder : token.colorBorderSecondary}`,
+        boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.05)',
         cursor: noAsset ? 'not-allowed' : 'pointer',
         opacity: noAsset ? 0.45 : 1,
         transition: 'border-color 0.15s, background-color 0.15s',
-        minHeight: 52,
         WebkitTapHighlightColor: 'transparent',
         userSelect: 'none',
       }}
     >
-      <div
+      <span
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          minWidth: 0,
-          flex: 1,
-          flexWrap: 'wrap',
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+          fontSize: 14,
+          fontWeight: 500,
+          color: pillFg,
+          background: pillBg,
+          borderRadius: 8,
+          padding: '3px 10px',
+          // Uniform width so the version pills form a tidy column even though
+          // the tags differ in length (v26.6.27 vs v26.6.1). Sized to fit the
+          // longest 8-char tag with a little slack.
+          minWidth: 86,
+          textAlign: 'center',
+          whiteSpace: 'nowrap',
+          flex: '0 0 auto',
         }}
       >
-        <Tag
-          color={isCurrent ? 'success' : release.prerelease ? 'orange' : 'purple'}
-          style={{ margin: 0, fontWeight: 500 }}
+        {release.tag}
+      </span>
+      {meta && (
+        <Typography.Text
+          type="secondary"
+          style={{
+            flex: 1,
+            minWidth: 0,
+            fontSize: 12,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
         >
-          {release.tag}
-        </Tag>
-        {meta && (
-          <Typography.Text
-            type="secondary"
-            style={{ fontSize: 11, whiteSpace: 'nowrap' }}
-          >
-            {meta}
-          </Typography.Text>
-        )}
-      </div>
-      <Radio value={release.tag} disabled={noAsset} />
+          {meta}
+        </Typography.Text>
+      )}
+      {selected ? (
+        <CheckOutlined style={{ fontSize: 16, color: token.colorPrimary, flex: '0 0 auto' }} />
+      ) : (
+        <span style={{ width: 16, flex: '0 0 auto' }} aria-hidden="true" />
+      )}
     </div>
   );
 }
 
 /**
- * 6 placeholder rows shaped like real release rows — keeps the modal's
- * vertical rhythm steady while GitHub responds, instead of dropping a
- * lonely spinner in the middle.
+ * 6 placeholder rows shaped like real release rows, inside the same bordered
+ * container — keeps the modal's vertical rhythm steady while GitHub responds,
+ * instead of dropping a lonely spinner in the middle.
  */
 function ReleaseSkeletonList() {
   const { token } = theme.useToken();
@@ -353,17 +407,15 @@ function ReleaseSkeletonList() {
             alignItems: 'center',
             justifyContent: 'space-between',
             gap: 12,
-            padding: '12px 14px',
+            padding: '12px 15px',
+            minHeight: 52,
             borderRadius: 10,
             border: `1px solid ${token.colorBorderSecondary}`,
-            minHeight: 52,
+            background: token.colorFillQuaternary,
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
-            <SkeletonBlock width={60} height={20} radius={6} delay={i * 0.06} />
-            <SkeletonBlock width={110} height={10} radius={4} delay={i * 0.06 + 0.05} />
-          </div>
-          <SkeletonBlock width={16} height={16} radius="50%" delay={i * 0.06 + 0.1} />
+          <SkeletonBlock width={80} height={15} radius={4} delay={i * 0.06} />
+          <SkeletonBlock width={120} height={10} radius={4} delay={i * 0.06 + 0.05} />
         </div>
       ))}
     </div>

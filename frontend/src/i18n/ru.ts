@@ -893,6 +893,7 @@ export const ru = {
     noBuild: 'нет сборки для вашей платформы',
     installError: 'Ошибка установки',
     installed: 'Xray {{tag}} установлен',
+    stableLabel: 'стабильная',
   },
   sub: {
     // Hero / user info card
