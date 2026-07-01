@@ -93,6 +93,15 @@ body,
     box-shadow 0.22s ease;
 }
 
+/* A switch with `loading` is mid-save, not permanently disabled — antd gives
+   it a not-allowed cursor, which reads as an error mid-toggle. Keep the normal
+   pointer so the spinner says "saving". Genuinely disabled switches
+   (.ant-switch-disabled) are left alone and still show not-allowed. */
+.ant-switch-loading,
+.ant-switch-loading * {
+  cursor: pointer !important;
+}
+
 /* ====================================================================
    Drawer & Sider — slide animation
    Standard Material easing (`cubic-bezier(0.4, 0, 0.2, 1)`) instead of

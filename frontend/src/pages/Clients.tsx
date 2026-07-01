@@ -466,11 +466,19 @@ export function Clients() {
       rows: Client[];
       enabled: boolean;
     }) => {
-      const results = await Promise.allSettled(
-        rows.map((r) =>
-          apiClient.patch(`/clients/${r.id}`, { enabled }),
+      // Hold the save for at least ~250ms so the switch's loading spinner is
+      // actually visible even when the backend answers in a few ms. The flip
+      // itself is already instant (optimistic onMutate) — this only keeps the
+      // "saving" spinner on screen long enough to read, it doesn't delay the
+      // real state change.
+      const [results] = await Promise.all([
+        Promise.allSettled(
+          rows.map((r) => apiClient.patch(`/clients/${r.id}`, { enabled })),
         ),
-      );
+        new Promise((resolve) => {
+          setTimeout(resolve, 250);
+        }),
+      ]);
       const failed = results.filter((r) => r.status === 'rejected').length;
       return { total: rows.length, failed };
     },
@@ -868,13 +876,18 @@ export function Clients() {
             // Switch is checked only when ALL rows in the group are
             // enabled — partial state renders as off, so one click
             // flips the whole identity on (no ambiguity about what
-            // "checked" means for a mixed group).
+            // "checked" means for a mixed group). `loading` while the save
+            // is in flight shows a spinner AND blocks re-clicks, so spamming
+            // it back-and-forth can't flood the API or thrash the list. antd
+            // draws a not-allowed cursor on a loading switch; index.css
+            // overrides it to a pointer so it reads as "saving", not "blocked".
             render: (_, g) => (
               <Switch
                 size="small"
                 checked={g.allEnabled}
                 loading={
-                  toggleGroup.isPending && toggleGroup.variables?.email === g.email
+                  toggleGroup.isPending &&
+                  toggleGroup.variables?.email === g.email
                 }
                 onChange={(v) =>
                   toggleGroup.mutate({ email: g.email, rows: g.rows, enabled: v })
