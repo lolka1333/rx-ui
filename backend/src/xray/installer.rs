@@ -94,7 +94,7 @@ pub async fn fetch_releases(limit: u32) -> anyhow::Result<Vec<XrayRelease>> {
     let raw: Vec<GhRelease> = resp.json().await.context("decode github releases")?;
     let want_asset = current_asset_name().ok();
 
-    Ok(raw
+    let mut out: Vec<XrayRelease> = raw
         .into_iter()
         .filter(|r| !r.draft)
         .map(|r| {
@@ -107,7 +107,20 @@ pub async fn fetch_releases(limit: u32) -> anyhow::Result<Vec<XrayRelease>> {
                 asset_size: asset.map(|a| a.size),
             }
         })
-        .collect())
+        .collect();
+
+    // xray's most recent tags are usually all pre-releases, so the window above
+    // can come back without a single stable build. Guarantee the picker always
+    // offers at least one release version by pulling the latest stable (GitHub's
+    // `/latest` ignores pre-releases) and appending it when none is present.
+    if !out.iter().any(|r| !r.prerelease)
+        && let Ok(stable) = fetch_latest_stable().await
+        && !out.iter().any(|r| r.tag == stable.tag)
+    {
+        out.push(stable);
+    }
+
+    Ok(out)
 }
 
 /// Resolve the latest non-prerelease tag, regardless of how many we want to
