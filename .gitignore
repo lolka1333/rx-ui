@@ -19,7 +19,10 @@ frontend/.vite/
 
 # Backend runtime data (DB, xray binary, geofiles, generated config,
 # secrets) — operator-specific, never source. Ignore the whole dir.
+# Lands under backend/ when run from there, or the repo root when the
+# binary is run from the workspace root — ignore both.
 backend/data/
+/data/
 
 # Backend secrets — never commit JWT secrets or .env
 .env
