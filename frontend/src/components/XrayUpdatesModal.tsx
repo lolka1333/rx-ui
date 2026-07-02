@@ -130,6 +130,13 @@ export function XrayUpdatesModal({ open, onClose, currentVersion }: Props) {
     noBuild: t('xrayUpdates.noBuild'),
   };
 
+  // Roving tabindex for the release radiogroup: exactly one row is a Tab
+  // stop — the selected one, or the first installable one before anything
+  // is selected. Arrow keys (handler on the group below) move within.
+  const tabStopTag = releases?.some((r) => r.tag === selected && r.asset_url)
+    ? selected
+    : (releases?.find((r) => r.asset_url)?.tag ?? null);
+
   return (
     <Modal
       open={open}
@@ -188,6 +195,33 @@ export function XrayUpdatesModal({ open, onClose, currentVersion }: Props) {
                 {!isLoading && releases && (
                   <div
                     role="radiogroup"
+                    aria-label={t('xrayUpdates.title')}
+                    // The rows are hand-rolled radios, so the group supplies
+                    // the ARIA keyboard contract itself: arrows move between
+                    // installable rows and select follows focus.
+                    onKeyDown={(e) => {
+                      const dir =
+                        e.key === 'ArrowDown' || e.key === 'ArrowRight'
+                          ? 1
+                          : e.key === 'ArrowUp' || e.key === 'ArrowLeft'
+                            ? -1
+                            : 0;
+                      if (!dir) return;
+                      e.preventDefault();
+                      const radios = [
+                        ...e.currentTarget.querySelectorAll<HTMLElement>(
+                          '[role="radio"]:not([aria-disabled="true"])',
+                        ),
+                      ];
+                      if (!radios.length) return;
+                      const at = radios.indexOf(e.target as HTMLElement);
+                      const next =
+                        at === -1
+                          ? radios[dir > 0 ? 0 : radios.length - 1]
+                          : radios[(at + dir + radios.length) % radios.length];
+                      next.focus();
+                      next.click();
+                    }}
                     style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}
                   >
                     {releases.map((r, idx) => (
@@ -197,6 +231,7 @@ export function XrayUpdatesModal({ open, onClose, currentVersion }: Props) {
                         isCurrent={r.tag === currentVersion}
                         isLatest={idx === 0 && r.tag !== currentVersion}
                         isSelected={r.tag === selected}
+                        isTabStop={r.tag === tabStopTag}
                         onSelect={() => r.asset_url && setSelected(r.tag)}
                         published={fmtAgo(r.published_at, i18n.language)}
                         labels={rowLabels}
@@ -271,6 +306,8 @@ interface ReleaseRowProps {
   isCurrent: boolean;
   isLatest: boolean;
   isSelected: boolean;
+  /** The group's single Tab stop (roving tabindex) — see the radiogroup. */
+  isTabStop: boolean;
   onSelect: () => void;
   published: string;
   labels: {
@@ -285,14 +322,14 @@ function ReleaseRow({
   isCurrent,
   isLatest,
   isSelected,
+  isTabStop,
   onSelect,
   published,
   labels,
 }: ReleaseRowProps) {
   const { token } = theme.useToken();
   const noAsset = !release.asset_url;
-  // Per-row meta = size (or "no build") + when it was published. The channel
-  // ("pre-release") is stated once in the section header, not repeated here.
+  // Per-row meta = channel + size (or "no build") + when it was published.
   const channel = release.prerelease ? labels.preRelease : labels.stable;
   const size = noAsset ? labels.noBuild : fmtSize(release.asset_size);
   const meta = [channel, size, published].filter(Boolean).join(' · ');
@@ -318,7 +355,7 @@ function ReleaseRow({
       role="radio"
       aria-checked={selected}
       aria-disabled={noAsset}
-      tabIndex={noAsset ? -1 : 0}
+      tabIndex={noAsset ? -1 : isTabStop ? 0 : -1}
       onKeyDown={(e) => {
         if (!noAsset && (e.key === 'Enter' || e.key === ' ')) {
           e.preventDefault();
@@ -356,9 +393,9 @@ function ReleaseRow({
           borderRadius: 8,
           padding: '3px 10px',
           // Uniform width so the version pills form a tidy column even though
-          // the tags differ in length (v26.6.27 vs v26.6.1). Sized to fit the
-          // longest 8-char tag with a little slack.
-          minWidth: 86,
+          // the tags differ in length (v26.6.27 vs v26.6.1). Sized to fit a
+          // 9-char tag (v26.10.15 — two-digit month + day) with slack.
+          minWidth: 96,
           textAlign: 'center',
           whiteSpace: 'nowrap',
           flex: '0 0 auto',
