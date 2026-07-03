@@ -813,6 +813,24 @@ button {
   width: 100% !important;
   max-width: none !important;
 }
+/* Wide multi-line fields (PEM cert/key): stack the label on top and give the
+   textarea the full card width, instead of the 200px-label / control split
+   that cramps a tall textarea. Mirrors the narrow-viewport collapse below. */
+.app-settings-group .ant-form-item.app-field-stacked .ant-form-item-row {
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: 6px;
+  align-items: stretch;
+  min-height: 0;
+}
+.app-settings-group .ant-form-item.app-field-stacked .ant-form-item-control-input-content {
+  justify-content: flex-start;
+}
+/* Cap the textarea width: a PEM line is 64 base64 chars (~500px at 12px mono),
+   so on a wide desktop the full-card stretch is wasted space. Left-aligned via
+   flex-start above; shrinks to fit on narrower viewports. */
+.app-settings-group .ant-form-item.app-field-stacked .ant-input {
+  max-width: 620px !important;
+}
 /* 2-letter country/category code shown before a geo preset's name, both in
    the dropdown option and on the selected chip (e.g. "RU Russia"). */
 .geo-code {

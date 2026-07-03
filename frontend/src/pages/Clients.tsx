@@ -95,7 +95,17 @@ type TrafficSnapshotMap = Record<string, TrafficSnapshot>;
  *  Falls back to current origin segments when either field is empty,
  *  which works for single-host self-hosted setups. */
 function buildSubscriptionUrl(token: string, settings: PanelSettings | undefined): string {
-  const protocol = window.location.protocol;
+  // Scheme follows the subscription's OWN TLS (sub_tls_mode), not the panel's:
+  // 'off' → plain HTTP (a CDN/tunnel terminates TLS upstream), 'custom' → HTTPS
+  // with its own cert, 'inherit' → same as the panel, i.e. the admin's current
+  // origin scheme. Deriving it from window.location alone would hand out an
+  // http link to a TLS listener (or vice-versa) once the two schemes diverge.
+  const protocol =
+    settings?.sub_tls_mode === 'off'
+      ? 'http:'
+      : settings?.sub_tls_mode === 'custom'
+        ? 'https:'
+        : window.location.protocol;
   const host = settings?.sub_link_host?.trim() || window.location.hostname;
   const port = settings && settings.sub_port > 0
     ? String(settings.sub_port)

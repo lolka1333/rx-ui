@@ -65,6 +65,8 @@ const SUBSCRIPTION_DEFAULTS = {
   sub_brand_name: '',
   sub_service_url: '',
   sub_port: 0,
+  sub_tls_mode: 'inherit',
+  sub_cert_pem: '',
 } as const;
 
 /** Fallback values for the xray side of `PanelSettings`, mirroring the backend
@@ -140,6 +142,10 @@ function mergePanelSettings(
     // Empty ≡ keep the stored key; the TLS section overrides this with the
     // pasted PEM when (and only when) the operator supplies a new key.
     panel_tls_key: '',
+    sub_tls_mode: current?.sub_tls_mode ?? SUBSCRIPTION_DEFAULTS.sub_tls_mode,
+    sub_cert_pem: current?.sub_cert_pem ?? SUBSCRIPTION_DEFAULTS.sub_cert_pem,
+    // Empty ≡ keep the stored subscription key (same as panel_tls_key).
+    sub_key_pem: '',
     ...overrides,
   };
 }
@@ -170,6 +176,9 @@ interface SubscriptionFormValues {
   sub_brand_name: string;
   sub_service_url: string;
   sub_port: number;
+  sub_tls_mode: string;
+  sub_cert_pem: string;
+  sub_key_pem: string;
 }
 
 interface DirtyHandle {
@@ -948,6 +957,7 @@ function TlsSection({
               name="panel_tls_cert"
               label={t('settings.tlsCert')}
               tooltip={t('settings.tlsCertHint')}
+              className="app-field-stacked"
               rules={[
                 pemRule(t('settings.tlsCertInvalid')),
                 ({ getFieldValue }) => ({
@@ -972,6 +982,7 @@ function TlsSection({
               name="panel_tls_key"
               label={t('settings.tlsKey')}
               tooltip={t('settings.tlsKeyHint')}
+              className="app-field-stacked"
               rules={[
                 pemRule(t('settings.tlsKeyInvalid')),
                 ({ getFieldValue }) => ({
@@ -1073,10 +1084,22 @@ function SubscriptionSection({
           sub_brand_name: values.sub_brand_name.trim(),
           sub_service_url: values.sub_service_url.trim(),
           sub_port: values.sub_port,
+          sub_tls_mode: values.sub_tls_mode,
+          // The cert/key Form.Items are only mounted in 'custom' mode, so antd
+          // omits them from `values` (undefined) in inherit/off — optional-chain
+          // to avoid a crash, and empty ≡ keep the stored pair (backend
+          // keep-stored) so a non-custom save can't wipe a stored cert/key.
+          sub_cert_pem: values.sub_cert_pem?.trim() ?? '',
+          sub_key_pem: values.sub_key_pem?.trim() ?? '',
         }),
       );
     },
     onSuccess: () => {
+      // Clear the key input after save (like TlsSection): the key is now stored,
+      // and the form only re-inits when sub_key_set flips — replacing an
+      // already-stored key wouldn't otherwise reset the textarea, leaving the
+      // pasted key visible and re-sent on the next save.
+      form.setFieldValue('sub_key_pem', '');
       qc.invalidateQueries({ queryKey: ['panel-settings'] });
       setDirty(false);
       message.success(t('settings.subscriptionSaved'));
@@ -1111,7 +1134,7 @@ function SubscriptionSection({
           form={form}
           layout="vertical"
           autoComplete="off"
-          key={`${data.sub_enabled}-${data.sub_host_override}-${data.sub_link_host}-${data.sub_update_interval_hours}-${data.sub_brand_name}-${data.sub_service_url}-${data.sub_port}`}
+          key={`${data.sub_enabled}-${data.sub_host_override}-${data.sub_link_host}-${data.sub_update_interval_hours}-${data.sub_brand_name}-${data.sub_service_url}-${data.sub_port}-${data.sub_tls_mode}-${data.sub_key_set}`}
           initialValues={{
             sub_enabled: data.sub_enabled,
             sub_host_override: data.sub_host_override,
@@ -1120,6 +1143,9 @@ function SubscriptionSection({
             sub_brand_name: data.sub_brand_name,
             sub_service_url: data.sub_service_url,
             sub_port: data.sub_port,
+            sub_tls_mode: data.sub_tls_mode,
+            sub_cert_pem: data.sub_cert_pem,
+            sub_key_pem: '',
           }}
           disabled={mutation.isPending}
           onValuesChange={() => setDirty(true)}
@@ -1207,6 +1233,89 @@ function SubscriptionSection({
                         disabled={!enabled}
                         placeholder={t('settings.subPortPlaceholder')}
                       />
+                    </Form.Item>
+                    <Form.Item
+                      name="sub_tls_mode"
+                      label={t('settings.subTlsMode')}
+                      tooltip={t('settings.subTlsModeHint')}
+                    >
+                      <Select
+                        disabled={!enabled}
+                        options={[
+                          { value: 'inherit', label: t('settings.subTlsInherit') },
+                          { value: 'off', label: t('settings.subTlsOff') },
+                          { value: 'custom', label: t('settings.subTlsCustom') },
+                        ]}
+                      />
+                    </Form.Item>
+                    <Form.Item
+                      noStyle
+                      shouldUpdate={(p, n) => p.sub_tls_mode !== n.sub_tls_mode}
+                    >
+                      {({ getFieldValue }) =>
+                        getFieldValue('sub_tls_mode') === 'custom' ? (
+                          <>
+                            <Form.Item
+                              name="sub_cert_pem"
+                              label={t('settings.subTlsCert')}
+                              className="app-field-stacked"
+                              rules={[
+                                pemRule(t('settings.tlsCertInvalid')),
+                                ({ getFieldValue: g }) => ({
+                                  validator: (_: unknown, v: string) =>
+                                    g('sub_tls_mode') === 'custom' && !v?.trim()
+                                      ? Promise.reject(new Error(t('settings.tlsCertRequired')))
+                                      : Promise.resolve(),
+                                }),
+                              ]}
+                            >
+                              <Input.TextArea
+                                rows={4}
+                                spellCheck={false}
+                                disabled={!enabled}
+                                placeholder="-----BEGIN CERTIFICATE-----"
+                                style={{
+                                  fontFamily:
+                                    'ui-monospace, "JetBrains Mono", Consolas, monospace',
+                                  fontSize: 12,
+                                }}
+                              />
+                            </Form.Item>
+                            <Form.Item
+                              name="sub_key_pem"
+                              label={t('settings.subTlsKey')}
+                              className="app-field-stacked"
+                              rules={[
+                                pemRule(t('settings.tlsKeyInvalid')),
+                                ({ getFieldValue: g }) => ({
+                                  validator: (_: unknown, v: string) =>
+                                    g('sub_tls_mode') === 'custom' &&
+                                    !data.sub_key_set &&
+                                    !v?.trim()
+                                      ? Promise.reject(new Error(t('settings.tlsKeyRequired')))
+                                      : Promise.resolve(),
+                                }),
+                              ]}
+                            >
+                              <Input.TextArea
+                                rows={4}
+                                spellCheck={false}
+                                disabled={!enabled}
+                                placeholder={
+                                  data.sub_key_set
+                                    ? t('settings.tlsKeyStoredPlaceholder')
+                                    : '-----BEGIN PRIVATE KEY-----'
+                                }
+                                style={{
+                                  fontFamily:
+                                    'ui-monospace, "JetBrains Mono", Consolas, monospace',
+                                  fontSize: 12,
+                                }}
+                              />
+                            </Form.Item>
+                          </>
+                        ) : null
+                      }
                     </Form.Item>
                     <Form.Item
                       name="sub_update_interval_hours"

@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT sub_tls_mode AS \"sub_tls_mode!: String\",\n                  sub_cert_pem AS \"sub_cert_pem!: String\",\n                  sub_key_pem  AS \"sub_key_pem!: String\"\n            FROM panel_settings WHERE id = 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "sub_tls_mode!: String",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "sub_tls_mode"
+          }
+        }
+      },
+      {
+        "name": "sub_cert_pem!: String",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "sub_cert_pem"
+          }
+        }
+      },
+      {
+        "name": "sub_key_pem!: String",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "sub_key_pem"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "cce73c7eedd02c239d65981b5167e80251482b9bd2b5c0c04f195d564a911f14"
+}

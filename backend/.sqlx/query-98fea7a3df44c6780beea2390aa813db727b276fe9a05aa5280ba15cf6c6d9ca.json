@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT panel_port, panel_base_path,\n                sub_enabled, sub_host_override, sub_link_host,\n                sub_update_interval_hours,\n                sub_brand_name, sub_service_url, sub_port,\n                xray_freedom_strategy, xray_routing_strategy, xray_test_url,\n                xray_block_bittorrent, xray_blocked_ips, xray_blocked_domains,\n                xray_ipv4_domains, xray_custom_rules, xray_rule_order,\n                panel_tls_enabled, panel_tls_cert, panel_tls_key\n            FROM panel_settings WHERE id = 1",
+  "query": "SELECT panel_port, panel_base_path,\n                sub_enabled, sub_host_override, sub_link_host,\n                sub_update_interval_hours,\n                sub_brand_name, sub_service_url, sub_port,\n                xray_freedom_strategy, xray_routing_strategy, xray_test_url,\n                xray_block_bittorrent, xray_blocked_ips, xray_blocked_domains,\n                xray_ipv4_domains, xray_custom_rules, xray_rule_order,\n                panel_tls_enabled, panel_tls_cert, panel_tls_key,\n                sub_tls_mode, sub_cert_pem, sub_key_pem\n            FROM panel_settings WHERE id = 1",
   "describe": {
     "columns": [
       {
@@ -233,6 +233,39 @@
             "name": "panel_tls_key"
           }
         }
+      },
+      {
+        "name": "sub_tls_mode",
+        "ordinal": 21,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "sub_tls_mode"
+          }
+        }
+      },
+      {
+        "name": "sub_cert_pem",
+        "ordinal": 22,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "sub_cert_pem"
+          }
+        }
+      },
+      {
+        "name": "sub_key_pem",
+        "ordinal": 23,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "sub_key_pem"
+          }
+        }
       }
     ],
     "parameters": {
@@ -259,8 +292,11 @@
       false,
       false,
       false,
+      false,
+      false,
+      false,
       false
     ]
   },
-  "hash": "72192841ae4cbbab890155bd883ef962a62f258c7650ec5e73a1e13f392b7150"
+  "hash": "98fea7a3df44c6780beea2390aa813db727b276fe9a05aa5280ba15cf6c6d9ca"
 }

@@ -86,7 +86,8 @@ async fn get_panel(
                 xray_freedom_strategy, xray_routing_strategy, xray_test_url,
                 xray_block_bittorrent, xray_blocked_ips, xray_blocked_domains,
                 xray_ipv4_domains, xray_custom_rules, xray_rule_order,
-                panel_tls_enabled, panel_tls_cert, panel_tls_key
+                panel_tls_enabled, panel_tls_cert, panel_tls_key,
+                sub_tls_mode, sub_cert_pem, sub_key_pem
             FROM panel_settings WHERE id = 1"
     )
     .fetch_one(&state.db)
@@ -119,6 +120,9 @@ async fn get_panel(
         panel_tls_cert: row.panel_tls_cert,
         // Never echo the private key back to the client — only whether one is set.
         panel_tls_key_set: !row.panel_tls_key.trim().is_empty(),
+        sub_tls_mode: row.sub_tls_mode,
+        sub_cert_pem: row.sub_cert_pem,
+        sub_key_set: !row.sub_key_pem.trim().is_empty(),
     }))
 }
 
@@ -152,6 +156,11 @@ async fn update_panel(
     // the stored one) before persisting — a bad pair fails here as a clean 400
     // the operator sees in the form, not as a failed restart later.
     let (tls_enabled_i, tls_cert, tls_key) = resolve_panel_tls(&state.db, &body).await?;
+    // Subscription TLS is independent of the panel's: validate the mode + (for
+    // `custom`) the separate cert/key pair, keeping the stored key when the
+    // incoming one is blank — same convention as the panel cert above.
+    let (sub_tls_mode, sub_cert, sub_key, sub_tls_changed) =
+        resolve_sub_tls(&state.db, &body).await?;
 
     let sub_enabled_i = i64::from(body.sub_enabled);
     let xray_bittorrent_i = i64::from(xray_block_bittorrent);
@@ -178,6 +187,9 @@ async fn update_panel(
                 panel_tls_enabled = ?,
                 panel_tls_cert = ?,
                 panel_tls_key = ?,
+                sub_tls_mode = ?,
+                sub_cert_pem = ?,
+                sub_key_pem = ?,
                 updated_at = datetime('now')
             WHERE id = 1",
         body.panel_port,
@@ -201,9 +213,20 @@ async fn update_panel(
         tls_enabled_i,
         tls_cert,
         tls_key,
+        sub_tls_mode,
+        sub_cert,
+        sub_key,
     )
     .execute(&state.db)
     .await?;
+
+    // Rebind the sub listener first — it's independent of the panel listener, so
+    // a panel-swap failure below must not skip applying an already-persisted
+    // sub-TLS / sub-port change (the next save would see no delta and never
+    // apply it).
+    let current_sub_port = state.current_sub_port.load(Ordering::Relaxed);
+    let new_sub_port = u16::try_from(body.sub_port).unwrap_or(0);
+    swap_sub_listener(&state, new_sub_port, current_sub_port, sub_tls_changed).await?;
 
     // Snapshot the previous prefix BEFORE we install the new one —
     // the rebind-on-path-change branch below needs to know whether
@@ -227,10 +250,6 @@ async fn update_panel(
         &normalised,
     )
     .await?;
-
-    let current_sub_port = state.current_sub_port.load(Ordering::Relaxed);
-    let new_sub_port = u16::try_from(body.sub_port).unwrap_or(0);
-    swap_sub_listener(&state, new_sub_port, current_sub_port).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -267,6 +286,63 @@ async fn resolve_panel_tls(
             })?;
     }
     Ok((i64::from(body.panel_tls_enabled), cert, key))
+}
+
+/// Resolve + validate the subscription TLS fields. Mode is normalised to
+/// `inherit` | `off` | `custom` (anything else ≡ `inherit`). An empty incoming
+/// cert OR key keeps the stored one — the custom-cert form fields are unmounted
+/// outside `custom` mode (so a save from another section, or in inherit/off,
+/// sends them empty and must not wipe a stored pair). `custom` requires both
+/// halves and a usable pair. Returns `(mode, cert_pem, key_pem, changed)`, where
+/// `changed` (any of mode/cert/key differs from stored) drives the live
+/// force-rebind of the sub listener.
+async fn resolve_sub_tls(
+    db: &crate::db::DbPool,
+    body: &PanelSettingsUpdate,
+) -> AppResult<(String, String, String, bool)> {
+    let stored = sqlx::query!(
+        r#"SELECT sub_tls_mode AS "sub_tls_mode!: String",
+                  sub_cert_pem AS "sub_cert_pem!: String",
+                  sub_key_pem  AS "sub_key_pem!: String"
+            FROM panel_settings WHERE id = 1"#
+    )
+    .fetch_one(db)
+    .await?;
+    let mode = match body.sub_tls_mode.trim() {
+        "off" => "off",
+        "custom" => "custom",
+        _ => "inherit",
+    }
+    .to_owned();
+    let cert = if body.sub_cert_pem.trim().is_empty() {
+        stored.sub_cert_pem.clone()
+    } else {
+        body.sub_cert_pem.trim().to_owned()
+    };
+    let key = if body.sub_key_pem.trim().is_empty() {
+        stored.sub_key_pem.clone()
+    } else {
+        body.sub_key_pem.trim().to_owned()
+    };
+    if mode == "custom" {
+        if cert.is_empty() || key.is_empty() {
+            return Err(AppError::BadRequest(
+                "custom subscription TLS requires both a certificate and a private key".to_owned(),
+            ));
+        }
+        RustlsConfig::from_pem(cert.clone().into_bytes(), key.clone().into_bytes())
+            .await
+            .map_err(|e| {
+                AppError::BadRequest(format!(
+                    "invalid subscription certificate or private key: {e}"
+                ))
+            })?;
+    }
+    // The sub listener binds its TLS once at spawn, so any change here needs a
+    // live rebind even when the port is unchanged — signal it to the caller.
+    let changed =
+        mode != stored.sub_tls_mode || cert != stored.sub_cert_pem || key != stored.sub_key_pem;
+    Ok((mode, cert, key, changed))
 }
 
 /// Validated + normalised form of a `PanelSettingsUpdate`. Owns its
@@ -756,8 +832,14 @@ async fn swap_sub_listener(
     state: &AppState,
     new_sub_port: u16,
     current_sub_port: u16,
+    force_rebind: bool,
 ) -> AppResult<()> {
-    if new_sub_port == current_sub_port {
+    // Bind retries for the just-freed-port race (see the rebind loop below).
+    const ATTEMPTS: u32 = 10;
+    // `force_rebind` covers a TLS-config change at an unchanged port: the
+    // listener binds its cert once at spawn, so it must be torn down and rebound
+    // to pick up a new mode/cert even though the port didn't move.
+    if new_sub_port == current_sub_port && !force_rebind {
         return Ok(());
     }
     let old_tx = state.sub_listener_shutdown.write().await.take();
@@ -766,27 +848,46 @@ async fn swap_sub_listener(
     }
     if new_sub_port == 0 {
         state.current_sub_port.store(0, Ordering::Relaxed);
-        tracing::info!("subscription listener disabled (was port {current_sub_port})");
+        // Only meaningful when something was actually running — a TLS change
+        // while the sub port is 0 lands here too, and "disabled (was port 0)"
+        // would read like a no-op event.
+        if current_sub_port != 0 {
+            tracing::info!("subscription listener disabled (was port {current_sub_port})");
+        }
         return Ok(());
     }
-    // OS socket-release grace — same as the main path-rebind. Skipped when
-    // the old sub-port was 0 (nothing was bound).
-    if current_sub_port != 0 {
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
+    // A same-port TLS force-rebind (or a port swap) drops the old listener before
+    // binding the new one, so it races the OS releasing the socket (transient
+    // EADDRINUSE, worst on Windows). Retry through that window instead of a single
+    // attempt; spawn_sub_listener keeps the bad-cert → plain-HTTP fallback. The
+    // first attempt's sleep also serves as the socket-release grace.
     let app = crate::build_sub_router(state.clone());
-    let new_tx = match spawn_sub_listener(state, "0.0.0.0", new_sub_port, app).await {
-        Ok(tx) => tx,
-        Err(e) => {
-            // The old listener was already shut down above, so nothing is bound
-            // now. Record port 0 (not the stale old port) — otherwise a later
-            // swap back to the old port would see new == current and no-op,
-            // leaving the sub endpoint permanently dead.
-            state.current_sub_port.store(0, Ordering::Relaxed);
-            return Err(AppError::Internal(anyhow::anyhow!(
-                "failed to bind subscription listener on port {new_sub_port}: {e}"
-            )));
+    let mut last_err: Option<std::io::Error> = None;
+    let mut bound = None;
+    for attempt in 1..=ATTEMPTS {
+        tokio::time::sleep(Duration::from_millis(u64::from(attempt.min(5)) * 100)).await;
+        match spawn_sub_listener(state, "0.0.0.0", new_sub_port, app.clone()).await {
+            Ok(tx) => {
+                bound = Some(tx);
+                break;
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "subscription listener rebind on port {new_sub_port} attempt {attempt}/{ATTEMPTS} failed: {e}"
+                );
+                last_err = Some(e);
+            }
         }
+    }
+    let Some(new_tx) = bound else {
+        // Nothing is bound now (the old listener was shut down above). Record
+        // port 0, not the stale old port, so a later swap back to it rebinds
+        // instead of no-oping on new == current.
+        state.current_sub_port.store(0, Ordering::Relaxed);
+        let detail = last_err.map_or_else(|| "unknown error".to_owned(), |e| e.to_string());
+        return Err(AppError::Internal(anyhow::anyhow!(
+            "failed to bind subscription listener on port {new_sub_port} after {ATTEMPTS} attempts: {detail}"
+        )));
     };
     *state.sub_listener_shutdown.write().await = Some(new_tx);
     state
@@ -794,6 +895,8 @@ async fn swap_sub_listener(
         .store(new_sub_port, Ordering::Relaxed);
     if current_sub_port == 0 {
         tracing::info!("subscription listener started on port {new_sub_port}");
+    } else if current_sub_port == new_sub_port {
+        tracing::info!("subscription listener reloaded on port {new_sub_port}");
     } else {
         tracing::info!("subscription listener swapped {current_sub_port} → {new_sub_port}");
     }
@@ -893,21 +996,18 @@ pub async fn spawn_main_listener(
     }
 }
 
-/// Bind the dedicated subscription listener with the same operator TLS as the
-/// panel. The UI hands clients an `https://host:sub_port/sub/...` link (its
-/// scheme mirrors the admin's panel origin), so a plain-HTTP listener here makes
-/// every client's TLS handshake fail — most visibly at `:443`, where the default
-/// port is stripped and the link looks perfectly valid yet nothing connects.
-/// Mirrors `spawn_main_listener`'s bad-cert fallback: if HTTPS can't start we
-/// drop to plain HTTP, matching the panel (which fell back too, so the admin is
-/// on `http://` and the generated link is `http://` as well).
+/// Bind the dedicated subscription listener, honouring `sub_tls_mode`
+/// (`inherit` → panel cert, `off` → plain HTTP for a TLS-terminating CDN/tunnel,
+/// `custom` → separate cert/key). Mirrors `spawn_main_listener`'s bad-cert
+/// fallback: if HTTPS can't start we drop to plain HTTP so a malformed cert never
+/// takes the sub endpoint down.
 pub async fn spawn_sub_listener(
     state: &AppState,
     host: &str,
     port: u16,
     app: Router,
 ) -> std::io::Result<oneshot::Sender<()>> {
-    let tls = load_tls_for_boot(&state.db).await;
+    let tls = load_sub_tls_for_boot(&state.db).await;
     let tls_requested = tls.is_some();
     match spawn_listener(host, port, app.clone(), tls).await {
         Ok(tx) => Ok(tx),
@@ -945,6 +1045,36 @@ pub async fn load_tls_for_boot(db: &crate::db::DbPool) -> Option<PanelTls> {
         cert_pem: row.panel_tls_cert,
         key_pem: row.panel_tls_key,
     })
+}
+
+/// TLS for the dedicated subscription listener, honouring `sub_tls_mode`:
+/// `off` → `None` (plain HTTP, TLS terminated by an upstream CDN/tunnel);
+/// `custom` → the separate sub cert/key (`None` if either half is missing);
+/// `inherit` (or anything unexpected) → the panel's own cert.
+pub async fn load_sub_tls_for_boot(db: &crate::db::DbPool) -> Option<PanelTls> {
+    let row = sqlx::query!(
+        r#"SELECT sub_tls_mode AS "sub_tls_mode!: String",
+                  sub_cert_pem AS "sub_cert_pem!: String",
+                  sub_key_pem  AS "sub_key_pem!: String"
+            FROM panel_settings WHERE id = 1"#
+    )
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten()?;
+    match row.sub_tls_mode.trim() {
+        "off" => None,
+        "custom" => {
+            if row.sub_cert_pem.trim().is_empty() || row.sub_key_pem.trim().is_empty() {
+                return None;
+            }
+            Some(PanelTls {
+                cert_pem: row.sub_cert_pem,
+                key_pem: row.sub_key_pem,
+            })
+        }
+        _ => load_tls_for_boot(db).await,
+    }
 }
 
 /// Restart the panel process. TLS binds at startup, so flipping HTTPS on/off (or

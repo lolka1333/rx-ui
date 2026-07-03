@@ -116,6 +116,17 @@ pub struct PanelSettings {
     /// client — the UI shows a "key configured" state and only transmits a key
     /// when the operator pastes a replacement.
     pub panel_tls_key_set: bool,
+    /// Subscription TLS mode: `inherit` (serve /sub over the panel cert —
+    /// default), `off` (plain HTTP, for a CDN/tunnel that terminates TLS
+    /// upstream), or `custom` (a separate cert/key just for the /sub endpoint).
+    pub sub_tls_mode: String,
+    /// PEM certificate for the `custom` subscription TLS mode. Public material,
+    /// round-tripped to the UI; empty unless a custom cert was set.
+    pub sub_cert_pem: String,
+    /// Whether a separate subscription private key is stored (mode `custom`).
+    /// Like the panel key, the key itself is never returned — only whether one
+    /// is set.
+    pub sub_key_set: bool,
 }
 
 /// Body for `PUT /api/settings/panel`. Same shape as the read view —
@@ -155,6 +166,15 @@ pub struct PanelSettingsUpdate {
     /// once. A non-empty value replaces the stored key.
     #[serde(default)]
     pub panel_tls_key: String,
+    /// Subscription TLS mode: `inherit` | `off` | `custom`. Empty ≡ `inherit`.
+    #[serde(default)]
+    pub sub_tls_mode: String,
+    #[serde(default)]
+    pub sub_cert_pem: String,
+    /// New subscription private key (PEM). Empty ≡ keep the stored one (same
+    /// convention as `panel_tls_key`).
+    #[serde(default)]
+    pub sub_key_pem: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]

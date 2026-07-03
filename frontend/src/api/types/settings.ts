@@ -143,7 +143,24 @@ panel_tls_cert: string,
  * client — the UI shows a "key configured" state and only transmits a key
  * when the operator pastes a replacement.
  */
-panel_tls_key_set: boolean, };
+panel_tls_key_set: boolean, 
+/**
+ * Subscription TLS mode: `inherit` (serve /sub over the panel cert —
+ * default), `off` (plain HTTP, for a CDN/tunnel that terminates TLS
+ * upstream), or `custom` (a separate cert/key just for the /sub endpoint).
+ */
+sub_tls_mode: string, 
+/**
+ * PEM certificate for the `custom` subscription TLS mode. Public material,
+ * round-tripped to the UI; empty unless a custom cert was set.
+ */
+sub_cert_pem: string, 
+/**
+ * Whether a separate subscription private key is stored (mode `custom`).
+ * Like the panel key, the key itself is never returned — only whether one
+ * is set.
+ */
+sub_key_set: boolean, };
 
 /**
  * Body for `PUT /api/settings/panel`. Same shape as the read view —
@@ -157,7 +174,16 @@ export type PanelSettingsUpdate = { panel_port: number, panel_base_path: string,
  * other settings section doesn't wipe it and the key need only be pasted
  * once. A non-empty value replaces the stored key.
  */
-panel_tls_key: string, };
+panel_tls_key: string, 
+/**
+ * Subscription TLS mode: `inherit` | `off` | `custom`. Empty ≡ `inherit`.
+ */
+sub_tls_mode: string, sub_cert_pem: string, 
+/**
+ * New subscription private key (PEM). Empty ≡ keep the stored one (same
+ * convention as `panel_tls_key`).
+ */
+sub_key_pem: string, };
 
 /**
  * One operator-defined routing rule. Stored (by id) in `xray_custom_rules`;

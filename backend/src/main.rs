@@ -75,16 +75,25 @@ impl FromRef<AppState> for DbPool {
 }
 
 /// Boot-time bind of the optional dedicated subscription listener. A non-zero
-/// `db_sub_port` starts a second listener (same operator TLS as the panel, hence
-/// `scheme`) serving only `/sub/<token>`. Bind failures are logged, never fatal —
+/// `db_sub_port` starts a second listener serving only `/sub/<token>`. Its TLS is
+/// independent of the panel's (`sub_tls_mode`), so the logged scheme is derived
+/// from the sub config, not the panel's. Bind failures are logged, never fatal —
 /// the main listener still works and the port is fixable from the UI.
-async fn boot_sub_listener(state: &AppState, host: &str, db_sub_port: i32, scheme: &str) {
+async fn boot_sub_listener(state: &AppState, host: &str, db_sub_port: i32) {
     let Ok(sub_port) = u16::try_from(db_sub_port) else {
         return;
     };
     if sub_port == 0 {
         return;
     }
+    let scheme = if api::settings::load_sub_tls_for_boot(&state.db)
+        .await
+        .is_some()
+    {
+        "https"
+    } else {
+        "http"
+    };
     match api::settings::spawn_sub_listener(state, host, sub_port, build_sub_router(state.clone()))
         .await
     {
@@ -243,7 +252,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Optional sub-only listener — bound only when the operator configured a
     // non-zero sub_port. Bind failures are logged, never fatal (see the helper).
-    boot_sub_listener(&state, &host, db_sub_port, scheme).await;
+    boot_sub_listener(&state, &host, db_sub_port).await;
 
     // Main thread blocks on ctrl-c. The HTTP listener lives in a
     // separate task spawned by `spawn_listener`, which lets the

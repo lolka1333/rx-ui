@@ -201,6 +201,14 @@ export const en: Dict = {
     subPortHint: '0 = disabled (subscriptions served on the main panel port). Any 1..65535 starts a second TCP listener serving only /sub/{token} (no /api/*) — useful for exposing the public endpoint behind a separate firewall rule or CDN.',
     subPortPlaceholder: '0 = disabled',
     subPortRange: 'Between 1 and 65535 (or 0 to disable)',
+    subTlsMode: 'Subscription TLS',
+    subTlsModeHint:
+      'How the /sub endpoint is served. Inherit — use the panel certificate (default). Off — plain HTTP, for a CDN/tunnel (e.g. Cloudflare) that terminates TLS at the edge, so the origin stays HTTP. Custom — a separate certificate/key just for the subscription.',
+    subTlsInherit: 'Inherit panel cert',
+    subTlsOff: 'Off (plain HTTP)',
+    subTlsCustom: 'Custom certificate',
+    subTlsCert: 'Subscription certificate (PEM)',
+    subTlsKey: 'Subscription private key (PEM)',
     // DirtyBar
     save: 'Save',
     discard: 'Discard',
