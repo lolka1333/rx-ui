@@ -100,13 +100,11 @@ function buildSubscriptionUrl(token: string, settings: PanelSettings | undefined
   const port = settings && settings.sub_port > 0
     ? String(settings.sub_port)
     : window.location.port;
-  // Strip default ports so the URL doesn't read like a configuration
-  // dump (`https://vpn.example.com:443/...` is just `https://vpn.example.com/...`).
-  const portSuffix =
-    port && !(protocol === 'http:' && port === '80')
-        && !(protocol === 'https:' && port === '443')
-      ? `:${port}`
-      : '';
+  // Hide the well-known ports (80/443) from the shown URL regardless of scheme:
+  // operators publish the subscription behind a standard-port endpoint (a CDN /
+  // tunnel on 443), where the client supplies the port implicitly. A non-standard
+  // port is kept so a direct link still resolves.
+  const portSuffix = port && port !== '80' && port !== '443' ? `:${port}` : '';
   return `${protocol}//${host}${portSuffix}/sub/${token}`;
 }
 
@@ -131,9 +129,10 @@ interface ClientGroup {
   /** Earliest non-null expires_at across rows (UTC string), or null if
    *  no row has an expiry. */
   expiresAt: string | null;
-  /** Sum of per-row traffic_limit_bytes, or null if any row is
-   *  unlimited (an unlimited quota at the group level swallows the
-   *  others — the user gets unlimited overall). */
+  /** Per-email quota = max of the per-row traffic_limit_bytes (they're kept
+   *  equal by bulk-assign and enforced per email, not summed), or null if any
+   *  row is unlimited (an unlimited quota swallows the others — the user gets
+   *  unlimited overall). */
   totalLimit: number | null;
   inboundIds: string[];
   /** First non-empty note across the rows. Bulk-assign keeps them in
@@ -404,9 +403,13 @@ export function Clients() {
           .sort()[0] ?? null;
       const limits = rows.map((r) => r.traffic_limit_bytes);
       const anyUnlimited = limits.some((l) => l == null);
+      // The quota is enforced per email, not per row — bulk-assign keeps the
+      // per-inbound limits equal and the backend trips on one row's cap. Take
+      // the max (not the sum) so a user in N inbounds shows L, not N*L,
+      // matching the subscription userinfo header.
       const totalLimit: number | null = anyUnlimited
         ? null
-        : limits.reduce<number>((acc, l) => acc + (l ?? 0), 0);
+        : limits.reduce<number>((acc, l) => Math.max(acc, l ?? 0), 0);
       const inboundIds = Array.from(new Set(rows.map((r) => r.inbound_id)));
       if (enabledFilter === 'enabled' && !allEnabled) continue;
       if (enabledFilter === 'disabled' && anyEnabled) continue;

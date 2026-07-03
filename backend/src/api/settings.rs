@@ -775,13 +775,19 @@ async fn swap_sub_listener(
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     let app = crate::build_sub_router(state.clone());
-    let new_tx = spawn_sub_listener(state, "0.0.0.0", new_sub_port, app)
-        .await
-        .map_err(|e| {
-            AppError::Internal(anyhow::anyhow!(
+    let new_tx = match spawn_sub_listener(state, "0.0.0.0", new_sub_port, app).await {
+        Ok(tx) => tx,
+        Err(e) => {
+            // The old listener was already shut down above, so nothing is bound
+            // now. Record port 0 (not the stale old port) — otherwise a later
+            // swap back to the old port would see new == current and no-op,
+            // leaving the sub endpoint permanently dead.
+            state.current_sub_port.store(0, Ordering::Relaxed);
+            return Err(AppError::Internal(anyhow::anyhow!(
                 "failed to bind subscription listener on port {new_sub_port}: {e}"
-            ))
-        })?;
+            )));
+        }
+    };
     *state.sub_listener_shutdown.write().await = Some(new_tx);
     state
         .current_sub_port

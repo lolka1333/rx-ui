@@ -136,20 +136,21 @@ export function XrayUpdatesModal({ open, onClose, currentVersion }: Props) {
     // restart xray — easily 30-60s on a slow link. Override the 15s global
     // axios timeout for this single call so the request doesn't abort
     // mid-download while the backend keeps working.
-    mutationFn: async (tag: string) =>
+    mutationFn: async (vars: { tag: string; repo: string }) =>
       apiClient.post(
         '/xray/install',
-        { tag, ...(repo ? { repo } : {}) },
+        { tag: vars.tag, ...(vars.repo ? { repo: vars.repo } : {}) },
         { timeout: 5 * 60_000 },
       ),
-    onSuccess: (_d, tag) => {
-      // Remember which source this build came from so the button reflects
-      // "installed" for it, but not for a same-tag build from another source.
-      const src = repo || 'official';
+    onSuccess: (_d, vars) => {
+      // Source is pinned in the mutation variables (captured at mutate time),
+      // so flipping the picker during the 30-60s install can't record the
+      // wrong installed source. Empty repo ≡ official.
+      const src = vars.repo || 'official';
       localStorage.setItem('xray-installed-src', src);
       setInstalledSrc(src);
       qc.invalidateQueries({ queryKey: ['dashboard-overview'] });
-      message.success(t('xrayUpdates.installed', { tag }));
+      message.success(t('xrayUpdates.installed', { tag: vars.tag }));
       onClose();
     },
     onError: (err: unknown) => {
@@ -165,7 +166,7 @@ export function XrayUpdatesModal({ open, onClose, currentVersion }: Props) {
     releases?.some((r) => r.tag === selected && r.asset_url);
 
   const onInstall = () => {
-    if (selected) install.mutate(selected);
+    if (selected) install.mutate({ tag: selected, repo });
   };
 
   // Custom footer so we can stack buttons full-width on phones (taller, easier
