@@ -82,12 +82,13 @@ export function Inbounds() {
     return m;
   }, [allClients]);
 
-  // Per-inbound traffic totals — derived by summing each bound client's
-  // lifetime counters from `/clients/stats`. xray's StatsService doesn't
-  // expose per-(email, inbound) counters, so when one email is shared
-  // across multiple inbounds (rare in production, common in test fixtures)
-  // its bytes are attributed to every inbound it's bound to. Shares the
-  // same react-query key as the Clients page so polling cost is paid once.
+  // Per-inbound traffic totals — derived from each bound client's lifetime
+  // counters in `/clients/stats`. xray's StatsService counts bytes per email,
+  // not per (email, inbound), so a user shared across several inbounds has one
+  // per-email total. Credit it to a single inbound (the first row seen) rather
+  // than every membership — otherwise the same bytes surface under each inbound
+  // and the column reads ~Nx for one connection. Shares the Clients page's
+  // react-query key so polling cost is paid once.
   const { data: stats = {} } = useQuery<TrafficSnapshotMap>({
     queryKey: ['clients-stats'],
     queryFn: async () =>
@@ -102,10 +103,14 @@ export function Inbounds() {
   // are moving through any client on the inbound.
   const trafficByInbound = useMemo(() => {
     const m = new Map<string, InboundTraffic>();
+    // Credit each email's per-email total once (to the first inbound it
+    // appears in), so a user shared across inbounds isn't summed into every one.
+    const credited = new Set<string>();
     for (const c of allClients) {
       const acc = m.get(c.inbound_id) ?? { up: 0, down: 0, live: false };
       const s = stats[c.email];
-      if (s) {
+      if (s && !credited.has(c.email)) {
+        credited.add(c.email);
         acc.up += s.uplink_total;
         acc.down += s.downlink_total;
         if (s.uplink_bps > 0 || s.downlink_bps > 0) acc.live = true;

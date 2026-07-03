@@ -297,11 +297,15 @@ struct Bundle {
     header_expire: i64,
 }
 
-/// Walk the email's rows once: sum byte totals for the userinfo header
-/// AND build the share-link bundle, skipping disabled rows. Disabled
-/// rows still contribute to upload/download/total so the operator's
-/// "used/limit" widget stays consistent even after a quota flip turns
-/// the row off.
+/// Walk the email's rows once: derive the per-email byte totals for the
+/// userinfo header AND build the share-link bundle, skipping disabled rows.
+/// Disabled rows still contribute to used/limit so the operator's "used/limit"
+/// widget stays consistent even after a quota flip turns the row off.
+///
+/// used/limit are the MAX across the email's rows, not the sum: xray counts
+/// bytes per email and the poller writes that one per-email total into every
+/// (email, inbound) row, so the rows are duplicates. Summing would multiply a
+/// multi-inbound user's usage and quota by their inbound count.
 fn build_bundle(
     rows: &[SubscriptionRow],
     inbounds: &std::collections::HashMap<String, crate::models::Inbound>,
@@ -314,10 +318,10 @@ fn build_bundle(
     let mut has_unlimited = false;
     let mut earliest_expire: Option<i64> = None;
     for row in rows {
-        upload = upload.saturating_add(row.uplink_total);
-        download = download.saturating_add(row.downlink_total);
+        upload = upload.max(row.uplink_total);
+        download = download.max(row.downlink_total);
         match row.traffic_limit_bytes {
-            Some(cap) => total = total.saturating_add(cap),
+            Some(cap) => total = total.max(cap),
             None => has_unlimited = true,
         }
         if let Some(ref exp) = row.expires_at
