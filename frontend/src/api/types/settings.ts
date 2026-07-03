@@ -46,10 +46,20 @@ panel_base_path: string,
 sub_enabled: boolean, 
 /**
  * Optional hostname to substitute for the auto-detected IPv4 / IPv6
- * inside every share-link in the subscription bundle. Empty ≡ keep
- * auto-detect (the panel's outbound IP).
+ * inside every share-link in the subscription bundle — i.e. the server
+ * address clients dial. Empty ≡ keep auto-detect (the panel's outbound
+ * IP). Distinct from `sub_link_host`, which is the host of the
+ * subscription URL itself.
  */
 sub_host_override: string, 
+/**
+ * Optional host for the subscription URL itself (the `/sub/{token}`
+ * link the operator shares), independent of `sub_host_override` (the
+ * server address baked into the configs). Empty ≡ the panel's own
+ * address (the origin the admin opens). Lets the shareable link point
+ * at the panel domain while the configs dial a separate tunnel / CDN.
+ */
+sub_link_host: string, 
 /**
  * Hours emitted as `Profile-Update-Interval` so client apps refresh
  * the subscription on their own. Default 12, range [1, 168].
@@ -141,7 +151,7 @@ panel_tls_key_set: boolean, };
  * allowlist, log level, etc.) may carry different validation than
  * the read response.
  */
-export type PanelSettingsUpdate = { panel_port: number, panel_base_path: string, sub_enabled: boolean, sub_host_override: string, sub_update_interval_hours: number, sub_brand_name: string, sub_service_url: string, sub_port: number, xray_freedom_strategy: string, xray_routing_strategy: string, xray_test_url: string, xray_block_bittorrent: boolean, xray_blocked_ips: Array<string>, xray_blocked_domains: Array<string>, xray_ipv4_domains: Array<string>, xray_custom_rules: Array<RoutingRule>, xray_rule_order: Array<string>, panel_tls_enabled: boolean, panel_tls_cert: string, 
+export type PanelSettingsUpdate = { panel_port: number, panel_base_path: string, sub_enabled: boolean, sub_host_override: string, sub_link_host: string, sub_update_interval_hours: number, sub_brand_name: string, sub_service_url: string, sub_port: number, xray_freedom_strategy: string, xray_routing_strategy: string, xray_test_url: string, xray_block_bittorrent: boolean, xray_blocked_ips: Array<string>, xray_blocked_domains: Array<string>, xray_ipv4_domains: Array<string>, xray_custom_rules: Array<RoutingRule>, xray_rule_order: Array<string>, panel_tls_enabled: boolean, panel_tls_cert: string, 
 /**
  * New private key (PEM). Empty string ≡ keep the stored key — so saving any
  * other settings section doesn't wipe it and the key need only be pasted

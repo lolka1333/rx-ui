@@ -55,11 +55,12 @@ type SectionKey = 'account' | 'access' | 'subscription' | 'xray' | 'tls';
  *  `mergePanelSettings` (the whole-row PUT merge, when the cache isn't
  *  populated yet) and by `deriveSettingsFromUrl` (not-yet-loaded state).
  *  Keep these in sync with the backend defaults in
- *  `backend/migrations/0024_subscription_settings.sql` +
- *  `0025_subscription_enabled.sql`. */
+ *  `backend/migrations/0024_subscription_settings.sql`,
+ *  `0025_subscription_enabled.sql` + `0037_subscription_link_host.sql`. */
 const SUBSCRIPTION_DEFAULTS = {
   sub_enabled: true,
   sub_host_override: '',
+  sub_link_host: '',
   sub_update_interval_hours: 12,
   sub_brand_name: '',
   sub_service_url: '',
@@ -108,6 +109,7 @@ function mergePanelSettings(
     sub_enabled: current?.sub_enabled ?? SUBSCRIPTION_DEFAULTS.sub_enabled,
     sub_host_override:
       current?.sub_host_override ?? SUBSCRIPTION_DEFAULTS.sub_host_override,
+    sub_link_host: current?.sub_link_host ?? SUBSCRIPTION_DEFAULTS.sub_link_host,
     sub_update_interval_hours:
       current?.sub_update_interval_hours ??
       SUBSCRIPTION_DEFAULTS.sub_update_interval_hours,
@@ -163,6 +165,7 @@ interface PanelAccessFormValues {
 interface SubscriptionFormValues {
   sub_enabled: boolean;
   sub_host_override: string;
+  sub_link_host: string;
   sub_update_interval_hours: number;
   sub_brand_name: string;
   sub_service_url: string;
@@ -1065,6 +1068,7 @@ function SubscriptionSection({
         mergePanelSettings(current, {
           sub_enabled: values.sub_enabled,
           sub_host_override: values.sub_host_override.trim(),
+          sub_link_host: values.sub_link_host.trim(),
           sub_update_interval_hours: values.sub_update_interval_hours,
           sub_brand_name: values.sub_brand_name.trim(),
           sub_service_url: values.sub_service_url.trim(),
@@ -1107,10 +1111,11 @@ function SubscriptionSection({
           form={form}
           layout="vertical"
           autoComplete="off"
-          key={`${data.sub_enabled}-${data.sub_host_override}-${data.sub_update_interval_hours}-${data.sub_brand_name}-${data.sub_service_url}-${data.sub_port}`}
+          key={`${data.sub_enabled}-${data.sub_host_override}-${data.sub_link_host}-${data.sub_update_interval_hours}-${data.sub_brand_name}-${data.sub_service_url}-${data.sub_port}`}
           initialValues={{
             sub_enabled: data.sub_enabled,
             sub_host_override: data.sub_host_override,
+            sub_link_host: data.sub_link_host,
             sub_update_interval_hours: data.sub_update_interval_hours,
             sub_brand_name: data.sub_brand_name,
             sub_service_url: data.sub_service_url,
@@ -1159,6 +1164,24 @@ function SubscriptionSection({
                     >
                       <Input
                         placeholder={t('settings.subHostOverridePlaceholder')}
+                        disabled={!enabled}
+                      />
+                    </Form.Item>
+                    <Form.Item
+                      name="sub_link_host"
+                      label={t('settings.subLinkHost')}
+                      tooltip={t('settings.subLinkHostHint')}
+                      rules={[
+                        {
+                          // Same bare-host constraint as the connection address
+                          // above; this one is the host of the /sub/ URL itself.
+                          pattern: /^(?:[A-Za-z0-9.\-:[\]]+)?$/,
+                          message: t('settings.subHostOverrideInvalid'),
+                        },
+                      ]}
+                    >
+                      <Input
+                        placeholder={t('settings.subLinkHostPlaceholder')}
                         disabled={!enabled}
                       />
                     </Form.Item>

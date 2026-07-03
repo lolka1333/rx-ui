@@ -86,16 +86,17 @@ type TrafficSnapshotMap = Record<string, TrafficSnapshot>;
 /** Canonical subscription URL the operator should share with end
  *  users. Prefers panel settings over the admin's current `window.
  *  location`:
- *   * `host_override` (when set) is the hostname clients dial — the
- *     admin URL might be a private IP behind a reverse proxy that
- *     end-users can't reach.
+ *   * `sub_link_host` (when set) is the host of the /sub/ URL itself —
+ *     the panel's public domain, which may differ from both the admin
+ *     URL and the server address baked into the configs (`sub_host_
+ *     override`). Empty ≡ use the current origin's host.
  *   * `sub_port` (when non-zero) is the public subscription port; the
  *     admin port may be intentionally restricted by firewall.
  *  Falls back to current origin segments when either field is empty,
  *  which works for single-host self-hosted setups. */
 function buildSubscriptionUrl(token: string, settings: PanelSettings | undefined): string {
   const protocol = window.location.protocol;
-  const host = settings?.sub_host_override?.trim() || window.location.hostname;
+  const host = settings?.sub_link_host?.trim() || window.location.hostname;
   const port = settings && settings.sub_port > 0
     ? String(settings.sub_port)
     : window.location.port;
@@ -1422,10 +1423,11 @@ function SubscriptionPane({
 }) {
   const { t } = useTranslation();
   // Panel settings drive the canonical subscription URL: an operator
-  // who set `host_override` wants end-users to use that hostname (not
-  // the admin URL the operator happens to be browsing on); `sub_port`
-  // means subscriptions live on a different port than the admin shell.
-  // Falls back to `window.location` when either field is empty.
+  // who set `sub_link_host` wants end-users to fetch the subscription
+  // from that hostname (not the admin URL the operator happens to be
+  // browsing on); `sub_port` means subscriptions live on a different
+  // port than the admin shell. Falls back to `window.location` when
+  // either field is empty.
   const settings = useQuery({
     queryKey: ['panel-settings'],
     queryFn: async () => (await apiClient.get<PanelSettings>('/settings/panel')).data,

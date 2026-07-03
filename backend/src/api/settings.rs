@@ -80,7 +80,8 @@ async fn get_panel(
 ) -> AppResult<Json<PanelSettings>> {
     let row = sqlx::query!(
         "SELECT panel_port, panel_base_path,
-                sub_enabled, sub_host_override, sub_update_interval_hours,
+                sub_enabled, sub_host_override, sub_link_host,
+                sub_update_interval_hours,
                 sub_brand_name, sub_service_url, sub_port,
                 xray_freedom_strategy, xray_routing_strategy, xray_test_url,
                 xray_block_bittorrent, xray_blocked_ips, xray_blocked_domains,
@@ -100,6 +101,7 @@ async fn get_panel(
         panel_base_path: row.panel_base_path,
         sub_enabled: row.sub_enabled != 0,
         sub_host_override: row.sub_host_override,
+        sub_link_host: row.sub_link_host,
         sub_update_interval_hours: i32::try_from(row.sub_update_interval_hours).unwrap_or(12),
         sub_brand_name: row.sub_brand_name,
         sub_service_url: row.sub_service_url,
@@ -129,6 +131,7 @@ async fn update_panel(
         new_port,
         base_path: normalised,
         sub_host,
+        sub_link_host,
         sub_brand,
         sub_service_url,
         xray_freedom_strategy,
@@ -158,6 +161,7 @@ async fn update_panel(
                 panel_base_path = ?,
                 sub_enabled = ?,
                 sub_host_override = ?,
+                sub_link_host = ?,
                 sub_update_interval_hours = ?,
                 sub_brand_name = ?,
                 sub_service_url = ?,
@@ -180,6 +184,7 @@ async fn update_panel(
         normalised,
         sub_enabled_i,
         sub_host,
+        sub_link_host,
         body.sub_update_interval_hours,
         sub_brand,
         sub_service_url,
@@ -270,6 +275,7 @@ struct NormalizedPanel {
     new_port: u16,
     base_path: String,
     sub_host: String,
+    sub_link_host: String,
     sub_brand: String,
     sub_service_url: String,
     xray_freedom_strategy: String,
@@ -321,28 +327,13 @@ fn validate_panel_update(body: &PanelSettingsUpdate) -> AppResult<NormalizedPane
 
     let base_path = normalize_base_path(&body.panel_base_path)?;
 
-    // Subscription host: empty OR a bare hostname / IPv4 / bracketed IPv6.
-    // Reject schemes, paths, query strings — the share-link builder splices
-    // this as an `@host:port` chunk, so a stray `https://` or `/foo` makes
-    // every imported link malformed. 253 = DNS RFC 1035 FQDN cap.
-    let sub_host = body.sub_host_override.trim();
-    if !sub_host.is_empty() {
-        if sub_host.contains("://")
-            || sub_host.contains('/')
-            || sub_host.contains('?')
-            || sub_host.contains(' ')
-        {
-            return Err(AppError::BadRequest(
-                "sub_host_override must be a bare hostname or IP — no scheme, path, or spaces"
-                    .to_owned(),
-            ));
-        }
-        if sub_host.len() > 253 {
-            return Err(AppError::BadRequest(
-                "sub_host_override is too long (max 253 chars)".to_owned(),
-            ));
-        }
-    }
+    // Two subscription hosts, same shape (bare hostname / IPv4 / bracketed
+    // IPv6, no scheme/path/spaces): `sub_host_override` is the server address
+    // spliced into each config as an `@host:port` chunk; `sub_link_host` is
+    // the host of the subscription URL itself. A stray `https://` or `/foo`
+    // in either breaks the link, so both are validated the same way.
+    let sub_host = validate_optional_host(&body.sub_host_override, "sub_host_override")?;
+    let sub_link_host = validate_optional_host(&body.sub_link_host, "sub_link_host")?;
 
     // Update interval: <1h hammers the panel; >1week stalls config
     // rotation. Bounds mirror what v2rayN / Hiddify actually honour.
@@ -393,7 +384,8 @@ fn validate_panel_update(body: &PanelSettingsUpdate) -> AppResult<NormalizedPane
     Ok(NormalizedPanel {
         new_port,
         base_path,
-        sub_host: sub_host.to_owned(),
+        sub_host,
+        sub_link_host,
         sub_brand,
         sub_service_url,
         xray_freedom_strategy,
@@ -444,6 +436,28 @@ fn validate_xray_routing(body: &PanelSettingsUpdate) -> AppResult<(bool, String,
         validate_match_list(&body.xray_blocked_domains, "xray_blocked_domains")?,
         validate_match_list(&body.xray_ipv4_domains, "xray_ipv4_domains")?,
     ))
+}
+
+/// Validate an optional bare-host field (hostname / IPv4 / bracketed IPv6):
+/// empty is allowed; otherwise no scheme, path, query, or spaces, capped at
+/// the DNS FQDN limit (253). Shared by both subscription host fields
+/// (`sub_host_override`, `sub_link_host`). Returns the trimmed value ready to
+/// store; `field` is spliced into the error so the messages name the culprit.
+fn validate_optional_host(value: &str, field: &str) -> AppResult<String> {
+    let host = value.trim();
+    if !host.is_empty() {
+        if host.contains("://") || host.contains('/') || host.contains('?') || host.contains(' ') {
+            return Err(AppError::BadRequest(format!(
+                "{field} must be a bare hostname or IP — no scheme, path, or spaces"
+            )));
+        }
+        if host.len() > 253 {
+            return Err(AppError::BadRequest(format!(
+                "{field} is too long (max 253 chars)"
+            )));
+        }
+    }
+    Ok(host.to_owned())
 }
 
 /// Validate an optional `http(s)://` URL field. Empty is allowed; otherwise the

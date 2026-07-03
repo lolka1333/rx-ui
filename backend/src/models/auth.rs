@@ -50,9 +50,17 @@ pub struct PanelSettings {
     /// generated from the panel UI keep working.
     pub sub_enabled: bool,
     /// Optional hostname to substitute for the auto-detected IPv4 / IPv6
-    /// inside every share-link in the subscription bundle. Empty ≡ keep
-    /// auto-detect (the panel's outbound IP).
+    /// inside every share-link in the subscription bundle — i.e. the server
+    /// address clients dial. Empty ≡ keep auto-detect (the panel's outbound
+    /// IP). Distinct from `sub_link_host`, which is the host of the
+    /// subscription URL itself.
     pub sub_host_override: String,
+    /// Optional host for the subscription URL itself (the `/sub/{token}`
+    /// link the operator shares), independent of `sub_host_override` (the
+    /// server address baked into the configs). Empty ≡ the panel's own
+    /// address (the origin the admin opens). Lets the shareable link point
+    /// at the panel domain while the configs dial a separate tunnel / CDN.
+    pub sub_link_host: String,
     /// Hours emitted as `Profile-Update-Interval` so client apps refresh
     /// the subscription on their own. Default 12, range [1, 168].
     pub sub_update_interval_hours: i32,
@@ -121,6 +129,8 @@ pub struct PanelSettingsUpdate {
     pub panel_base_path: String,
     pub sub_enabled: bool,
     pub sub_host_override: String,
+    #[serde(default)]
+    pub sub_link_host: String,
     pub sub_update_interval_hours: i32,
     pub sub_brand_name: String,
     pub sub_service_url: String,
