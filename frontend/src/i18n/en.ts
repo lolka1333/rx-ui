@@ -899,6 +899,11 @@ export const en: Dict = {
     installError: 'Install failed',
     installed: 'Xray {{tag}} installed',
     stableLabel: 'stable',
+    sourceOfficial: 'Official',
+    sourceLink: 'By link',
+    linkPlaceholder: 'https://github.com/username/Xray-core',
+    linkTrust: 'Third-party builds — install only from sources you trust',
+    linkError: "Couldn't load the list — check the link",
   },
   sub: {
     defaultBrand: 'Subscription',

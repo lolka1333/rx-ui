@@ -6,9 +6,11 @@ import {
   Typography,
   Button,
   Grid,
+  Segmented,
+  Input,
   theme,
 } from 'antd';
-import { ToolOutlined, GlobalOutlined, CheckOutlined } from '@ant-design/icons';
+import { ToolOutlined, GlobalOutlined, CheckOutlined, LinkOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -59,16 +61,32 @@ export function XrayUpdatesModal({ open, onClose, currentVersion }: Props) {
   const screens = Grid.useBreakpoint();
   const isMobile = !screens.sm;
   const [selected, setSelected] = useState<string | null>(null);
+  // Release source: the official upstream repo, or a custom one by link (the
+  // operator's own fork). Persisted per-browser so the choice survives reload.
+  const [source, setSource] = useState<'official' | 'link'>(() =>
+    localStorage.getItem('xray-src') === 'link' ? 'link' : 'official',
+  );
+  const [link, setLink] = useState(() => localStorage.getItem('xray-src-link') ?? '');
+  const repo = source === 'link' ? link.trim() : '';
 
-  const { data: releases, isLoading } = useQuery<XrayRelease[]>({
-    queryKey: ['xray-releases'],
+  const { data: releases, isLoading, isError, error } = useQuery<XrayRelease[]>({
+    // Key by source so official and an empty custom link don't share a cache
+    // entry (both have repo=""); switching sources then shows the right list.
+    queryKey: ['xray-releases', source === 'official' ? 'official' : repo],
     // Limit to the 6 most recent releases — older versions are rarely the
     // pick, and a shorter list keeps the mobile modal from looking like
     // a wall of releases.
     queryFn: async () =>
-      (await apiClient.get<XrayRelease[]>('/xray/releases', { params: { limit: 6 } })).data,
-    enabled: open,
+      (
+        await apiClient.get<XrayRelease[]>('/xray/releases', {
+          params: { limit: 6, ...(repo ? { repo } : {}) },
+        })
+      ).data,
+    // Don't fire for the link source until there's actually a link typed.
+    enabled: open && (source === 'official' || repo.length > 0),
     staleTime: 5 * 60_000,
+    // A malformed custom link is a 400 — retrying 3× just delays the error.
+    retry: false,
   });
 
   useEffect(() => {
@@ -78,13 +96,24 @@ export function XrayUpdatesModal({ open, onClose, currentVersion }: Props) {
     if (open && currentVersion && !selected) setSelected(currentVersion);
   }, [open, currentVersion, selected]);
 
+  // Persist the source choice + custom link so they survive a reload. An effect
+  // (not the change handlers) guarantees it fires for every state update.
+  useEffect(() => {
+    localStorage.setItem('xray-src', source);
+    localStorage.setItem('xray-src-link', link);
+  }, [source, link]);
+
   const install = useMutation({
     // Install downloads a ~30 MB archive from GitHub, unpacks it, and may
     // restart xray — easily 30-60s on a slow link. Override the 15s global
     // axios timeout for this single call so the request doesn't abort
     // mid-download while the backend keeps working.
     mutationFn: async (tag: string) =>
-      apiClient.post('/xray/install', { tag }, { timeout: 5 * 60_000 }),
+      apiClient.post(
+        '/xray/install',
+        { tag, ...(repo ? { repo } : {}) },
+        { timeout: 5 * 60_000 },
+      ),
     onSuccess: (_d, tag) => {
       qc.invalidateQueries({ queryKey: ['dashboard-overview'] });
       message.success(t('xrayUpdates.installed', { tag }));
@@ -97,7 +126,9 @@ export function XrayUpdatesModal({ open, onClose, currentVersion }: Props) {
 
   const installable =
     selected !== null &&
-    selected !== currentVersion &&
+    // A custom build can share the installed tag but be a different binary, so
+    // only the official source blocks reinstalling the current version.
+    (source === 'link' || selected !== currentVersion) &&
     releases?.some((r) => r.tag === selected && r.asset_url);
 
   const onInstall = () => {
@@ -190,7 +221,37 @@ export function XrayUpdatesModal({ open, onClose, currentVersion }: Props) {
             ),
             children: (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <Segmented
+                  block
+                  value={source}
+                  onChange={(v) => setSource(v as 'official' | 'link')}
+                  options={[
+                    { label: t('xrayUpdates.sourceOfficial'), value: 'official' },
+                    { label: t('xrayUpdates.sourceLink'), value: 'link' },
+                  ]}
+                />
+                {source === 'link' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <Input
+                      value={link}
+                      onChange={(e) => setLink(e.target.value)}
+                      placeholder={t('xrayUpdates.linkPlaceholder')}
+                      prefix={<LinkOutlined />}
+                      allowClear
+                    />
+                    <Typography.Text type="warning" style={{ fontSize: 12 }}>
+                      {t('xrayUpdates.linkTrust')}
+                    </Typography.Text>
+                  </div>
+                )}
                 <Alert type="warning" showIcon title={t('xrayUpdates.warning')} />
+                {source === 'link' && isError && (
+                  <Alert
+                    type="error"
+                    showIcon
+                    title={apiErrorMessage(error) ?? t('xrayUpdates.linkError')}
+                  />
+                )}
                 {isLoading && <ReleaseSkeletonList />}
                 {!isLoading && releases && (
                   <div

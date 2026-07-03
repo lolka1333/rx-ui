@@ -897,6 +897,11 @@ export const ru = {
     installError: 'Ошибка установки',
     installed: 'Xray {{tag}} установлен',
     stableLabel: 'stable',
+    sourceOfficial: 'Официальный',
+    sourceLink: 'По ссылке',
+    linkPlaceholder: 'https://github.com/username/Xray-core',
+    linkTrust: 'Чужие сборки — ставь только из источников, которым доверяешь',
+    linkError: 'Не удалось загрузить список — проверь ссылку',
   },
   sub: {
     // Hero / user info card

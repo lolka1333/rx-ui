@@ -40,7 +40,10 @@ export const FINGERPRINT_OPTIONS = [
   // Randomized — a fresh modern ClientHello chosen at startup / per dial
   { value: 'random', label: 'random' },
   { value: 'randomized', label: 'randomized' },
-  // Version-pinned modern hellos (xray-core ModernFingerprints, #6181)
+  // Version-pinned modern hellos (xray-core ModernFingerprints, #6181).
+  // hellochrome_150 ships in the custom xray build (lolka1333/Xray-core); on
+  // stock xray an unknown fingerprint name is simply ignored.
+  { value: 'hellochrome_150', label: 'hellochrome_150' },
   { value: 'hellochrome_133', label: 'hellochrome_133' },
   { value: 'hellochrome_131', label: 'hellochrome_131' },
   { value: 'hellochrome_120', label: 'hellochrome_120' },

@@ -43,7 +43,7 @@ pub async fn bootstrap(state: &AppState) -> anyhow::Result<()> {
         }
         if let Some(install_dir) = state.xray.binary.parent() {
             tracing::info!("xray not found, fetching latest stable from github…");
-            let release = installer::fetch_latest_stable().await?;
+            let release = installer::fetch_latest_stable(installer::DEFAULT_REPO).await?;
             installer::install_release(&release, install_dir).await?;
             tracing::info!(
                 "xray {} installed at {}",

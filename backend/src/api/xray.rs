@@ -26,16 +26,30 @@ pub fn routes() -> Router<AppState> {
 struct ReleasesQuery {
     #[serde(default = "default_limit")]
     limit: u32,
+    /// Custom source link / `owner/repo` shorthand; empty ≡ default upstream.
+    repo: Option<String>,
 }
 const fn default_limit() -> u32 {
     10
+}
+
+/// Resolve the operator-supplied source link to `owner/repo`, falling back to
+/// the default upstream repo when none is given. A malformed link is a clean
+/// 400, not a request to a bogus GitHub URL.
+fn resolve_repo(link: Option<&str>) -> AppResult<String> {
+    let Some(l) = link.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(installer::DEFAULT_REPO.to_owned());
+    };
+    installer::parse_repo(l)
+        .ok_or_else(|| AppError::BadRequest(format!("invalid source link: {l}")))
 }
 
 async fn list_releases(
     _user: AuthUser,
     Query(q): Query<ReleasesQuery>,
 ) -> AppResult<Json<Vec<installer::XrayRelease>>> {
-    let releases = installer::fetch_releases(q.limit.clamp(1, 50))
+    let repo = resolve_repo(q.repo.as_deref())?;
+    let releases = installer::fetch_releases(&repo, q.limit.clamp(1, 50))
         .await
         .map_err(AppError::Internal)?;
     Ok(Json(releases))
@@ -46,6 +60,9 @@ struct InstallRequest {
     /// Either a tag like "v25.7.26" or the release object the UI got from
     /// `/releases` — we re-fetch by tag to make sure `asset_url` is fresh.
     tag: String,
+    /// Source link the tag came from; empty ≡ default upstream repo. Must match
+    /// the source the UI listed, or the tag won't be found.
+    repo: Option<String>,
 }
 
 async fn install(
@@ -55,7 +72,8 @@ async fn install(
 ) -> AppResult<Json<serde_json::Value>> {
     // Refetch the release list so the asset_url is current — the panel can't
     // trust whatever URL the browser sent.
-    let releases = installer::fetch_releases(50)
+    let repo = resolve_repo(req.repo.as_deref())?;
+    let releases = installer::fetch_releases(&repo, 50)
         .await
         .map_err(AppError::Internal)?;
     let release = releases

@@ -10,8 +10,38 @@ use std::{
 };
 use ts_rs::TS;
 
-const GITHUB_RELEASES: &str = "https://api.github.com/repos/XTLS/Xray-core/releases";
+/// Upstream repo the version picker defaults to. A custom source (operator's
+/// own fork) overrides it per request.
+pub const DEFAULT_REPO: &str = "XTLS/Xray-core";
 const USER_AGENT: &str = concat!("panel/", env!("CARGO_PKG_VERSION"));
+
+/// Extract `owner/repo` from an operator-supplied source link. Accepts a full
+/// GitHub URL (`https://github.com/owner/repo`, with optional `.git`, trailing
+/// path, or the API form `api.github.com/repos/owner/repo`) or the bare
+/// `owner/repo` shorthand. Returns `None` for anything that isn't a usable repo
+/// ref — the caller turns that into a 400 instead of fetching a bogus URL.
+pub fn parse_repo(link: &str) -> Option<String> {
+    let s = link.trim().trim_end_matches('/');
+    let s = s
+        .strip_prefix("https://")
+        .or_else(|| s.strip_prefix("http://"))
+        .unwrap_or(s);
+    let s = s
+        .strip_prefix("api.github.com/repos/")
+        .or_else(|| s.strip_prefix("www.github.com/"))
+        .or_else(|| s.strip_prefix("github.com/"))
+        .unwrap_or(s);
+    let mut parts = s.split('/');
+    let owner = parts.next()?.trim();
+    let repo = parts.next()?.trim().trim_end_matches(".git");
+    let ok = |x: &str| {
+        !x.is_empty()
+            && x.len() <= 100
+            && x.chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    };
+    (ok(owner) && ok(repo)).then(|| format!("{owner}/{repo}"))
+}
 
 /// One row in the "Обновления Xray" modal — what the UI needs per version.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -82,9 +112,9 @@ fn http() -> anyhow::Result<reqwest::Client> {
 
 /// Fetch the most recent N releases from GitHub. Filters out drafts; flags
 /// prereleases so the UI can hide them by default.
-pub async fn fetch_releases(limit: u32) -> anyhow::Result<Vec<XrayRelease>> {
+pub async fn fetch_releases(repo: &str, limit: u32) -> anyhow::Result<Vec<XrayRelease>> {
     let client = http()?;
-    let url = format!("{GITHUB_RELEASES}?per_page={limit}");
+    let url = format!("https://api.github.com/repos/{repo}/releases?per_page={limit}");
     let resp = client.get(&url).send().await.context("github request")?;
     let status = resp.status();
     if !status.is_success() {
@@ -114,7 +144,7 @@ pub async fn fetch_releases(limit: u32) -> anyhow::Result<Vec<XrayRelease>> {
     // offers at least one release version by pulling the latest stable (GitHub's
     // `/latest` ignores pre-releases) and appending it when none is present.
     if !out.iter().any(|r| !r.prerelease)
-        && let Ok(stable) = fetch_latest_stable().await
+        && let Ok(stable) = fetch_latest_stable(repo).await
         && !out.iter().any(|r| r.tag == stable.tag)
     {
         out.push(stable);
@@ -125,10 +155,12 @@ pub async fn fetch_releases(limit: u32) -> anyhow::Result<Vec<XrayRelease>> {
 
 /// Resolve the latest non-prerelease tag, regardless of how many we want to
 /// expose in the UI. Used by first-run bootstrap.
-pub async fn fetch_latest_stable() -> anyhow::Result<XrayRelease> {
+pub async fn fetch_latest_stable(repo: &str) -> anyhow::Result<XrayRelease> {
     let client = http()?;
     let resp = client
-        .get(format!("{GITHUB_RELEASES}/latest"))
+        .get(format!(
+            "https://api.github.com/repos/{repo}/releases/latest"
+        ))
         .send()
         .await
         .context("github latest")?;
