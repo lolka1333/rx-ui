@@ -103,21 +103,21 @@ export function Inbounds() {
   // are moving through any client on the inbound.
   const trafficByInbound = useMemo(() => {
     const m = new Map<string, InboundTraffic>();
-    // Credit each email's per-email total once (to the first inbound it
-    // appears in), so a user shared across inbounds isn't summed into every one.
-    // `live` is a boolean OR, not a sum, so it stays OUTSIDE the dedupe gate —
-    // every inbound the user is actively moving bytes on should light up.
+    // Credit each email's per-email total once (to the first inbound it appears
+    // in), so a user shared across inbounds isn't summed into every one. Keep
+    // `live` WITH the bytes: xray reports bps per email, not per inbound, so
+    // lighting up every member inbound animates the empty 0-byte bars of the
+    // non-credited ones (visible flicker). Show the live overlay only on the
+    // inbound the traffic is credited to.
     const credited = new Set<string>();
     for (const c of allClients) {
       const acc = m.get(c.inbound_id) ?? { up: 0, down: 0, live: false };
       const s = stats[c.email];
-      if (s) {
+      if (s && !credited.has(c.email)) {
+        credited.add(c.email);
+        acc.up += s.uplink_total;
+        acc.down += s.downlink_total;
         if (s.uplink_bps > 0 || s.downlink_bps > 0) acc.live = true;
-        if (!credited.has(c.email)) {
-          credited.add(c.email);
-          acc.up += s.uplink_total;
-          acc.down += s.downlink_total;
-        }
       }
       m.set(c.inbound_id, acc);
     }
