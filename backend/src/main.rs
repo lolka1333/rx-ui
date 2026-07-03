@@ -357,19 +357,21 @@ pub async fn build_router(state: AppState) -> axum::Router {
 
 /// Build a stripped-down router for the optional sub-only listener.
 ///
-/// Same `/sub/{token}` handler the main port serves, plus the SPA
-/// static fallback (so a browser visit to `:sub-port/sub/X` lands on
-/// the React landing page) — but no `/api/*` routes, so the admin
-/// surface stays off this listener. URL prefix is intentionally
-/// ignored: the sub-port exists exactly to give the public endpoint a
-/// stable, predictable address.
+/// Exposes ONLY `/sub/{token}` (whose handler serves the landing page itself for
+/// browser visits) plus `/assets/*` for the bundle that landing loads — no admin
+/// `/api/*` and, crucially, NO SPA-shell fallback. A catch-all `serve_root` would
+/// render the admin `index.html` for `/` and every client route, leaking the
+/// login screen on a port meant to be published (behind a CDN/tunnel); here
+/// anything outside `/sub` and `/assets` 404s. URL prefix is intentionally
+/// ignored: the sub-port exists exactly to give the public endpoint a stable,
+/// predictable address.
 pub fn build_sub_router(state: AppState) -> axum::Router {
     let app = axum::Router::new()
-        .nest("/sub", api::subscription::routes())
-        .with_state(state)
-        // Subscription listener always serves from the root, so its SPA
-        // fallback stamps `<base href="/">` (no admin prefix here).
-        .fallback(static_assets::serve_root)
+        .nest("/sub", api::subscription::routes().with_state(state))
+        .route(
+            "/assets/{*path}",
+            axum::routing::get(static_assets::serve_asset),
+        )
         .layer(TraceLayer::new_for_http());
     if cfg!(debug_assertions) {
         app.layer(CorsLayer::permissive())

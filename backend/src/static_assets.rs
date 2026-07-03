@@ -54,13 +54,6 @@ pub async fn serve_index_root(State(state): State<AppState>) -> Response {
     render_index(&base_path, None)
 }
 
-/// SPA fallback for the SUBSCRIPTION listener, which always serves from the
-/// root (the public `/sub` endpoint is never under the admin prefix), so its
-/// `<base href>` is always `/`.
-pub async fn serve_root(req: Request) -> Response {
-    serve_with_base("", &req)
-}
-
 /// Serve an embedded `assets/{path}` file at the ROOT, outside any admin URL
 /// prefix. The public subscription landing (`/sub/{token}`, also served at the
 /// root) loads its bundle via relative `./assets/...` against a root
