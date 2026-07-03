@@ -67,7 +67,20 @@ export function XrayUpdatesModal({ open, onClose, currentVersion }: Props) {
     localStorage.getItem('xray-src') === 'link' ? 'link' : 'official',
   );
   const [link, setLink] = useState(() => localStorage.getItem('xray-src-link') ?? '');
-  const repo = source === 'link' ? link.trim() : '';
+  // Debounce the link before it drives the query so typing a repo URL doesn't
+  // fire — and 400 — a /releases request on every keystroke.
+  const [debouncedLink, setDebouncedLink] = useState(link);
+  const repo = source === 'link' ? debouncedLink.trim() : '';
+  // Which source the currently-installed binary came from ('official' or a repo
+  // link). Lets install disable only for the version installed FROM THIS source
+  // — a same-tag build from a different source (custom fork) stays installable.
+  const [installedSrc, setInstalledSrc] = useState(
+    () => localStorage.getItem('xray-installed-src') ?? 'official',
+  );
+  // True only when the picker is showing the same source the running binary was
+  // installed from — so a tag match means "this exact build is installed" (not
+  // just a same-tag build from another source).
+  const installedHere = (repo || 'official') === installedSrc;
 
   const { data: releases, isLoading, isError, error } = useQuery<XrayRelease[]>({
     // Key by source so official and an empty custom link don't share a cache
@@ -89,12 +102,27 @@ export function XrayUpdatesModal({ open, onClose, currentVersion }: Props) {
     retry: false,
   });
 
+  // Debounce the typed link (~400ms) so the release query fires once the
+  // operator pauses, not once per keystroke (each partial link would 400).
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedLink(link), 400);
+    return () => clearTimeout(id);
+  }, [link]);
+
+  // A version picked or seeded under one source must not carry over to another —
+  // clear the selection whenever the effective source changes.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSelected(null);
+  }, [source, repo]);
+
   useEffect(() => {
     // Deliberate open-triggered seeding of the version picker, not a render
-    // cascade — runs once per open while nothing is selected.
+    // cascade — runs once per open while nothing is selected. Only pre-select
+    // the running version when the picker shows the source it was installed from.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (open && currentVersion && !selected) setSelected(currentVersion);
-  }, [open, currentVersion, selected]);
+    if (open && installedHere && currentVersion && !selected) setSelected(currentVersion);
+  }, [open, installedHere, currentVersion, selected]);
 
   // Persist the source choice + custom link so they survive a reload. An effect
   // (not the change handlers) guarantees it fires for every state update.
@@ -115,6 +143,11 @@ export function XrayUpdatesModal({ open, onClose, currentVersion }: Props) {
         { timeout: 5 * 60_000 },
       ),
     onSuccess: (_d, tag) => {
+      // Remember which source this build came from so the button reflects
+      // "installed" for it, but not for a same-tag build from another source.
+      const src = repo || 'official';
+      localStorage.setItem('xray-installed-src', src);
+      setInstalledSrc(src);
       qc.invalidateQueries({ queryKey: ['dashboard-overview'] });
       message.success(t('xrayUpdates.installed', { tag }));
       onClose();
@@ -126,9 +159,9 @@ export function XrayUpdatesModal({ open, onClose, currentVersion }: Props) {
 
   const installable =
     selected !== null &&
-    // A custom build can share the installed tag but be a different binary, so
-    // only the official source blocks reinstalling the current version.
-    (source === 'link' || selected !== currentVersion) &&
+    // The version installed from the current source isn't re-installable; a
+    // same-tag build from a different source (custom fork over official) is.
+    !(installedHere && selected === currentVersion) &&
     releases?.some((r) => r.tag === selected && r.asset_url);
 
   const onInstall = () => {
@@ -221,10 +254,10 @@ export function XrayUpdatesModal({ open, onClose, currentVersion }: Props) {
             ),
             children: (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <Segmented
+                <Segmented<'official' | 'link'>
                   block
                   value={source}
-                  onChange={(v) => setSource(v as 'official' | 'link')}
+                  onChange={(v) => setSource(v)}
                   options={[
                     { label: t('xrayUpdates.sourceOfficial'), value: 'official' },
                     { label: t('xrayUpdates.sourceLink'), value: 'link' },
@@ -289,8 +322,8 @@ export function XrayUpdatesModal({ open, onClose, currentVersion }: Props) {
                       <ReleaseRow
                         key={r.tag}
                         release={r}
-                        isCurrent={r.tag === currentVersion}
-                        isLatest={idx === 0 && r.tag !== currentVersion}
+                        isCurrent={installedHere && r.tag === currentVersion}
+                        isLatest={idx === 0 && !(installedHere && r.tag === currentVersion)}
                         isSelected={r.tag === selected}
                         isTabStop={r.tag === tabStopTag}
                         onSelect={() => r.asset_url && setSelected(r.tag)}

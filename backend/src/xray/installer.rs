@@ -22,14 +22,15 @@ const USER_AGENT: &str = concat!("panel/", env!("CARGO_PKG_VERSION"));
 /// ref — the caller turns that into a 400 instead of fetching a bogus URL.
 pub fn parse_repo(link: &str) -> Option<String> {
     let s = link.trim().trim_end_matches('/');
-    let s = s
-        .strip_prefix("https://")
-        .or_else(|| s.strip_prefix("http://"))
+    // Scheme/host are case-insensitive (a pasted `GitHub.com` must resolve the
+    // same as `github.com`); owner/repo are case-preserving, so strip the
+    // prefixes ignoring case but keep the tail verbatim.
+    let s = strip_prefix_ci(s, "https://")
+        .or_else(|| strip_prefix_ci(s, "http://"))
         .unwrap_or(s);
-    let s = s
-        .strip_prefix("api.github.com/repos/")
-        .or_else(|| s.strip_prefix("www.github.com/"))
-        .or_else(|| s.strip_prefix("github.com/"))
+    let s = strip_prefix_ci(s, "api.github.com/repos/")
+        .or_else(|| strip_prefix_ci(s, "www.github.com/"))
+        .or_else(|| strip_prefix_ci(s, "github.com/"))
         .unwrap_or(s);
     let mut parts = s.split('/');
     let owner = parts.next()?.trim();
@@ -37,10 +38,22 @@ pub fn parse_repo(link: &str) -> Option<String> {
     let ok = |x: &str| {
         !x.is_empty()
             && x.len() <= 100
+            // Reject all-dot segments (`.`, `..`) — GitHub disallows them as
+            // names and they'd only build a bogus API path.
+            && x.chars().any(|c| c != '.')
             && x.chars()
                 .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
     };
     (ok(owner) && ok(repo)).then(|| format!("{owner}/{repo}"))
+}
+
+/// Case-insensitively strip an ASCII `prefix` from the front of `s`, returning
+/// the remainder with its original case intact. `None` if `s` doesn't start
+/// with the prefix.
+fn strip_prefix_ci<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
+    let head = s.get(..prefix.len())?;
+    head.eq_ignore_ascii_case(prefix)
+        .then(|| &s[prefix.len()..])
 }
 
 /// One row in the "Обновления Xray" modal — what the UI needs per version.
@@ -233,19 +246,29 @@ pub async fn install_release(release: &XrayRelease, install_dir: &Path) -> anyho
             }
             let dest = install_dir.join(&name);
             let tmp = install_dir.join(format!(".{name}.partial"));
+            // Extract to a temp sibling first; on any failure remove it so a
+            // botched entry doesn't leave a stray .partial in the data dir.
+            let mut out =
+                std::fs::File::create(&tmp).with_context(|| format!("create {}", tmp.display()))?;
+            if let Err(e) = std::io::copy(&mut entry, &mut out)
+                .with_context(|| format!("write {}", tmp.display()))
             {
-                let mut out = std::fs::File::create(&tmp)
-                    .with_context(|| format!("create {}", tmp.display()))?;
-                std::io::copy(&mut entry, &mut out)
-                    .with_context(|| format!("write {}", tmp.display()))?;
+                drop(out);
+                std::fs::remove_file(&tmp).ok();
+                return Err(e);
             }
+            drop(out);
             // On Windows we can't rename onto a running .exe — but xray is
             // stopped before install so this is fine.
             if dest.exists() {
                 std::fs::remove_file(&dest).ok();
             }
-            std::fs::rename(&tmp, &dest)
-                .with_context(|| format!("rename {} -> {}", tmp.display(), dest.display()))?;
+            if let Err(e) = std::fs::rename(&tmp, &dest)
+                .with_context(|| format!("rename {} -> {}", tmp.display(), dest.display()))
+            {
+                std::fs::remove_file(&tmp).ok();
+                return Err(e);
+            }
 
             #[cfg(unix)]
             if name == bin_name {
