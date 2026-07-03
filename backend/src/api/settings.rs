@@ -775,9 +775,7 @@ async fn swap_sub_listener(
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     let app = crate::build_sub_router(state.clone());
-    // The public subscription endpoint stays plain HTTP — panel TLS covers the
-    // admin listener only.
-    let new_tx = spawn_listener("0.0.0.0", new_sub_port, app, None)
+    let new_tx = spawn_sub_listener(state, "0.0.0.0", new_sub_port, app)
         .await
         .map_err(|e| {
             AppError::Internal(anyhow::anyhow!(
@@ -884,6 +882,34 @@ pub async fn spawn_main_listener(
                 "panel HTTPS failed to start ({e}); falling back to plain HTTP on port {port}"
             );
             Ok((spawn_listener(host, port, app, None).await?, false))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Bind the dedicated subscription listener with the same operator TLS as the
+/// panel. The UI hands clients an `https://host:sub_port/sub/...` link (its
+/// scheme mirrors the admin's panel origin), so a plain-HTTP listener here makes
+/// every client's TLS handshake fail — most visibly at `:443`, where the default
+/// port is stripped and the link looks perfectly valid yet nothing connects.
+/// Mirrors `spawn_main_listener`'s bad-cert fallback: if HTTPS can't start we
+/// drop to plain HTTP, matching the panel (which fell back too, so the admin is
+/// on `http://` and the generated link is `http://` as well).
+pub async fn spawn_sub_listener(
+    state: &AppState,
+    host: &str,
+    port: u16,
+    app: Router,
+) -> std::io::Result<oneshot::Sender<()>> {
+    let tls = load_tls_for_boot(&state.db).await;
+    let tls_requested = tls.is_some();
+    match spawn_listener(host, port, app.clone(), tls).await {
+        Ok(tx) => Ok(tx),
+        Err(e) if tls_requested => {
+            tracing::error!(
+                "subscription HTTPS failed to start ({e}); falling back to plain HTTP on port {port}"
+            );
+            spawn_listener(host, port, app, None).await
         }
         Err(e) => Err(e),
     }
