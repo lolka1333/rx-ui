@@ -159,4 +159,13 @@ verify_peer_cert_by_name: Array<string> | null,
  * optionally colon-separated, or base64). The strict alternative to
  * `verify_peer_cert_by_name`. Ignored on inbounds.
  */
-pinned_peer_cert_sha256: Array<string> | null, };
+pinned_peer_cert_sha256: Array<string> | null, 
+/**
+ * Operator flag: this inbound serves a SELF-SIGNED (not publicly trusted)
+ * certificate. When set, the hysteria2 share-link distributes the leaf
+ * cert's SHA-256 as `pinSHA256=` so clients pin it instead of failing
+ * chain validation. This is the fork's replacement for the removed
+ * `allowInsecure`/`insecure=1` on self-signed inbounds — leave it off for
+ * a real CA cert (pinning would break clients on the next renewal).
+ */
+self_signed: boolean | null, };

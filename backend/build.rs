@@ -66,9 +66,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         //                (TCP and UDP)
         //   * fragment — TCP-side packet splitting for DPI-evasion
         //   * noise    — UDP-side prepended noise items for QUIC masking
+        //   * salamander — UDP-side Hysteria 2 obfs (password-keyed); the
+        //                  hysteria2 share-link ships it as the standard
+        //                  `obfs=salamander&obfs-password=` so native clients
+        //                  pick it up too
         "proto/transport/internet/finalmask/sudoku/config.proto",
         "proto/transport/internet/finalmask/fragment/config.proto",
         "proto/transport/internet/finalmask/noise/config.proto",
+        "proto/transport/internet/finalmask/salamander/config.proto",
     ];
 
     for p in &protos {

@@ -88,6 +88,7 @@ export const DEFAULTS: FormValues = {
   tls_cipher_suites: [],
   tls_enable_session_resumption: false,
   tls_reject_unknown_sni: false,
+  tls_self_signed: false,
   tls_master_key_log: '',
   tls_ech_server_keys: '',
   tls_ech_config_list: '',
@@ -158,6 +159,7 @@ export const DEFAULTS: FormValues = {
   finalmask_noise_packet_hex: '',
   finalmask_noise_rand_min: 5,
   finalmask_noise_rand_max: 10,
+  finalmask_salamander_password: '',
   // Sockopt off by default — empty trusted list + null keepalive + no
   // mptcp means `buildSockopt` returns an all-empty SocketOpt, the
   // backend's `is_active` skips it, and xray gets no sockopt block.

@@ -152,6 +152,7 @@ export function inboundToForm(inb: Inbound): FormValues {
       : [];
     v.tls_enable_session_resumption = s.enable_session_resumption ?? false;
     v.tls_reject_unknown_sni = s.reject_unknown_sni ?? false;
+    v.tls_self_signed = s.self_signed ?? false;
     v.tls_master_key_log = s.master_key_log ?? '';
     v.tls_ech_server_keys = s.ech_server_keys ?? '';
     v.tls_ech_config_list = s.ech_config_list ?? '';
@@ -199,6 +200,7 @@ export type FinalMaskFormFields = Pick<
   | 'finalmask_noise_packet_hex'
   | 'finalmask_noise_rand_min'
   | 'finalmask_noise_rand_max'
+  | 'finalmask_salamander_password'
 >;
 
 /** Hydrate the flat `finalmask_*` form fields from a typed `FinalMask`. The
@@ -241,6 +243,9 @@ export function hydrateFinalMask(target: FinalMaskFormFields, fm: FinalMask): vo
     target.finalmask_noise_packet_hex = fm.packet_hex;
     target.finalmask_noise_rand_min = fm.rand_min;
     target.finalmask_noise_rand_max = fm.rand_max;
+  } else if (fm.kind === 'salamander') {
+    target.finalmask_kind = 'salamander';
+    target.finalmask_salamander_password = fm.password;
   }
 }
 
@@ -494,6 +499,7 @@ export function buildSecurity(v: FormValues): SecurityConfig {
           : null,
         enable_session_resumption: v.tls_enable_session_resumption,
         reject_unknown_sni: v.tls_reject_unknown_sni,
+        self_signed: v.tls_self_signed,
         master_key_log: orNull(v.tls_master_key_log),
         ech_server_keys: orNull(v.tls_ech_server_keys),
         ech_config_list: orNull(v.tls_ech_config_list),
@@ -607,6 +613,11 @@ export function buildFinalMask(v: FormValues): FinalMask {
         rand_max: v.finalmask_noise_rand_max,
         reset_min: null,
         reset_max: null,
+      };
+    case 'salamander':
+      return {
+        kind: 'salamander',
+        password: v.finalmask_salamander_password,
       };
   }
 }

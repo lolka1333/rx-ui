@@ -261,6 +261,15 @@ export function TlsTab() {
       >
         <Switch size="small" />
       </Form.Item>
+      <Form.Item
+        name="tls_self_signed"
+        label={t('inbounds.tlsSelfSigned')}
+        tooltip={t('inbounds.tlsSelfSignedTooltip')}
+        valuePropName="checked"
+        style={{ marginBottom: 12 }}
+      >
+        <Switch size="small" />
+      </Form.Item>
 
       {/* Advanced TLS — cipher suites, session resumption, ECH, key-log.
           Tucked behind a collapse because the defaults are sane for the

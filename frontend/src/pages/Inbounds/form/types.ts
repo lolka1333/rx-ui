@@ -148,6 +148,9 @@ export interface FormValues {
   tls_cipher_suites: string[];
   tls_enable_session_resumption: boolean;
   tls_reject_unknown_sni: boolean;
+  // Self-signed cert flag — distributes the leaf's SHA-256 as the
+  // hysteria2 share-link `pinSHA256=` so clients pin it.
+  tls_self_signed: boolean;
   // File path xray writes the NSS-format TLS keylog to. Debug-only.
   tls_master_key_log: string;
   // base64-encoded ECH server key bundle.
@@ -255,6 +258,8 @@ export interface FormValues {
   finalmask_noise_packet_hex: string;
   finalmask_noise_rand_min: number | null;
   finalmask_noise_rand_max: number | null;
+  // salamander (Hysteria 2 native obfs)
+  finalmask_salamander_password: string;
   sniffing_enabled: boolean;
   sniffing_dest_override: string[];
   // routeOnly — use the sniffed domain for routing only, without

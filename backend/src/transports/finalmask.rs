@@ -53,6 +53,13 @@ pub enum FinalMask {
     /// QUIC fingerprints (well-known long-header byte patterns) as a
     /// cheap pass over surface DPI.
     Noise(NoiseParams),
+    /// Salamander finalmask (`xray.transport.internet.finalmask.salamander`) —
+    /// Hysteria 2's native password-keyed UDP obfuscation. UDP-only, so it
+    /// applies to Hysteria/QUIC inbounds. Unlike the others it rides the
+    /// hysteria2 share-link as the STANDARD `obfs=salamander&obfs-password=…`
+    /// (not `fm=`), so non-xray clients (sing-box, `NekoBox`, official hysteria)
+    /// pick it up too.
+    Salamander(SalamanderParams),
 }
 
 /// Knobs surfaced to the operator. Mirrors the upstream proto field
@@ -140,8 +147,19 @@ pub struct NoiseParams {
     pub reset_max: Option<i64>,
 }
 
+/// Salamander finalmask knobs. Hysteria 2's obfs is a single shared
+/// password; the packet-size window (Gecko variant) is left at xray's
+/// default for v1.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../frontend/src/api/types/finalmask.ts")]
+pub struct SalamanderParams {
+    /// Shared obfuscation password. Required; empty ≡ disabled (the
+    /// orchestrator emits no mask, and the share-link omits `obfs=`).
+    pub password: String,
+}
+
 /// Which socket-side(s) a variant applies to. `Sudoku` works on both;
-/// `Fragment` only on TCP; `Noise` only on UDP.
+/// `Fragment` only on TCP; `Noise` / `Salamander` only on UDP.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FinalMaskScope {
     Tcp,
@@ -159,6 +177,7 @@ impl FinalMask {
             Self::Sudoku(_) => "sudoku",
             Self::Fragment(_) => "fragment",
             Self::Noise(_) => "noise",
+            Self::Salamander(_) => "salamander",
         }
     }
 
@@ -180,6 +199,8 @@ impl FinalMask {
                     || p.rand_min.is_some_and(|v| v > 0)
                     || p.rand_max.is_some_and(|v| v > 0)
             }
+            // Salamander is active once a password is set.
+            Self::Salamander(p) => !p.password.trim().is_empty(),
         }
     }
 
@@ -240,6 +261,12 @@ impl FinalMask {
                     reset_min: p.reset_min.unwrap_or(0),
                     reset_max: p.reset_max.unwrap_or(0),
                     items: vec![item],
+                };
+                (proto.encode_to_vec(), FinalMaskScope::Udp)
+            }
+            Self::Salamander(p) => {
+                let proto = fm::salamander::Config {
+                    password: p.password.clone(),
                 };
                 (proto.encode_to_vec(), FinalMaskScope::Udp)
             }

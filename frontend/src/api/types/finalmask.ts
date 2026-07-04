@@ -19,7 +19,7 @@
  *     vless/reality TCP inbounds. Most useful for QUIC/Hysteria
  *     where a noise prefix breaks fingerprinting.
  */
-export type FinalMask = { "kind": "none" } | { "kind": "sudoku" } & SudokuParams | { "kind": "fragment" } & FragmentParams | { "kind": "noise" } & NoiseParams;
+export type FinalMask = { "kind": "none" } | { "kind": "sudoku" } & SudokuParams | { "kind": "fragment" } & FragmentParams | { "kind": "noise" } & NoiseParams | { "kind": "salamander" } & SalamanderParams;
 
 /**
  * Fragment finalmask knobs (xray-core v26.6.22 #6334). `lengths`/`delays`
@@ -68,6 +68,18 @@ rand_min: number | null, rand_max: number | null,
  * xray default.
  */
 reset_min: number | null, reset_max: number | null, };
+
+/**
+ * Salamander finalmask knobs. Hysteria 2's obfs is a single shared
+ * password; the packet-size window (Gecko variant) is left at xray's
+ * default for v1.
+ */
+export type SalamanderParams = { 
+/**
+ * Shared obfuscation password. Required; empty ≡ disabled (the
+ * orchestrator emits no mask, and the share-link omits `obfs=`).
+ */
+password: string, };
 
 /**
  * Knobs surfaced to the operator. Mirrors the upstream proto field

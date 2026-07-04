@@ -164,6 +164,7 @@ export const OUTBOUND_DEFAULTS: OutboundFormValues = {
   finalmask_noise_packet_hex: INB_DEFAULTS.finalmask_noise_packet_hex,
   finalmask_noise_rand_min: INB_DEFAULTS.finalmask_noise_rand_min,
   finalmask_noise_rand_max: INB_DEFAULTS.finalmask_noise_rand_max,
+  finalmask_salamander_password: INB_DEFAULTS.finalmask_salamander_password,
 };
 
 /** The XHTTP knobs the outbound form does NOT expose — the tuning/sizing
@@ -252,6 +253,8 @@ function buildSecurity(v: OutboundFormValues): SecurityConfig {
         v.tls_verify_peer_cert_by_name.length > 0 ? v.tls_verify_peer_cert_by_name : null,
       pinned_peer_cert_sha256:
         v.tls_pinned_peer_cert_sha256.length > 0 ? v.tls_pinned_peer_cert_sha256 : null,
+      // Inbound-only flag (share-link cert pinning) — irrelevant to an outbound relay.
+      self_signed: null,
     };
   }
   if (v.security === 'reality') {

@@ -11,6 +11,7 @@ use crate::xray::proto::xray::transport::internet::tls::{
 use base64::Engine as _;
 use prost::Message;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use ts_rs::TS;
 
 const TYPE_TLS_CONFIG: &str = "xray.transport.internet.tls.Config";
@@ -35,6 +36,30 @@ pub enum TlsCertUsage {
 
 const fn default_true_bool() -> bool {
     true
+}
+
+/// Extract the first `CERTIFICATE` PEM block from a bundle and decode it to
+/// DER. Tolerates surrounding text, multiple blocks and CRLF. `None` when
+/// there's no well-formed certificate block.
+fn pem_first_certificate_der(pem: &str) -> Option<Vec<u8>> {
+    const BEGIN: &str = "-----BEGIN CERTIFICATE-----";
+    const END: &str = "-----END CERTIFICATE-----";
+    let body_start = pem.find(BEGIN)? + BEGIN.len();
+    let rest = &pem[body_start..];
+    let body_end = rest.find(END)?;
+    let b64: String = rest[..body_end].split_whitespace().collect();
+    base64::engine::general_purpose::STANDARD.decode(b64).ok()
+}
+
+/// Lowercase hex — the format both xray's `pinnedPeerCertSha256` and the
+/// hysteria2 `pinSHA256` URI param accept for a cert fingerprint.
+fn hex_lower(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        let _ = write!(out, "{b:02x}");
+    }
+    out
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
@@ -103,6 +128,14 @@ pub struct TlsSecurity {
     /// `verify_peer_cert_by_name`. Ignored on inbounds.
     #[serde(default)]
     pub pinned_peer_cert_sha256: Option<Vec<String>>,
+    /// Operator flag: this inbound serves a SELF-SIGNED (not publicly trusted)
+    /// certificate. When set, the hysteria2 share-link distributes the leaf
+    /// cert's SHA-256 as `pinSHA256=` so clients pin it instead of failing
+    /// chain validation. This is the fork's replacement for the removed
+    /// `allowInsecure`/`insecure=1` on self-signed inbounds — leave it off for
+    /// a real CA cert (pinning would break clients on the next renewal).
+    #[serde(default)]
+    pub self_signed: Option<bool>,
 }
 
 impl TlsSecurity {
@@ -125,6 +158,19 @@ impl TlsSecurity {
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .unwrap_or("chrome")
+    }
+
+    /// SHA-256 (lowercase hex) of the first certificate's leaf DER — the value
+    /// distributed as the hysteria2 share-link `pinSHA256=` when `self_signed`
+    /// is set. Returns `None` for a `Path`-sourced cert (its bytes aren't read
+    /// here) or a malformed PEM, in which case the builder omits the pin.
+    pub fn cert_pin_sha256(&self) -> Option<String> {
+        let spec = self.certificates.first()?;
+        if !matches!(spec.source, TlsCertSource::Inline) {
+            return None;
+        }
+        let der = pem_first_certificate_der(&spec.cert)?;
+        Some(hex_lower(&Sha256::digest(der)))
     }
 
     fn build_one_certificate(spec: &TlsCertificate) -> anyhow::Result<XrayCertificate> {

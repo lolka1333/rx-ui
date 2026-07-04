@@ -32,6 +32,7 @@ const VARIANT_LABEL_KEYS: Record<FinalMask['kind'], string> = {
   sudoku: 'inbounds.finalmaskKindSudoku',
   fragment: 'inbounds.finalmaskKindFragment',
   noise: 'inbounds.finalmaskKindNoise',
+  salamander: 'inbounds.finalmaskKindSalamander',
 };
 
 /** Operator-selectable ASCII modes for Sudoku. `''` (empty) means
@@ -71,7 +72,38 @@ export function FinalMaskTab() {
       {kind === 'sudoku' && <SudokuFields />}
       {kind === 'fragment' && <FragmentFields />}
       {kind === 'noise' && <NoiseFields />}
+      {kind === 'salamander' && <SalamanderFields />}
     </>
+  );
+}
+
+/** Salamander — Hysteria 2's native obfs. Just a shared password; the
+ *  hysteria2 share-link emits it as the standard `obfs=salamander&
+ *  obfs-password=…` so any hysteria2 client (not only xray) picks it up. */
+function SalamanderFields() {
+  const { t } = useTranslation();
+  return (
+    <Section itemKey="finalmask-salamander" labelKey="inbounds.finalmaskSalamanderSection">
+      <Form.Item
+        name="finalmask_salamander_password"
+        label={t('inbounds.finalmaskSalamanderPassword')}
+        tooltip={t('inbounds.finalmaskSalamanderPasswordTooltip')}
+        rules={[
+          {
+            validator: (_, v: string) =>
+              v && v.trim()
+                ? Promise.resolve()
+                : Promise.reject(new Error(t('inbounds.finalmaskSalamanderPasswordRequired'))),
+          },
+        ]}
+        style={{ marginBottom: 0 }}
+      >
+        <Input.Password
+          placeholder={t('inbounds.finalmaskSalamanderPasswordPlaceholder')}
+          allowClear
+        />
+      </Form.Item>
+    </Section>
   );
 }
 

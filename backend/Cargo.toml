@@ -79,6 +79,10 @@ x25519-dalek = { version = "2", features = ["static_secrets"] }
 # standalone secrets pull the current `rand`.
 rand = "0.9"
 base64 = "0.22"
+# SHA-256 of a self-signed leaf cert's DER — distributed in the hysteria2
+# share-link as `pinSHA256=` so clients pin it. Pinned to 0.10 to reuse the
+# 0.10.9 already pulled by rust-embed/sqlx — avoids compiling a second sha2.
+sha2 = "0.10"
 
 # Percent-encoding for share-link query/fragment components
 urlencoding = "2"

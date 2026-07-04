@@ -74,17 +74,55 @@ pub fn build_hysteria2_share_link(
     if !sni.is_empty() {
         params.insert(0, ("sni".to_owned(), sni.to_owned()));
     }
+    // Self-signed cert: the fork removed `allowInsecure`, so instead of
+    // `insecure=1` we hand clients the exact leaf fingerprint as `pinSHA256=`.
+    // Fork clients (v2rayN) map it to `pinnedPeerCertSha256`; stock hysteria2
+    // clients pin it directly — either way an exact-cert match replaces chain
+    // validation, so a self-signed inbound connects with no per-client step.
+    // Left off (and `insecure=0` kept) for a real CA cert, whose renewals would
+    // otherwise break every pinned client.
+    if tls.self_signed == Some(true)
+        && let Some(pin) = tls.cert_pin_sha256()
+    {
+        params.push(("pinSHA256".to_owned(), pin));
+    }
     // ECH parity with the vless builder — same param name, same shape.
     if let Some(ech) = &tls.ech_config_list
         && !ech.is_empty()
     {
         params.push(("ech".to_owned(), ech.clone()));
     }
-    // FinalMask parity with the vless builder — sudoku/etc rides as `fm=`
-    // on both URL schemes so the same `Inbound` produces a symmetric
-    // client config regardless of protocol.
-    if let Some(pair) = finalmask_share_link_param(&inbound.finalmask) {
-        params.push(pair);
+    // Obfuscation. Salamander is Hysteria 2's NATIVE obfs, so emit the standard
+    // `obfs=salamander&obfs-password=…` — it lands in every hysteria2 client's
+    // obfs field (xray or not). Any other FinalMask (noise/sudoku/…) is an
+    // xray-specific wrapper and rides as `fm=`, same as the vless builder.
+    match &inbound.finalmask {
+        FinalMask::Salamander(p) if !p.password.trim().is_empty() => {
+            params.push(("obfs".to_owned(), "salamander".to_owned()));
+            params.push(("obfs-password".to_owned(), p.password.clone()));
+        }
+        _ => {
+            if let Some(pair) = finalmask_share_link_param(&inbound.finalmask) {
+                params.push(pair);
+            }
+        }
+    }
+
+    // Port hopping: carry the server's udp_hop port set as `mport=` (v2rayN /
+    // NekoBox read it into their "port range" field) so the client rotates the
+    // same ports. Without it the subscription hands out only the single listen
+    // port and hopping is lost client-side.
+    if let TransportConfig::Hysteria(ht) = &inbound.transport
+        && let Some(hop) = ht.quic_params.as_ref().and_then(|q| q.udp_hop.as_ref())
+        && !hop.ports.is_empty()
+    {
+        let ports = hop
+            .ports
+            .iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
+        params.push(("mport".to_owned(), ports));
     }
 
     let query = params
@@ -243,6 +281,8 @@ fn finalmask_share_link_param(fm: &FinalMask) -> Option<(String, String)> {
                 "noise": [item],
             })
         }
+        // Salamander is a single password (packetSize left at xray default).
+        FinalMask::Salamander(p) => serde_json::json!({ "password": p.password }),
     };
     let layer = serde_json::json!({ "type": fm.kind(), "settings": settings });
     // Sudoku applies to both sockets; Fragment is TCP-only; Noise is UDP-only.
@@ -253,7 +293,9 @@ fn finalmask_share_link_param(fm: &FinalMask) -> Option<(String, String)> {
         // both slots without a clone.
         FinalMask::Sudoku(_) => serde_json::json!({ "tcp": [layer], "udp": [layer] }),
         FinalMask::Fragment(_) => serde_json::json!({ "tcp": [layer], "udp": [] }),
-        FinalMask::Noise(_) => serde_json::json!({ "tcp": [], "udp": [layer] }),
+        FinalMask::Noise(_) | FinalMask::Salamander(_) => {
+            serde_json::json!({ "tcp": [], "udp": [layer] })
+        }
         FinalMask::None => unreachable!("filtered by is_active above"),
     };
     let raw = serde_json::to_string(&body).ok()?;
@@ -707,6 +749,133 @@ mod tests {
         assert!(link.contains("alpn=h3"), "got: {link}");
         assert!(link.contains("insecure=0"), "got: {link}");
         assert!(link.ends_with("#alice%40test"), "got: {link}");
+    }
+
+    /// A real self-signed Ed25519 leaf (CN=hytest.local). Its DER SHA-256 is
+    /// `SELF_SIGNED_PIN` — the same fingerprint verified end-to-end against a
+    /// live hysteria2 client.
+    const SELF_SIGNED_CERT_PEM: &str = concat!(
+        "-----BEGIN CERTIFICATE-----\n",
+        "MIIBXDCCAQ6gAwIBAgIUbBWShOjvjt7jprnNwbWfpLtoxZowBQYDK2VwMBcxFTAT\n",
+        "BgNVBAMMDGh5dGVzdC5sb2NhbDAeFw0yNjA1MTkxODA2MDNaFw0yNzA1MTkxODA2\n",
+        "MDNaMBcxFTATBgNVBAMMDGh5dGVzdC5sb2NhbDAqMAUGAytlcAMhAGF104FI56gI\n",
+        "rXgDA4dHtbYzKHh0BSziSLNcX+XdmV6Qo2wwajAdBgNVHQ4EFgQU2wu3StN6KFgY\n",
+        "kMLuLwA3ynjoj7EwHwYDVR0jBBgwFoAU2wu3StN6KFgYkMLuLwA3ynjoj7EwDwYD\n",
+        "VR0TAQH/BAUwAwEB/zAXBgNVHREEEDAOggxoeXRlc3QubG9jYWwwBQYDK2VwA0EA\n",
+        "4aAGEDBVVKSV/8feh9UGBOab9azgujSuUq5O5UxkIBZpYvYhwdFmm6xRq5EgOZnM\n",
+        "JOPkdnV3coHkQCi2YXzJDg==\n",
+        "-----END CERTIFICATE-----\n",
+    );
+    const SELF_SIGNED_PIN: &str =
+        "ed4f0f4d9e6a17d06190557e3fd919bd0fb257c12abcdd758ef9400ea40d349d";
+
+    fn tls_self_signed(sni: &str, flag: bool) -> TlsSecurity {
+        TlsSecurity {
+            certificates: vec![TlsCertificate {
+                source: TlsCertSource::Inline,
+                cert: SELF_SIGNED_CERT_PEM.into(),
+                key: "-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----".into(),
+                usage: TlsCertUsage::Encipherment,
+                ocsp_stapling: 0,
+                build_chain: false,
+                one_time_loading: true,
+            }],
+            server_name: Some(sni.to_owned()),
+            self_signed: Some(flag),
+            ..TlsSecurity::default()
+        }
+    }
+
+    #[test]
+    fn hysteria2_self_signed_emits_cert_pin() {
+        let inb = hy_inbound(tls_self_signed("hy.example.com", true));
+        let link = build_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
+        assert!(
+            link.contains(&format!("pinSHA256={SELF_SIGNED_PIN}")),
+            "got: {link}"
+        );
+        // Pinning replaces chain validation — `insecure` stays 0.
+        assert!(link.contains("insecure=0"), "got: {link}");
+    }
+
+    #[test]
+    fn hysteria2_no_pin_without_self_signed_flag() {
+        // Same cert, flag off → the pin is not distributed.
+        let inb = hy_inbound(tls_self_signed("hy.example.com", false));
+        let link = build_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
+        assert!(!link.contains("pinSHA256"), "got: {link}");
+    }
+
+    #[test]
+    fn hysteria2_self_signed_path_cert_omits_pin() {
+        // A `Path`-sourced cert isn't read by the builder, so there's nothing
+        // to hash — the pin is silently omitted rather than emitting garbage.
+        let mut tls = tls_self_signed("hy.example.com", true);
+        tls.certificates[0].source = TlsCertSource::Path;
+        tls.certificates[0].cert = "/etc/xray/hy.crt".into();
+        let link = build_share_link(&hy_inbound(tls), &base_client(), "1.2.3.4").unwrap();
+        assert!(!link.contains("pinSHA256"), "got: {link}");
+    }
+
+    #[test]
+    fn hysteria2_salamander_rides_as_standard_obfs() {
+        use crate::transports::finalmask::SalamanderParams;
+        let mut inb = hy_inbound(tls_with_sni("hy.example.com"));
+        inb.finalmask = FinalMask::Salamander(SalamanderParams {
+            password: "obfs-pw".into(),
+        });
+        let link = build_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
+        // Salamander is Hysteria 2's native obfs → the standard params every
+        // client reads, NOT the xray-specific `fm=`.
+        assert!(link.contains("obfs=salamander"), "got: {link}");
+        assert!(link.contains("obfs-password=obfs-pw"), "got: {link}");
+        assert!(
+            !link.contains("fm="),
+            "salamander must not also emit fm=: {link}"
+        );
+    }
+
+    #[test]
+    fn hysteria2_noise_rides_as_fm_not_obfs() {
+        use crate::transports::finalmask::NoiseParams;
+        let mut inb = hy_inbound(tls_with_sni("hy.example.com"));
+        inb.finalmask = FinalMask::Noise(NoiseParams {
+            rand_min: Some(5),
+            rand_max: Some(10),
+            ..NoiseParams::default()
+        });
+        let link = build_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
+        // Non-salamander masks stay xray-specific → `fm=`, no `obfs=`.
+        assert!(link.contains("fm="), "got: {link}");
+        assert!(!link.contains("obfs=salamander"), "got: {link}");
+    }
+
+    #[test]
+    fn hysteria2_port_hopping_rides_as_mport() {
+        use crate::transports::quic::{QuicParams, UdpHop};
+        let mut inb = hy_inbound(tls_with_sni("hy.example.com"));
+        let TransportConfig::Hysteria(ht) = &mut inb.transport else {
+            unreachable!("hy_inbound builds a hysteria transport");
+        };
+        ht.quic_params = Some(QuicParams {
+            udp_hop: Some(UdpHop {
+                ports: vec![23929, 23931],
+                interval_min: 30,
+                interval_max: 30,
+            }),
+            ..QuicParams::default()
+        });
+        let link = build_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
+        // Ports joined by comma (url-encoded to %2C) → v2rayN's port-range field.
+        assert!(link.contains("mport=23929%2C23931"), "got: {link}");
+    }
+
+    #[test]
+    fn hysteria2_no_mport_without_port_hopping() {
+        // The basic fixture has quic_params: None → no port hopping → no mport.
+        let inb = hy_inbound(tls_with_sni("hy.example.com"));
+        let link = build_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
+        assert!(!link.contains("mport="), "got: {link}");
     }
 
     #[test]
