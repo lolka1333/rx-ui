@@ -338,6 +338,23 @@ fn compute_delta(
     })
 }
 
+/// Drop `email` from EVERY inbound the client is attached to. xray keys users
+/// per `(inbound, email)`, so a client spanning N inbounds needs N `RemoveUser`
+/// calls — otherwise bytes keep flowing through the inbounds we skipped. The
+/// "not found" reply is the idempotent no-op (user already gone this tick) and
+/// isn't logged.
+async fn remove_user_everywhere(client: &XrayClient, tags: &[String], email: &str, context: &str) {
+    for tag in tags {
+        match client.remove_user(tag, email).await {
+            Ok(()) => {}
+            Err(e) if e.to_string().contains("not found") => {}
+            Err(e) => tracing::warn!(
+                "traffic poller {context} RemoveUser failed for {email} in inbound {tag}: {e}"
+            ),
+        }
+    }
+}
+
 /// Drift correction: if the DB says this client is disabled but xray
 /// still has them in the online set OR moved bytes this tick, the two
 /// state machines are out of sync (panel crashed mid-mutation, parallel
@@ -360,20 +377,11 @@ async fn maybe_drift_correct(
     if !(online_set.contains(email) || up_delta > 0 || down_delta > 0) {
         return;
     }
-    match client.remove_user(&meta.inbound_tag, email).await {
-        Ok(()) => tracing::info!(
-            "traffic poller: drift corrected — DB-disabled client {email} was still active in xray, removed"
-        ),
-        // "User not found" is the expected response on the tick *after*
-        // a successful removal: the TCP socket closes, residual byte
-        // counters tick once more (so the outer guard is still true),
-        // but the user is already gone from xray. Idempotent success,
-        // not worth a warning.
-        Err(e) if e.to_string().contains("not found") => {}
-        Err(e) => {
-            tracing::warn!("traffic poller drift-correction RemoveUser failed for {email}: {e}");
-        }
-    }
+    tracing::info!(
+        "traffic poller: drift corrected — DB-disabled client {email} was still active in xray, removing from {} inbound(s)",
+        meta.inbound_tags.len()
+    );
+    remove_user_everywhere(client, &meta.inbound_tags, email, "drift-correction").await;
 }
 
 /// Quota enforcement. Always computes against the freshly-computed
@@ -402,28 +410,29 @@ async fn maybe_enforce_quota(
     if new_up + new_down < limit {
         return;
     }
-    let client_id = meta.id.clone();
+    // Disable EVERY row for this email — the client's on/off state is a
+    // property of the identity, not one inbound attachment. The frontend list
+    // treats a group as enabled only when all rows are (`rows.every`), so a
+    // partial flip would render an inconsistent toggle.
     if let Err(e) = sqlx::query!(
         "UPDATE clients SET enabled = 0, disabled_reason = 'quota',
-                updated_at = datetime('now') WHERE id = ?",
-        client_id,
+                updated_at = datetime('now') WHERE email = ?",
+        email,
     )
     .execute(db)
     .await
     {
+        // DB is the source of truth; if it fails we skip the xray removal too
+        // and retry the whole thing next tick.
         tracing::warn!("traffic poller quota flip failed for {email}: {e}");
-    } else if let Err(e) = client.remove_user(&meta.inbound_tag, email).await {
-        // DB is the source of truth; if the xray call fails the client
-        // is still flagged quota-exceeded in the panel UI but bytes
-        // keep flowing until xray catches up (typically on the next
-        // inbound reload).
-        tracing::warn!("traffic poller quota RemoveUser failed for {email}: {e}");
-    } else {
-        tracing::info!(
-            "traffic poller: quota reached for {email} ({} bytes, limit {limit}), removed from xray",
-            new_up + new_down
-        );
+        return;
     }
+    remove_user_everywhere(client, &meta.inbound_tags, email, "quota").await;
+    tracing::info!(
+        "traffic poller: quota reached for {email} ({} bytes, limit {limit}), removed from {} inbound(s)",
+        new_up + new_down,
+        meta.inbound_tags.len()
+    );
 }
 
 /// Time-driven sibling of `maybe_enforce_quota`: if the client has an
@@ -453,23 +462,20 @@ async fn maybe_enforce_expiry(
     if exp > chrono::Utc::now().naive_utc() {
         return;
     }
-    let client_id = meta.id.clone();
     if let Err(e) = sqlx::query!(
         "UPDATE clients SET enabled = 0, disabled_reason = 'expired',
-                updated_at = datetime('now') WHERE id = ?",
-        client_id,
+                updated_at = datetime('now') WHERE email = ?",
+        email,
     )
     .execute(db)
     .await
     {
+        // DB is source of truth; if it fails we skip xray removal and retry.
         tracing::warn!("traffic poller expiry flip failed for {email}: {e}");
-    } else if let Err(e) = client.remove_user(&meta.inbound_tag, email).await {
-        // DB is source of truth; if xray lags, the client shows expired in
-        // the UI but bytes flow until the next inbound reload.
-        tracing::warn!("traffic poller expiry RemoveUser failed for {email}: {e}");
-    } else {
-        tracing::info!("traffic poller: {email} expired (at {expires_at}), removed from xray");
+        return;
     }
+    remove_user_everywhere(client, &meta.inbound_tags, email, "expiry").await;
+    tracing::info!("traffic poller: {email} expired (at {expires_at}), removed from all inbounds");
 }
 
 /// Compose the per-email `TrafficSnapshot` served to the operator's
@@ -570,8 +576,11 @@ struct PrevTick {
 /// client trips its quota). One query per tick.
 #[derive(Debug, Clone)]
 struct ClientMeta {
-    id: String,
-    inbound_tag: String,
+    /// EVERY inbound tag this email is attached to. xray keys users per
+    /// `(inbound, email)`, so enforcement (`remove_user`) must fan out to all
+    /// of them — dropping the user from a single inbound leaves bytes flowing
+    /// through the others.
+    inbound_tags: Vec<String>,
     uplink_total: u64,
     downlink_total: u64,
     enabled: bool,
@@ -589,8 +598,7 @@ struct ClientMeta {
 #[allow(clippy::cast_sign_loss)]
 async fn load_db_totals(db: &DbPool) -> sqlx::Result<HashMap<String, ClientMeta>> {
     let rows = sqlx::query!(
-        r#"SELECT c.id           AS "id!",
-                  c.email        AS "email!",
+        r#"SELECT c.email        AS "email!",
                   i.tag          AS "inbound_tag!",
                   c.uplink_total AS "uplink_total!",
                   c.downlink_total AS "downlink_total!",
@@ -602,33 +610,127 @@ async fn load_db_totals(db: &DbPool) -> sqlx::Result<HashMap<String, ClientMeta>
     )
     .fetch_all(db)
     .await?;
-    Ok(rows
-        .into_iter()
-        .map(|r| {
-            let up = r.uplink_total.max(0) as u64;
-            let down = r.downlink_total.max(0) as u64;
-            let limit = r
-                .traffic_limit_bytes
-                .and_then(|v| if v < 0 { None } else { Some(v as u64) });
-            (
-                r.email,
-                ClientMeta {
-                    id: r.id,
-                    inbound_tag: r.inbound_tag,
-                    uplink_total: up,
-                    downlink_total: down,
-                    enabled: r.enabled != 0,
-                    limit_bytes: limit,
-                    expires_at: r.expires_at,
-                },
-            )
-        })
-        .collect())
+    Ok(fold_canonical_metas(rows.into_iter().map(|r| {
+        let up = r.uplink_total.max(0) as u64;
+        let down = r.downlink_total.max(0) as u64;
+        let limit = r
+            .traffic_limit_bytes
+            .and_then(|v| if v < 0 { None } else { Some(v as u64) });
+        (
+            r.email,
+            ClientMeta {
+                inbound_tags: vec![r.inbound_tag],
+                uplink_total: up,
+                downlink_total: down,
+                enabled: r.enabled != 0,
+                limit_bytes: limit,
+                expires_at: r.expires_at,
+            },
+        )
+    })))
+}
+
+/// Collapse the per-`(inbound_id, email)` rows to ONE canonical `ClientMeta`
+/// per email, keeping the row with the largest lifetime total.
+///
+/// xray accounts traffic per email — a single `user>>>{email}>>>traffic`
+/// counter regardless of how many inbounds carry that email — so every row
+/// sharing an email describes the SAME usage. A plain `HashMap` collect would
+/// keep an arbitrary (last-yielded) row; right after a client is attached to a
+/// new inbound that row is the freshly-INSERTed one with a 0 total, so the
+/// poller would surface ~0 and the client's traffic (and remaining quota
+/// headroom) would appear to reset. Picking the max-total row instead matches
+/// the subscription builder's max-over-rows and keeps the number stable.
+///
+/// The canonical meta also carries the UNION of every row's inbound tag so
+/// quota/expiry enforcement can drop the user from all of the email's inbounds,
+/// not just the one that happened to hold the largest total.
+fn fold_canonical_metas(
+    pairs: impl Iterator<Item = (String, ClientMeta)>,
+) -> HashMap<String, ClientMeta> {
+    use std::collections::hash_map::Entry;
+    let mut by_email: HashMap<String, ClientMeta> = HashMap::new();
+    for (email, mut cand) in pairs {
+        match by_email.entry(email) {
+            Entry::Vacant(v) => {
+                v.insert(cand);
+            }
+            Entry::Occupied(mut e) => {
+                let cur = e.get_mut();
+                let higher =
+                    cand.uplink_total + cand.downlink_total > cur.uplink_total + cur.downlink_total;
+                // Union the inbound tags — enforcement must reach every
+                // attachment regardless of which row wins the totals.
+                let mut tags = std::mem::take(&mut cur.inbound_tags);
+                for tag in std::mem::take(&mut cand.inbound_tags) {
+                    if !tags.contains(&tag) {
+                        tags.push(tag);
+                    }
+                }
+                if higher {
+                    *cur = cand;
+                }
+                cur.inbound_tags = tags;
+            }
+        }
+    }
+    by_email
 }
 
 #[cfg(test)]
 mod tests {
-    use super::parse_counter;
+    use super::{ClientMeta, fold_canonical_metas, parse_counter};
+
+    fn meta(tag: &str, up: u64, down: u64) -> ClientMeta {
+        ClientMeta {
+            inbound_tags: vec![tag.to_owned()],
+            uplink_total: up,
+            downlink_total: down,
+            enabled: true,
+            limit_bytes: None,
+            expires_at: None,
+        }
+    }
+
+    #[test]
+    fn canonical_meta_keeps_highest_total_not_the_fresh_row() {
+        // Same email attached to two inbounds: the original row holds ~7 GB,
+        // a freshly attached inbound INSERTs a 0-total row. The 0-row is
+        // yielded LAST (mimics the newest-rowid scan the old last-wins
+        // collapse surfaced) — the canonical pick must still keep the 7 GB row
+        // so the client's traffic and quota headroom don't reset on attach.
+        let pairs = vec![
+            (
+                "bob@x".to_owned(),
+                meta("inbA", 5_000_000_000, 2_000_000_000),
+            ),
+            ("bob@x".to_owned(), meta("inbB", 0, 0)),
+        ];
+        let out = fold_canonical_metas(pairs.into_iter());
+        let m = out.get("bob@x").expect("email present");
+        assert_eq!(m.uplink_total, 5_000_000_000, "kept the high-total row");
+        assert_eq!(m.downlink_total, 2_000_000_000);
+        // The canonical meta carries EVERY inbound the email is attached to, so
+        // enforcement can drop the user from all of them — not just inbA.
+        assert!(m.inbound_tags.contains(&"inbA".to_owned()));
+        assert!(m.inbound_tags.contains(&"inbB".to_owned()));
+        assert_eq!(m.inbound_tags.len(), 2);
+    }
+
+    #[test]
+    fn canonical_meta_order_independent() {
+        // Same result regardless of row order (HashMap/rowid scan is unordered).
+        let hi = || ("y@z".to_owned(), meta("A", 900, 100));
+        let lo = || ("y@z".to_owned(), meta("B", 0, 0));
+        assert_eq!(
+            fold_canonical_metas(vec![lo(), hi()].into_iter())["y@z"].uplink_total,
+            900
+        );
+        assert_eq!(
+            fold_canonical_metas(vec![hi(), lo()].into_iter())["y@z"].uplink_total,
+            900
+        );
+    }
 
     #[test]
     fn parses_uplink() {

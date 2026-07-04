@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE clients SET enabled = 0, disabled_reason = 'quota',\n                updated_at = datetime('now') WHERE email = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "14247316cb24bee41be84ca2c0997d6326013e13df5d5708c23208e6066a5aec"
+}

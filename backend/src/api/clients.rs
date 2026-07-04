@@ -299,10 +299,21 @@ async fn commit_bulk_assign_tx(
         } else {
             let new_id = Uuid::new_v4().to_string();
             let sub_token = crate::api::subscription::generate_unique_token(&state.db).await?;
+            // Seed the new attachment's lifetime counters from the email's
+            // current total (xray accounts per email, so every attachment
+            // shares one usage figure). Starting a fresh row at 0 would leave
+            // the email with unequal rows: the traffic poller surfaces the max,
+            // so nothing resets, but DELETING the older attachment would then
+            // drop that history. Inheriting the max keeps every row in step, so
+            // removing any one attachment is lossless. `MAX(...)` is NULL for a
+            // brand-new email → COALESCE to 0.
             sqlx::query!(
                 r#"INSERT INTO clients (id, inbound_id, email, uuid, auth, flow, enabled,
-                                        note, traffic_limit_bytes, disabled_reason, expires_at, sub_token)
-                   VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, NULL, ?, ?)"#,
+                                        note, traffic_limit_bytes, disabled_reason, expires_at, sub_token,
+                                        uplink_total, downlink_total)
+                   VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, NULL, ?, ?,
+                           COALESCE((SELECT MAX(uplink_total) FROM clients WHERE email = ?), 0),
+                           COALESCE((SELECT MAX(downlink_total) FROM clients WHERE email = ?), 0))"#,
                 new_id,
                 inbound_id,
                 body.email,
@@ -313,6 +324,8 @@ async fn commit_bulk_assign_tx(
                 body.traffic_limit_bytes,
                 expires_at.clone(),
                 sub_token,
+                body.email,
+                body.email,
             )
             .execute(&mut *tx)
             .await
@@ -522,7 +535,9 @@ async fn reset_traffic(
 ) -> AppResult<StatusCode> {
     // Need the row before the wipe so we know whether to also re-enable
     // (only quota-disabled clients come back on automatically — a manually
-    // disabled one stays off).
+    // disabled one stays off). Operates on a single attachment: the frontend
+    // "reset" button fans out one call per row of the email, so wiping this
+    // one row is correct — the sibling rows get their own calls.
     let before = sqlx::query!(
         "SELECT inbound_id, disabled_reason FROM clients WHERE id = ?",
         id

@@ -1,22 +1,11 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT c.id           AS \"id!\",\n                  c.email        AS \"email!\",\n                  i.tag          AS \"inbound_tag!\",\n                  c.uplink_total AS \"uplink_total!\",\n                  c.downlink_total AS \"downlink_total!\",\n                  c.enabled      AS \"enabled!\",\n                  c.traffic_limit_bytes,\n                  c.expires_at\n           FROM clients c\n           JOIN inbounds i ON i.id = c.inbound_id",
+  "query": "SELECT c.email        AS \"email!\",\n                  i.tag          AS \"inbound_tag!\",\n                  c.uplink_total AS \"uplink_total!\",\n                  c.downlink_total AS \"downlink_total!\",\n                  c.enabled      AS \"enabled!\",\n                  c.traffic_limit_bytes,\n                  c.expires_at\n           FROM clients c\n           JOIN inbounds i ON i.id = c.inbound_id",
   "describe": {
     "columns": [
       {
-        "name": "id!",
-        "ordinal": 0,
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "clients",
-            "name": "id"
-          }
-        }
-      },
-      {
         "name": "email!",
-        "ordinal": 1,
+        "ordinal": 0,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -27,7 +16,7 @@
       },
       {
         "name": "inbound_tag!",
-        "ordinal": 2,
+        "ordinal": 1,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -38,7 +27,7 @@
       },
       {
         "name": "uplink_total!",
-        "ordinal": 3,
+        "ordinal": 2,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -49,7 +38,7 @@
       },
       {
         "name": "downlink_total!",
-        "ordinal": 4,
+        "ordinal": 3,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -60,7 +49,7 @@
       },
       {
         "name": "enabled!",
-        "ordinal": 5,
+        "ordinal": 4,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -71,7 +60,7 @@
       },
       {
         "name": "traffic_limit_bytes",
-        "ordinal": 6,
+        "ordinal": 5,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -82,7 +71,7 @@
       },
       {
         "name": "expires_at",
-        "ordinal": 7,
+        "ordinal": 6,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -101,10 +90,9 @@
       false,
       false,
       false,
-      false,
       true,
       true
     ]
   },
-  "hash": "0c01ac248c01f5274490ec050bdbd4e325200b52d9adb614a8f298a35ae3e1f1"
+  "hash": "f1454299af2f8486cab5a9f3050f9ecede324366b04bfe023f74980f9687556d"
 }
