@@ -31,6 +31,7 @@
 
 use crate::db::DbPool;
 use crate::xray::XrayClient;
+use futures_util::StreamExt;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -43,6 +44,12 @@ use ts_rs::TS;
 /// dashboard system-stats poll; matches Frontend's react-query default
 /// stale window so a single roundtrip drives both panels.
 const POLL_INTERVAL: Duration = Duration::from_secs(5);
+
+/// Max enforcement round-trips (`RemoveUser` + disable) run concurrently per tick.
+/// Emails that trip no rule early-return without awaiting, so this only bounds
+/// the handful that need action — a mass quota/expiry sweep no longer serializes
+/// behind N gRPC + DB round-trips.
+const ENFORCE_CONCURRENCY: usize = 16;
 
 /// One client's live counters, exposed as-is to the frontend.
 #[derive(Debug, Clone, Serialize, TS)]
@@ -228,6 +235,10 @@ async fn poll_once(
     // fsync per email — at the 100k-client commercial target that's
     // tens of seconds of disk I/O per tick. One commit keeps it bounded.
     let mut pending_deltas: Vec<(String, i64, i64)> = Vec::new();
+    // Per-email enforcement (drift/quota/expiry) is deferred out of this loop and
+    // run concurrently below, so a tick isn't serialized behind the gRPC + DB
+    // round-trips of the emails that trip a rule.
+    let mut enforce_batch: Vec<(&String, Option<&ClientMeta>, u64, u64)> = Vec::new();
     for email in all_emails {
         let (uplink, downlink) = xray_totals.get(email).copied().unwrap_or((0, 0));
         let (up_delta, down_delta, secs) =
@@ -243,9 +254,7 @@ async fn poll_once(
         }
 
         let meta = db_totals.get(email);
-        maybe_drift_correct(client, email, meta, &online_set, up_delta, down_delta).await;
-        maybe_enforce_quota(client, db, email, meta, up_delta, down_delta).await;
-        maybe_enforce_expiry(client, db, email, meta).await;
+        enforce_batch.push((email, meta, up_delta, down_delta));
 
         // Only track `prev` for emails xray has actually reported. For
         // DB-only emails we'd cache (0, 0) — the moment xray starts
@@ -267,6 +276,29 @@ async fn poll_once(
             build_snapshot(meta, &online_set, email, up_delta, down_delta, secs),
         );
     }
+    // Enforce with bounded concurrency. Within one email the checks stay ordered
+    // (drift, then quota, then expiry unless quota already disabled it); across
+    // emails they're independent (distinct rows / xray users), so this
+    // parallelizes only the round-trips that actually fire.
+    // Borrow once as a Copy `&` so each future captures the reference, not the
+    // owned set (which an `FnMut` closure can't move out repeatedly).
+    let online_set = &online_set;
+    futures_util::stream::iter(enforce_batch)
+        .for_each_concurrent(
+            ENFORCE_CONCURRENCY,
+            |(email, meta, up_delta, down_delta)| async move {
+                maybe_drift_correct(client, email, meta, online_set, up_delta, down_delta).await;
+                // Stop after the first rule that disables the client this tick.
+                // `meta.enabled` is read once per tick, so without this the expiry
+                // check wouldn't see quota's flip and would redundantly re-UPDATE
+                // (and relabel `quota` -> `expired`). Quota is checked first, so a
+                // client tripping both is reported as `quota`.
+                if !maybe_enforce_quota(client, db, email, meta, up_delta, down_delta).await {
+                    maybe_enforce_expiry(client, db, email, meta).await;
+                }
+            },
+        )
+        .await;
     flush_deltas(db, &pending_deltas).await;
     *prev = next_prev;
     // Baseline is now established: from the next tick on, any never-before-
@@ -390,6 +422,17 @@ async fn maybe_drift_correct(
 /// existing usage gets cut off on the next poll without needing a new
 /// byte to come in. The `enabled` gate stops re-tripping an already-
 /// quota'd or manually-off client on every tick.
+///
+/// Returns `true` when this call disabled the client, so the caller can
+/// skip the expiry check: a client that is both over quota and past its
+/// expiry should flip once (reason `quota`), not take a redundant second
+/// UPDATE + `RemoveUser` that would also clobber the reason to `expired`
+/// — `meta.enabled` is read once per tick, so expiry can't see this flip.
+///
+/// `#[must_use]`: the returned flag *is* the quota→expiry precedence contract;
+/// forcing every call site to consume it stops a future edit from silently
+/// dropping the guard and reintroducing the redundant double-flip.
+#[must_use]
 async fn maybe_enforce_quota(
     client: &XrayClient,
     db: &DbPool,
@@ -397,18 +440,18 @@ async fn maybe_enforce_quota(
     meta: Option<&ClientMeta>,
     up_delta: u64,
     down_delta: u64,
-) {
-    let Some(meta) = meta else { return };
+) -> bool {
+    let Some(meta) = meta else { return false };
     if !meta.enabled {
-        return;
+        return false;
     }
     let Some(limit) = meta.limit_bytes else {
-        return;
+        return false;
     };
     let new_up = meta.uplink_total + up_delta;
     let new_down = meta.downlink_total + down_delta;
     if new_up + new_down < limit {
-        return;
+        return false;
     }
     // Disable EVERY row for this email — the client's on/off state is a
     // property of the identity, not one inbound attachment. The frontend list
@@ -423,9 +466,10 @@ async fn maybe_enforce_quota(
     .await
     {
         // DB is the source of truth; if it fails we skip the xray removal too
-        // and retry the whole thing next tick.
+        // and retry the whole thing next tick. Report "not disabled" so the
+        // expiry check still gets a chance to cut the client this same tick.
         tracing::warn!("traffic poller quota flip failed for {email}: {e}");
-        return;
+        return false;
     }
     remove_user_everywhere(client, &meta.inbound_tags, email, "quota").await;
     tracing::info!(
@@ -433,6 +477,7 @@ async fn maybe_enforce_quota(
         new_up + new_down,
         meta.inbound_tags.len()
     );
+    true
 }
 
 /// Time-driven sibling of `maybe_enforce_quota`: if the client has an

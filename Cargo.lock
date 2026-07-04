@@ -2218,6 +2218,7 @@ dependencies = [
  "base64",
  "chrono",
  "dotenvy",
+ "futures-util",
  "jsonwebtoken",
  "mime_guess",
  "parking_lot",

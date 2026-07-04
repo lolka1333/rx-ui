@@ -83,6 +83,9 @@ base64 = "0.22"
 # share-link as `pinSHA256=` so clients pin it. Pinned to 0.10 to reuse the
 # 0.10.9 already pulled by rust-embed/sqlx — avoids compiling a second sha2.
 sha2 = "0.10"
+# `StreamExt::for_each_concurrent` for the traffic poller's bounded-concurrency
+# enforcement. Already in the tree via tonic/hyper; pinned here as a direct dep.
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 
 # Percent-encoding for share-link query/fragment components
 urlencoding = "2"
