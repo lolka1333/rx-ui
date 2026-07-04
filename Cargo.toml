@@ -26,5 +26,5 @@ missing_errors_doc = "allow"
 lto = "fat"
 codegen-units = 1
 strip = true
-opt-level = 3
+opt-level = "z"
 panic = "abort"
