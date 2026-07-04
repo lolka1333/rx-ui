@@ -1,18 +1,30 @@
-# Build and run rx-ui in a container.
+# Run rx-ui from the prebuilt image published to GHCR by CI — no local compile,
+# so `up` is a quick pull-and-start instead of a ~6-minute Rust build.
 #
-#   docker compose up -d --build     # build the image + start
+#   docker compose pull              # fetch the latest image
+#   docker compose up -d             # start (or restart onto the new image)
 #   docker compose logs -f           # follow logs
 #   docker compose down              # stop (the data volume is kept)
+#
+# The image is pushed to ghcr.io/lolka1333/rx-ui:latest on every push to main.
+# If the package is private, log in once on the host first:
+#   echo <GITHUB_PAT_with_read:packages> | docker login ghcr.io -u <user> --password-stdin
+# (or flip the package to public in its GitHub settings — then no login needed).
+#
+# To build from source instead of pulling, uncomment the `build:` block below
+# and run `docker compose up -d --build`.
 #
 # First run: the panel comes up on :8080 with admin / admin (change it in the
 # UI immediately) and auto-downloads xray-core into the data volume.
 
 services:
   rx-ui:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: rx-ui:latest
+    image: ghcr.io/lolka1333/rx-ui:latest
+    # Build from source instead of pulling (slow — compiles the Rust release).
+    # Uncomment and run `docker compose up -d --build`.
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
     container_name: rx-ui
     restart: unless-stopped
 
