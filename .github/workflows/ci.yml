@@ -50,7 +50,7 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Stub frontend build output
         # The backend embeds `frontend/dist/` via rust-embed (`#[folder]`),
@@ -73,7 +73,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - name: Cache cargo
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -126,7 +126,7 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup Node (pinned via .nvmrc)
         uses: actions/setup-node@v6
@@ -148,7 +148,7 @@ jobs:
           run_install: false
 
       - name: Cache pnpm store
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.local/share/pnpm/store
           key: ${{ runner.os }}-pnpm-${{ hashFiles('frontend/pnpm-lock.yaml') }}
@@ -174,12 +174,67 @@ jobs:
   docker:
     name: Docker image
     runs-on: ubuntu-latest
+    # Only build/publish once the code actually passes its gates — no point
+    # shipping an image whose tests are red.
+    needs: [backend, frontend]
+    permissions:
+      contents: read
+      packages: write # push to GitHub Container Registry (ghcr.io)
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
-      - name: Build the production image
+      - name: Set up Docker Buildx
+        # The docker-container driver is required for registry/gha cache
+        # export and for the cache-dance mount injection below.
+        uses: docker/setup-buildx-action@v4
+
+      - name: Persist cargo build cache across runs
+        # type=gha (below) caches image LAYERS but NOT BuildKit
+        # `--mount=type=cache` dirs, so the Rust release would recompile from
+        # scratch on every backend change. This restores the cargo registry +
+        # target mounts (matched by `id=` in the Dockerfile) from the Actions
+        # cache and saves them back afterwards. Best-effort: if it can't run,
+        # the build still succeeds — it just falls back to a cold compile.
+        uses: reproducible-containers/buildkit-cache-dance@v3.4.0
+        continue-on-error: true
+        with:
+          cache-map: |
+            {
+              "cargo-registry": "/usr/local/cargo/registry",
+              "cargo-target": "/app/target"
+            }
+
+      - name: Log in to GitHub Container Registry
+        # Push only from main; pull-request builds (including forks, which get a
+        # read-only token) validate the image without publishing.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive image tags and labels
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}
+          # `latest` tracks main; the immutable `sha-<commit>` tag lets a deploy
+          # pin an exact build.
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=long
+
+      - name: Build and push the production image
         # End-to-end check of the multi-stage Dockerfile: frontend build →
-        # backend release build (embeds the SPA) → runtime image. BuildKit is
-        # the default on the runner, so the cargo cache mounts in the
-        # Dockerfile are honoured. Build only — nothing is pushed anywhere.
-        run: docker build -t rx-ui:ci .
+        # backend release build (embeds the SPA) → runtime image. Pushes to
+        # ghcr.io on main; builds only on PRs. type=gha reuses unchanged layers
+        # across runs.
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

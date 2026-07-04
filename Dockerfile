@@ -40,9 +40,12 @@ COPY backend/ ./backend/
 COPY --from=frontend /app/frontend/dist ./frontend/dist
 # Cache the cargo registry + target dir across builds (BuildKit). The binary
 # is copied out of the cached target dir into a normal layer path so the
-# runtime stage can pick it up.
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/app/target,sharing=locked \
+# runtime stage can pick it up. The `id=`s are matched by the CI's
+# buildkit-cache-dance step, which persists these mounts across GitHub Actions
+# runs (type=gha layer cache alone does NOT carry `--mount=type=cache` dirs, so
+# without it the release would recompile from scratch on every backend change).
+RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=cargo-target,target=/app/target,sharing=locked \
     cargo build --release --bin rx-ui \
     && cp /app/target/release/rx-ui /usr/local/bin/rx-ui
 
