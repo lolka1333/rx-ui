@@ -81,9 +81,19 @@ pub fn build_hysteria2_share_link(
     // validation, so a self-signed inbound connects with no per-client step.
     // Left off (and `insecure=0` kept) for a real CA cert, whose renewals would
     // otherwise break every pinned client.
-    if tls.self_signed == Some(true)
-        && let Some(pin) = tls.cert_pin_sha256()
-    {
+    if tls.self_signed == Some(true) {
+        // The operator flagged this cert as self-signed, so clients must pin it
+        // (`insecure=1` is dead in this fork). If the pin can't be derived — a
+        // `Path`-sourced cert we don't read here, or an unparseable PEM — the
+        // link would be silently unusable (`insecure=0` against an untrusted
+        // cert), so fail loudly instead of shipping a dead link.
+        let pin = tls.cert_pin_sha256().ok_or_else(|| {
+            anyhow::anyhow!(
+                "hysteria2 inbound {} is marked self-signed but its cert fingerprint can't be \
+                 derived — use an inline PEM certificate, not a file path",
+                inbound.tag
+            )
+        })?;
         params.push(("pinSHA256".to_owned(), pin));
     }
     // ECH parity with the vless builder — same param name, same shape.
@@ -142,23 +152,27 @@ pub fn build_hysteria2_share_link(
 
 /// Build the `vless://...` URL.
 ///
-/// Returns an error only if the inbound is in Reality mode but its
-/// `server_names` list is empty — those would produce a broken share-link
-/// silently otherwise. For `security=none` no Reality material is needed.
+/// Returns an error only if the inbound is in Reality mode but a required
+/// field (`server_names` or `public_key`) is empty — those would produce a
+/// broken share-link silently otherwise. For `security=none` no Reality
+/// material is needed.
 pub fn build_vless_share_link(
     inbound: &Inbound,
     client: &Client,
     host: &str,
 ) -> anyhow::Result<String> {
-    // Reject the historically-silent failure: Reality without any
-    // serverNames produces a `pbk=...&sni=` URL that clients accept
-    // but xray immediately rejects on the first connection. Catch it
+    // Reject the historically-silent failures: Reality without any serverNames
+    // (or without a public key) produces a `pbk=...&sni=` URL that clients
+    // accept but xray immediately rejects on the first connection. Catch both
     // here so the operator sees a 4xx at share-link time, not a runtime
-    // surprise.
-    if let SecurityConfig::Reality(r) = &inbound.security
-        && r.server_names.is_empty()
-    {
-        anyhow::bail!("inbound {} has no reality server_names", inbound.tag);
+    // surprise. Both fields are required server-side.
+    if let SecurityConfig::Reality(r) = &inbound.security {
+        if r.server_names.is_empty() {
+            anyhow::bail!("inbound {} has no reality server_names", inbound.tag);
+        }
+        if r.public_key.trim().is_empty() {
+            anyhow::bail!("inbound {} has no reality public_key", inbound.tag);
+        }
     }
 
     let fallback_host = transport_fallback_host(&inbound.transport);
@@ -807,14 +821,15 @@ mod tests {
     }
 
     #[test]
-    fn hysteria2_self_signed_path_cert_omits_pin() {
-        // A `Path`-sourced cert isn't read by the builder, so there's nothing
-        // to hash — the pin is silently omitted rather than emitting garbage.
+    fn hysteria2_self_signed_path_cert_is_rejected() {
+        // A `Path`-sourced cert isn't read here, so no pin can be derived.
+        // Rather than ship a dead link (self-signed + insecure=0 with no pin,
+        // which no client can verify), the builder fails loudly.
         let mut tls = tls_self_signed("hy.example.com", true);
         tls.certificates[0].source = TlsCertSource::Path;
         tls.certificates[0].cert = "/etc/xray/hy.crt".into();
-        let link = build_share_link(&hy_inbound(tls), &base_client(), "1.2.3.4").unwrap();
-        assert!(!link.contains("pinSHA256"), "got: {link}");
+        let err = build_share_link(&hy_inbound(tls), &base_client(), "1.2.3.4").unwrap_err();
+        assert!(err.to_string().contains("self-signed"), "got: {err}");
     }
 
     #[test]

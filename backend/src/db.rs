@@ -24,7 +24,12 @@ pub async fn init_pool(database_url: &str) -> anyhow::Result<DbPool> {
         // the panel responsive as the client count climbs.
         .journal_mode(SqliteJournalMode::Wal)
         .synchronous(SqliteSynchronous::Normal)
-        .busy_timeout(Duration::from_secs(5));
+        .busy_timeout(Duration::from_secs(5))
+        // Cap each connection's page cache at ~1 MB (SQLite defaults to ~2 MB).
+        // The working set is small — indexed lookups on clients/inbounds — so a
+        // smaller cache barely moves query latency but halves the per-connection
+        // memory the pool holds across all its connections.
+        .pragma("cache_size", "-1024");
 
     // sqlite won't auto-create the directory, only the file.
     let path = opts.get_filename().to_path_buf();
@@ -37,8 +42,20 @@ pub async fn init_pool(database_url: &str) -> anyhow::Result<DbPool> {
             .with_context(|| format!("create db dir {}", parent.display()))?;
     }
 
+    // 5 minutes. The nursery `duration_suboptimal_units` lint wants a coarser
+    // unit here, but stable `Duration` has no `from_mins` to give it.
+    #[allow(clippy::duration_suboptimal_units)]
+    let idle_timeout = Duration::from_secs(300);
     let pool = SqlitePoolOptions::new()
+        // Keep the ceiling high enough for concurrent reads: the public
+        // subscription / stats endpoints can be hit by many clients at once and
+        // WAL runs those reads in parallel, so starving the pool would cap
+        // throughput as the client count climbs. Per-connection memory is
+        // trimmed via the smaller `cache_size` above (not by shrinking the
+        // pool), and `idle_timeout` lets connections opened during a burst close
+        // again so the pool shrinks back while the panel is quiet.
         .max_connections(8)
+        .idle_timeout(idle_timeout)
         .connect_with(opts)
         .await
         .context("failed to open database")?;

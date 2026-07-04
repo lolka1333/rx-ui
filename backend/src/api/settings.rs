@@ -867,7 +867,7 @@ async fn swap_sub_listener(
     for attempt in 1..=ATTEMPTS {
         tokio::time::sleep(Duration::from_millis(u64::from(attempt.min(5)) * 100)).await;
         match spawn_sub_listener(state, "0.0.0.0", new_sub_port, app.clone()).await {
-            Ok(tx) => {
+            Ok((tx, _is_https)) => {
                 bound = Some(tx);
                 break;
             }
@@ -1006,16 +1006,19 @@ pub async fn spawn_sub_listener(
     host: &str,
     port: u16,
     app: Router,
-) -> std::io::Result<oneshot::Sender<()>> {
+) -> std::io::Result<(oneshot::Sender<()>, bool)> {
     let tls = load_sub_tls_for_boot(&state.db).await;
     let tls_requested = tls.is_some();
     match spawn_listener(host, port, app.clone(), tls).await {
-        Ok(tx) => Ok(tx),
+        // `bool` reports the scheme actually bound (true = HTTPS), so callers
+        // log/report the real outcome rather than what was merely requested —
+        // the fallback below drops to plain HTTP without the caller knowing.
+        Ok(tx) => Ok((tx, tls_requested)),
         Err(e) if tls_requested => {
             tracing::error!(
                 "subscription HTTPS failed to start ({e}); falling back to plain HTTP on port {port}"
             );
-            spawn_listener(host, port, app, None).await
+            Ok((spawn_listener(host, port, app, None).await?, false))
         }
         Err(e) => Err(e),
     }

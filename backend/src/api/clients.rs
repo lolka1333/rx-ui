@@ -211,8 +211,13 @@ async fn resolve_shared_credentials(
     shared_auth_explicit: Option<&str>,
     target_inbounds: &std::collections::HashMap<String, crate::models::Inbound>,
 ) -> AppResult<SharedCredentials> {
+    // ORDER BY makes the "keep the current uuid/auth" choice deterministic:
+    // an email's rows can diverge in uuid (the per-row PATCH path), and an
+    // unordered `.first()` would then re-sync every attachment to whichever row
+    // SQLite happened to return first — silently rotating the others' creds.
+    // Oldest row wins.
     let existing = sqlx::query!(
-        "SELECT id, inbound_id, uuid, auth FROM clients WHERE email = ?",
+        "SELECT id, inbound_id, uuid, auth FROM clients WHERE email = ? ORDER BY created_at ASC, id ASC",
         email,
     )
     .fetch_all(&state.db)
@@ -811,12 +816,23 @@ async fn create(
     });
 
     let id = Uuid::new_v4().to_string();
-    let sub_token = crate::api::subscription::generate_token();
+    // Unique-checked token, matching bulk_assign / rotate_sub_token — a plain
+    // random token could (astronomically) collide with the sub_token UNIQUE
+    // index and surface as the misleading "email already exists" error below.
+    let sub_token = crate::api::subscription::generate_unique_token(&state.db).await?;
     let expires_at = normalize_expiry(body.expires_at.clone())?;
+    // Seed the lifetime counters from the email's current total (xray accounts
+    // per email, so every attachment shares one usage figure) — otherwise a new
+    // attachment for an existing email starts behind and deleting the older row
+    // would drop that history. Mirrors bulk_assign; NULL MAX (brand-new email)
+    // → COALESCE to 0.
     sqlx::query!(
         r#"INSERT INTO clients (id, inbound_id, email, uuid, auth, flow, enabled, note,
-                                traffic_limit_bytes, disabled_reason, expires_at, sub_token)
-           VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, NULL, ?, ?)"#,
+                                traffic_limit_bytes, disabled_reason, expires_at, sub_token,
+                                uplink_total, downlink_total)
+           VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, NULL, ?, ?,
+                   COALESCE((SELECT MAX(uplink_total) FROM clients WHERE email = ?), 0),
+                   COALESCE((SELECT MAX(downlink_total) FROM clients WHERE email = ?), 0))"#,
         id,
         inbound_id,
         body.email,
@@ -827,6 +843,8 @@ async fn create(
         body.traffic_limit_bytes,
         expires_at,
         sub_token,
+        body.email,
+        body.email,
     )
     .execute(&state.db)
     .await

@@ -87,7 +87,9 @@ export function parseOutboundLink(raw: string): Partial<OutboundFormValues> {
     address: host,
     port: parsePort(portStr),
     uuid,
-    flow: get('flow'),
+    // Collapse an unknown flow to empty — the form accepts only '' or
+    // 'xtls-rprx-vision', mirroring how security/network below reject unknowns.
+    flow: get('flow') === 'xtls-rprx-vision' ? 'xtls-rprx-vision' : '',
   };
 
   // --- VLESS encryption ---

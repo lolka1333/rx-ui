@@ -86,20 +86,15 @@ async fn boot_sub_listener(state: &AppState, host: &str, db_sub_port: i32) {
     if sub_port == 0 {
         return;
     }
-    let scheme = if api::settings::load_sub_tls_for_boot(&state.db)
-        .await
-        .is_some()
-    {
-        "https"
-    } else {
-        "http"
-    };
     match api::settings::spawn_sub_listener(state, host, sub_port, build_sub_router(state.clone()))
         .await
     {
-        Ok(tx) => {
+        Ok((tx, is_https)) => {
             *state.sub_listener_shutdown.write().await = Some(tx);
             state.current_sub_port.store(sub_port, Ordering::Relaxed);
+            // Scheme comes from what actually bound, not from a separate TLS
+            // read — `spawn_sub_listener` may have fallen back to plain HTTP.
+            let scheme = if is_https { "https" } else { "http" };
             tracing::info!("subscription listener on {scheme}://{host}:{sub_port}/sub/<token>");
         }
         Err(e) => {

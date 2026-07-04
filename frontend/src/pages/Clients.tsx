@@ -645,8 +645,8 @@ export function Clients() {
       if (result.created.length > 0) parts.push(`+${result.created.length}`);
       if (result.updated.length > 0) parts.push(`±${result.updated.length}`);
       if (result.removed.length > 0) parts.push(`−${result.removed.length}`);
-      const stats = parts.length > 0 ? ` (${parts.join(' ')})` : '';
-      message.success((editing ? t('clients.saved') : t('clients.created')) + stats);
+      const countSummary = parts.length > 0 ? ` (${parts.join(' ')})` : '';
+      message.success((editing ? t('clients.saved') : t('clients.created')) + countSummary);
       // DB succeeded, but one or more xray gRPC pushes didn't — the
       // operator needs to know so they can hit "Restart xray" instead
       // of watching the affected users silently fail to connect.

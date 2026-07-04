@@ -104,13 +104,23 @@ async fn run(binary: &Path, ob: &CustomOutbound) -> anyhow::Result<OutboundTestR
     let cfg_path = std::env::temp_dir().join(format!("rxui-obtest-{}.json", ob.id));
     tokio::fs::write(&cfg_path, serde_json::to_vec(&cfg)?).await?;
 
-    let mut child = tokio::process::Command::new(binary)
+    // The config embeds the upstream's secrets, so it must be removed on EVERY
+    // exit path from here — including a spawn failure, which the old code left
+    // on disk because tear-down was gated behind a successful spawn.
+    let spawned = tokio::process::Command::new(binary)
         .arg("run")
         .arg("-config")
         .arg(&cfg_path)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .spawn()?;
+        .spawn();
+    let mut child = match spawned {
+        Ok(child) => child,
+        Err(e) => {
+            let _ = tokio::fs::remove_file(&cfg_path).await;
+            return Err(e.into());
+        }
+    };
 
     // From here on, always tear down (kill + rm) regardless of outcome.
     let result = probe(api_port, http_port, handler).await;

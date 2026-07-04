@@ -20,7 +20,9 @@ import type { DashboardOverview } from '@/api/types';
 
 function fmtBytes(n: number): string {
   if (n === 0) return '0';
-  const units = ['Б', 'КБ', 'МБ', 'ГБ', 'ТБ'];
+  // English units, matching the shared lib/format.ts formatter — the panel is
+  // bilingual (en/ru) and the rest of the UI uses B/KB/MB/…, not Cyrillic.
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   let i = 0;
   let v = n;
   while (v >= 1024 && i < units.length - 1) {

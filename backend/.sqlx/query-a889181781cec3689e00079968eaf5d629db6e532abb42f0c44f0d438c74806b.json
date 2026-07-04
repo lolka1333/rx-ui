@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO clients (id, inbound_id, email, uuid, auth, flow, enabled, note,\n                                traffic_limit_bytes, disabled_reason, expires_at, sub_token,\n                                uplink_total, downlink_total)\n           VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, NULL, ?, ?,\n                   COALESCE((SELECT MAX(uplink_total) FROM clients WHERE email = ?), 0),\n                   COALESCE((SELECT MAX(downlink_total) FROM clients WHERE email = ?), 0))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 12
+    },
+    "nullable": []
+  },
+  "hash": "a889181781cec3689e00079968eaf5d629db6e532abb42f0c44f0d438c74806b"
+}

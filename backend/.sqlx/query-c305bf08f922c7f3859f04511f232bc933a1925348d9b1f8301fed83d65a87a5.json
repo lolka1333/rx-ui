@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, inbound_id, uuid, auth FROM clients WHERE email = ?",
+  "query": "SELECT id, inbound_id, uuid, auth FROM clients WHERE email = ? ORDER BY created_at ASC, id ASC",
   "describe": {
     "columns": [
       {
@@ -58,5 +58,5 @@
       true
     ]
   },
-  "hash": "ecd58a4117bd0ecc9a5c7860ca58233d0cbe5919a047ed6e4fb6fca0ed085077"
+  "hash": "c305bf08f922c7f3859f04511f232bc933a1925348d9b1f8301fed83d65a87a5"
 }
