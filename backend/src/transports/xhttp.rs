@@ -177,12 +177,27 @@ impl Transport for XhttpTransport {
             ("sessionIDLength", self.session_id_length.as_deref()),
             ("seqPlacement", self.seq_placement.as_deref()),
             ("seqKey", self.seq_key.as_deref()),
-            ("uplinkDataPlacement", self.uplink_data_placement.as_deref()),
-            ("uplinkDataKey", self.uplink_data_key.as_deref()),
-            ("uplinkHTTPMethod", self.uplink_http_method.as_deref()),
         ] {
             if let Some(v) = val.filter(|s| !s.is_empty()) {
                 extra.insert(key.to_owned(), serde_json::Value::String(v.to_owned()));
+            }
+        }
+        // uplink-data placement/key and uplinkHTTPMethod are packet-up-only in
+        // xray's JSON conf: cookie/header placement and a `GET` method are
+        // rejected outside packet-up mode. The panel builds the server via proto
+        // (which skips that check), so a non-packet-up inbound can carry stale
+        // values harmlessly — but the client parses the link through infra/conf
+        // and would refuse to start. In other modes uplink is a single stream and
+        // these knobs don't apply, so only advertise them under packet-up.
+        if self.mode == Some(XhttpMode::PacketUp) {
+            for (key, val) in [
+                ("uplinkDataPlacement", self.uplink_data_placement.as_deref()),
+                ("uplinkDataKey", self.uplink_data_key.as_deref()),
+                ("uplinkHTTPMethod", self.uplink_http_method.as_deref()),
+            ] {
+                if let Some(v) = val.filter(|s| !s.is_empty()) {
+                    extra.insert(key.to_owned(), serde_json::Value::String(v.to_owned()));
+                }
             }
         }
         for (key, val) in [

@@ -628,6 +628,39 @@ mod tests {
     }
 
     #[test]
+    fn xhttp_uplink_fields_are_gated_to_packet_up_mode() {
+        // xray rejects uplink-data cookie/header placement and a GET method
+        // outside packet-up mode. The server builds via proto (no such check),
+        // but the client parses the link through infra/conf and would refuse to
+        // start — so a non-packet-up link must NOT advertise the uplink group.
+        // seq + framing knobs are valid in every mode and still ride.
+        let inb = inbound(
+            TransportConfig::Xhttp(XhttpTransport {
+                path: Some("/x".into()),
+                mode: Some(XhttpMode::Auto),
+                seq_placement: Some("query".into()),
+                seq_key: Some("s".into()),
+                uplink_data_placement: Some("cookie".into()),
+                uplink_data_key: Some("d".into()),
+                uplink_http_method: Some("GET".into()),
+                no_sse_header: Some(true),
+                ..XhttpTransport::default()
+            }),
+            SecurityConfig::None(NoneSecurity {}),
+        );
+        let link = build_vless_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
+        for present in ["seqPlacement", "seqKey", "noSSEHeader"] {
+            assert!(link.contains(present), "extra missing {present}: {link}");
+        }
+        for absent in ["uplinkDataPlacement", "uplinkDataKey", "uplinkHTTPMethod"] {
+            assert!(
+                !link.contains(absent),
+                "{absent} must be gated to packet-up mode: {link}"
+            );
+        }
+    }
+
+    #[test]
     fn tls_security_with_ech_config_list_emits_ech_param() {
         // When ECH config list is set on the inbound, the share-link
         // must carry it so clients can embed it in Client Hello without
