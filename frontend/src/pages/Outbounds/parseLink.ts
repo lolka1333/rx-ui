@@ -156,7 +156,9 @@ export function parseOutboundLink(raw: string): Partial<OutboundFormValues> {
  * `hysteria2://PASSWORD@HOST:PORT/?sni=…&insecure=1&pinSHA256=…#NAME`. The
  * password is the auth; QUIC is always TLS, so security is fixed to `tls` and
  * the cert knobs (sni / pin / accept-by-name) map onto the TLS security block.
- * Salamander `obfs` has no xray equivalent and is ignored.
+ * `alpn` and salamander `obfs` are honoured too — the latter maps onto the
+ * panel's native FinalMask salamander (a client that doesn't mirror it can't
+ * complete the QUIC handshake).
  */
 function parseHysteriaLink(body: string): Partial<OutboundFormValues> {
   const hashAt = body.indexOf('#');
@@ -197,6 +199,15 @@ function parseHysteriaLink(body: string): Partial<OutboundFormValues> {
     // The panel models no plain allowInsecure — accept-by-name is the closest
     // equivalent for the typical self-signed hysteria server.
     out.tls_verify_peer_cert_by_name = [serverName];
+  }
+  // ALPN — hysteria2 is QUIC/h3, but honour whatever the link advertises.
+  const alpn = get('alpn');
+  out.tls_alpn = alpn ? alpn.split(',').map((s) => s.trim()).filter(Boolean) : [];
+  // Salamander obfs → the panel's native FinalMask salamander. The client must
+  // mirror the server's obfs password or the obfuscated QUIC never handshakes.
+  if (get('obfs') === 'salamander') {
+    out.finalmask_kind = 'salamander';
+    out.finalmask_salamander_password = get('obfs-password');
   }
   return out;
 }
@@ -267,6 +278,9 @@ function applyFinalMask(out: Partial<OutboundFormValues>, fmRaw: string): void {
   } else if (item.type === 'noise') {
     out.finalmask_kind = 'noise';
     out.finalmask_noise_packet_hex = str('packet');
+  } else if (item.type === 'salamander') {
+    out.finalmask_kind = 'salamander';
+    out.finalmask_salamander_password = str('password');
   }
 }
 
