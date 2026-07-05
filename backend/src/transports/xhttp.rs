@@ -143,14 +143,17 @@ impl Transport for XhttpTransport {
         }
         // Advanced xhttpSettings the client must mirror travel in xray's
         // `extra` param — a JSON the client merges into its own xhttpSettings
-        // (key names match xray's conf). Two symmetric groups ride here:
+        // (key names match xray's conf). Every symmetric knob rides here:
         //   * padding obfuscation — the server pads every request, so a client
         //     that doesn't pad identically can't connect (only when obfs on).
-        //   * session-ID placement/key — the client encodes the session id at
-        //     this location and the server reads it there to pair the up/down
-        //     streams, so a mismatch breaks the session; table/length shape the
-        //     id generated client-side and ride along so the client honours the
-        //     operator's choice.
+        //   * session-ID + seq + uplink-data placement/key — the client encodes
+        //     each at this location/key and the server reads it there to pair and
+        //     reassemble the up/down streams, so any mismatch breaks the
+        //     connection. `uplinkHTTPMethod` is the verb the client posts with,
+        //     which the server matches on; table/length shape the id generated
+        //     client-side.
+        //   * noGRPCHeader / noSSEHeader — downlink framing the client must parse
+        //     the same way the server writes it.
         // Built lazily: only non-default fields are inserted, so a plain inbound
         // keeps a clean link with no `extra=` at all.
         let mut extra = serde_json::Map::new();
@@ -172,9 +175,22 @@ impl Transport for XhttpTransport {
             ("sessionIDKey", self.session_id_key.as_deref()),
             ("sessionIDTable", self.session_id_table.as_deref()),
             ("sessionIDLength", self.session_id_length.as_deref()),
+            ("seqPlacement", self.seq_placement.as_deref()),
+            ("seqKey", self.seq_key.as_deref()),
+            ("uplinkDataPlacement", self.uplink_data_placement.as_deref()),
+            ("uplinkDataKey", self.uplink_data_key.as_deref()),
+            ("uplinkHTTPMethod", self.uplink_http_method.as_deref()),
         ] {
             if let Some(v) = val.filter(|s| !s.is_empty()) {
                 extra.insert(key.to_owned(), serde_json::Value::String(v.to_owned()));
+            }
+        }
+        for (key, val) in [
+            ("noGRPCHeader", self.no_grpc_header),
+            ("noSSEHeader", self.no_sse_header),
+        ] {
+            if val.unwrap_or(false) {
+                extra.insert(key.to_owned(), serde_json::Value::Bool(true));
             }
         }
         if !extra.is_empty() {

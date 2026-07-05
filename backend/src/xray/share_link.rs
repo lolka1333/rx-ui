@@ -589,6 +589,45 @@ mod tests {
     }
 
     #[test]
+    fn xhttp_seq_uplink_and_framing_ride_in_extra() {
+        // seq / uplink-data placement+key are symmetric wire contracts — the
+        // client writes them where the server reads them, so a custom value must
+        // reach the client or the server can't reassemble the stream.
+        // uplinkHTTPMethod is the verb the client posts with; noGRPCHeader /
+        // noSSEHeader are the downlink framing the client must parse the server's
+        // way. None of these used to leave the panel.
+        let inb = inbound(
+            TransportConfig::Xhttp(XhttpTransport {
+                path: Some("/x".into()),
+                mode: Some(XhttpMode::PacketUp),
+                seq_placement: Some("query".into()),
+                seq_key: Some("s".into()),
+                uplink_data_placement: Some("body".into()),
+                uplink_data_key: Some("d".into()),
+                uplink_http_method: Some("PUT".into()),
+                no_sse_header: Some(true),
+                no_grpc_header: Some(true),
+                ..XhttpTransport::default()
+            }),
+            SecurityConfig::None(NoneSecurity {}),
+        );
+        let link = build_vless_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
+        assert!(link.contains("extra="), "missing extra=: {link}");
+        for needle in [
+            "seqPlacement",
+            "seqKey",
+            "uplinkDataPlacement",
+            "uplinkDataKey",
+            "uplinkHTTPMethod",
+            "PUT",
+            "noGRPCHeader",
+            "noSSEHeader",
+        ] {
+            assert!(link.contains(needle), "extra missing {needle}: {link}");
+        }
+    }
+
+    #[test]
     fn tls_security_with_ech_config_list_emits_ech_param() {
         // When ECH config list is set on the inbound, the share-link
         // must carry it so clients can embed it in Client Hello without
