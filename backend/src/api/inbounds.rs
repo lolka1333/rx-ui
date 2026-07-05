@@ -27,7 +27,7 @@ use crate::{
         vless::{VlessEncryptionAuth, VlessEncryptionMode, VlessFlow, VlessXorMode},
     },
     security::SecurityConfig,
-    transports::{TransportConfig, finalmask::FinalMask},
+    transports::{TransportConfig, finalmask::FinalMask, xhttp::XhttpMode},
     xray::keygen,
 };
 use axum::{
@@ -178,6 +178,37 @@ fn validate_finalmask(security: &SecurityConfig, finalmask: &FinalMask) -> AppRe
 /// at `AddInbound` time anyway; doing them up front keeps the panel
 /// and xray from drifting if the gRPC call fails between INSERT and
 /// `AddInbound`.
+/// Reject the XHTTP uplink knobs xray's JSON conf permits only in packet-up
+/// mode (cookie/header uplink-data placement, a GET uplink method). The panel
+/// builds the server via proto, which skips that check, so the inbound would
+/// "work" while any client — which parses the share link through infra/conf —
+/// refuses to start. Reject the invalid combo at the source instead.
+fn validate_xhttp_mode(transport: &TransportConfig) -> AppResult<()> {
+    let TransportConfig::Xhttp(x) = transport else {
+        return Ok(());
+    };
+    if x.mode == Some(XhttpMode::PacketUp) {
+        return Ok(());
+    }
+    if matches!(
+        x.uplink_data_placement.as_deref().map(str::trim),
+        Some("cookie" | "header")
+    ) {
+        return Err(AppError::BadRequest(
+            "XHTTP uplink-data placement 'cookie'/'header' requires packet-up mode".to_owned(),
+        ));
+    }
+    if x.uplink_http_method
+        .as_deref()
+        .is_some_and(|m| m.trim().eq_ignore_ascii_case("GET"))
+    {
+        return Err(AppError::BadRequest(
+            "XHTTP uplinkHTTPMethod 'GET' requires packet-up mode".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 fn validate_layers(
     protocol: &ProtocolConfig,
     transport: &TransportConfig,
@@ -226,6 +257,11 @@ fn validate_layers(
                 .to_owned(),
         ));
     }
+
+    // XHTTP uplink knobs xray's JSON conf accepts only in packet-up mode; the
+    // proto build path skips that check, so guard it here (grouped in the
+    // helper to keep this function readable).
+    validate_xhttp_mode(transport)?;
 
     // FinalMask compatibility with the security layer (Reality panics on
     // Sudoku; zero-length fragment) — grouped in `validate_finalmask`.
@@ -978,7 +1014,7 @@ mod validate_layers_tests {
     use crate::transports::finalmask::{FragmentParams, SudokuParams};
     use crate::transports::tcp::TcpTransport;
     use crate::transports::ws::WsTransport;
-    use crate::transports::xhttp::XhttpTransport;
+    use crate::transports::xhttp::{XhttpMode, XhttpTransport};
 
     /// Default finalmask for tests that don't care about it. Kept as a
     /// helper so adding a 5th parameter to `validate_layers` is a one-line
@@ -1036,6 +1072,69 @@ mod validate_layers_tests {
         .to_string();
         assert!(err.contains("xtls-rprx-vision"), "got: {err}");
         assert!(err.contains("TCP"), "got: {err}");
+    }
+
+    #[test]
+    fn xhttp_get_method_outside_packet_up_err() {
+        // Case-insensitive: xray uppercases before the check.
+        let err = vl(
+            &vless(VlessFlow::None),
+            &TransportConfig::Xhttp(XhttpTransport {
+                uplink_http_method: Some("get".into()),
+                ..XhttpTransport::default()
+            }),
+            &SecurityConfig::None(NoneSecurity {}),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("uplinkHTTPMethod"), "got: {err}");
+        assert!(err.contains("packet-up"), "got: {err}");
+    }
+
+    #[test]
+    fn xhttp_cookie_uplink_outside_packet_up_err() {
+        let err = vl(
+            &vless(VlessFlow::None),
+            &TransportConfig::Xhttp(XhttpTransport {
+                uplink_data_placement: Some("cookie".into()),
+                ..XhttpTransport::default()
+            }),
+            &SecurityConfig::None(NoneSecurity {}),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("uplink-data placement"), "got: {err}");
+    }
+
+    #[test]
+    fn xhttp_packet_up_allows_uplink_knobs() {
+        vl(
+            &vless(VlessFlow::None),
+            &TransportConfig::Xhttp(XhttpTransport {
+                mode: Some(XhttpMode::PacketUp),
+                uplink_http_method: Some("GET".into()),
+                uplink_data_placement: Some("cookie".into()),
+                ..XhttpTransport::default()
+            }),
+            &SecurityConfig::None(NoneSecurity {}),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn xhttp_post_body_ok_in_any_mode() {
+        // POST + body/auto placement carry no mode restriction.
+        vl(
+            &vless(VlessFlow::None),
+            &TransportConfig::Xhttp(XhttpTransport {
+                mode: Some(XhttpMode::StreamUp),
+                uplink_http_method: Some("POST".into()),
+                uplink_data_placement: Some("body".into()),
+                ..XhttpTransport::default()
+            }),
+            &SecurityConfig::None(NoneSecurity {}),
+        )
+        .unwrap();
     }
 
     #[test]
