@@ -189,7 +189,6 @@ pub fn outbound_to_handler_config(ob: &CustomOutbound) -> anyhow::Result<Outboun
             // hysteria TRANSPORT (xray's dialer reads it as RequestHeaderAuth),
             // and client TLS on the security block, both built generically above.
             let cfg = HysteriaClientConfig {
-                version: 2,
                 server: Some(ServerEndpoint {
                     address: Some(parse_listen_address(&h.address)),
                     port: u32::from(h.port),
@@ -575,13 +574,13 @@ mod tests {
     fn hysteria_outbound_builds_client_config_and_transport() {
         let cfg = outbound_to_handler_config(&hysteria_outbound()).unwrap();
 
-        // Protocol settings = xray's hysteria ClientConfig: version 2, the
-        // endpoint, and NO user — the password rides on the transport, exactly
-        // as the JSON `HysteriaClientConfig.Build` produces it.
+        // Protocol settings = xray's hysteria ClientConfig: just the endpoint
+        // (`server` at field 1), NO user — the password rides on the transport.
+        // The fork's ClientConfig has no `version` field; encoding one would
+        // shift `server` and xray would reject it with "no target server found".
         let proxy = cfg.proxy_settings.expect("proxy settings");
         assert_eq!(proxy.r#type, "xray.proxy.hysteria.ClientConfig");
         let client = HysteriaClientConfig::decode(&proxy.value[..]).unwrap();
-        assert_eq!(client.version, 2);
         let server = client.server.expect("server endpoint");
         assert_eq!(server.port, 443);
         assert!(
