@@ -96,12 +96,14 @@ pub fn build_hysteria2_share_link(
         })?;
         params.push(("pinSHA256".to_owned(), pin));
     }
-    // ECH parity with the vless builder — same param name, same shape.
-    if let Some(ech) = &tls.ech_config_list
-        && !ech.is_empty()
-    {
-        params.push(("ech".to_owned(), ech.clone()));
-    }
+    // NO `ech=` for hysteria2. Unlike the TCP/XHTTP TLS listener, xray's
+    // hysteria2 QUIC handshake does not serve ECH, so advertising an ECH config
+    // makes the client attempt Encrypted Client Hello against a server that
+    // can't answer it — the QUIC/TLS handshake times out and the node shows dead
+    // (v2rayN `-1`). Verified end-to-end against a live server: the inbound
+    // connects with `ech` stripped and times out with it present. ECH stays on
+    // the vless/TLS builders where the listener actually serves it.
+    //
     // Obfuscation. Salamander is Hysteria 2's NATIVE obfs, so emit the standard
     // `obfs=salamander&obfs-password=…` — it lands in every hysteria2 client's
     // obfs field (xray or not). Any other FinalMask (noise/sudoku/…) is an
@@ -1287,16 +1289,20 @@ mod tests {
         assert!(link.contains("ech=ECH_BYTES"), "got: {link}");
     }
 
-    /// Hysteria 2 + ECH — operator enables ECH on the TLS layer.
+    /// Hysteria 2 must NOT advertise ECH even when the operator set it on the
+    /// TLS layer: xray's hy2 QUIC listener doesn't serve ECH, so a client that
+    /// honours `ech=` attempts Encrypted Client Hello against a server that can't
+    /// answer and the node goes dead (v2rayN `-1`). Verified end-to-end against a
+    /// live server. ECH stays on the vless/TLS builders where it works.
     #[test]
-    fn hysteria2_with_ech_config_list() {
+    fn hysteria2_omits_ech_config_list() {
         let inb = hy_inbound(TlsSecurity {
             server_name: Some("hy.example.com".into()),
             ech_config_list: Some("HY_ECH".into()),
             ..tls_with_sni("hy.example.com")
         });
         let link = build_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
-        assert!(link.contains("ech=HY_ECH"), "got: {link}");
+        assert!(!link.contains("ech="), "hy2 must not carry ech: {link}");
     }
 
     /// IPv6 host in vless:// URL must be bracketed per RFC 3986.
