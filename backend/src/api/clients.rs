@@ -1503,3 +1503,186 @@ mod identity_tests {
         assert_eq!(id.hysteria_auth.as_deref(), Some("secret-h"));
     }
 }
+
+/// End-to-end tests against a real migrated `SQLite` DB: they drive the exact
+/// helpers `create` uses (`fetch_email_identity_rows` → `resolve_email_identity`
+/// → INSERT → `backfill_shared_auth`) so the invariant is proven on the real
+/// schema, not just the pure resolver.
+#[cfg(test)]
+mod db_integration_tests {
+    use super::{
+        EmailIdentity, backfill_shared_auth, fetch_email_identity_rows, resolve_email_identity,
+    };
+    use crate::db::DbPool;
+
+    async fn setup() -> DbPool {
+        // Single connection so the :memory: DB is shared across the pool
+        // (each fresh sqlite::memory: connection is otherwise its own DB).
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("connect in-memory sqlite");
+        sqlx::migrate!("./migrations")
+            .run(&pool)
+            .await
+            .expect("run migrations");
+        pool
+    }
+
+    async fn add_inbound(pool: &DbPool, id: &str, kind: &str, port: i64) {
+        sqlx::query("INSERT INTO inbounds (id, tag, port, protocol_config) VALUES (?, ?, ?, ?)")
+            .bind(id)
+            .bind(id)
+            .bind(port)
+            .bind(format!(r#"{{"kind":"{kind}"}}"#))
+            .execute(pool)
+            .await
+            .expect("insert inbound");
+    }
+
+    /// Mirror what `create` commits: resolve identity from the email's rows,
+    /// INSERT the new attachment, then backfill the shared secret. Returns the
+    /// resolved identity so a test can assert on the minted/inherited value.
+    async fn create_client(
+        pool: &DbPool,
+        inbound_id: &str,
+        email: &str,
+        is_hysteria: bool,
+        token: &str,
+    ) -> EmailIdentity {
+        let existing = fetch_email_identity_rows(pool, email).await.unwrap();
+        let ident = resolve_email_identity(&existing, None, None, is_hysteria);
+        sqlx::query(
+            "INSERT INTO clients (id, inbound_id, email, uuid, auth, sub_token) \
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(format!("cid-{token}"))
+        .bind(inbound_id)
+        .bind(email)
+        .bind(&ident.uuid)
+        .bind(ident.hysteria_auth.as_deref())
+        .bind(token)
+        .execute(pool)
+        .await
+        .expect("insert client");
+        backfill_shared_auth(pool, email, ident.hysteria_auth.as_deref())
+            .await
+            .unwrap();
+        ident
+    }
+
+    async fn auth_of(pool: &DbPool, email: &str, inbound_id: &str) -> Option<String> {
+        let auth: Option<String> =
+            sqlx::query_scalar("SELECT auth FROM clients WHERE email = ? AND inbound_id = ?")
+                .bind(email)
+                .bind(inbound_id)
+                .fetch_one(pool)
+                .await
+                .expect("select auth");
+        auth
+    }
+
+    // The tester's exact bug: attach vless + hysteria to one email, drop the
+    // last hysteria inbound, re-add it — the hysteria secret must not rotate.
+    #[tokio::test]
+    async fn detaching_last_hysteria_preserves_secret() {
+        let pool = setup().await;
+        add_inbound(&pool, "vless-A", "vless", 1001).await;
+        add_inbound(&pool, "hy-B", "hysteria2", 1002).await;
+
+        // create on the vless inbound first → auth stays NULL
+        create_client(&pool, "vless-A", "bob", false, "t1").await;
+        assert_eq!(auth_of(&pool, "bob", "vless-A").await, None);
+
+        // add hysteria → mints H and backfills it onto the vless sibling
+        let ident = create_client(&pool, "hy-B", "bob", true, "t2").await;
+        let secret = ident.hysteria_auth.clone().expect("hysteria mints auth");
+        assert_eq!(
+            auth_of(&pool, "bob", "vless-A").await.as_deref(),
+            Some(secret.as_str()),
+            "vless sibling must be backfilled with the shared secret",
+        );
+
+        // drop the last hysteria attachment
+        sqlx::query("DELETE FROM clients WHERE email = 'bob' AND inbound_id = 'hy-B'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            auth_of(&pool, "bob", "vless-A").await.as_deref(),
+            Some(secret.as_str()),
+            "secret must survive on the vless row after the hysteria row is deleted",
+        );
+
+        // re-add hysteria → must INHERIT the original secret, not mint a new one
+        let existing = fetch_email_identity_rows(&pool, "bob").await.unwrap();
+        let reident = resolve_email_identity(&existing, None, None, true);
+        assert_eq!(
+            reident.hysteria_auth.as_deref(),
+            Some(secret.as_str()),
+            "re-adding hysteria must reuse the original secret so the user's link keeps working",
+        );
+    }
+
+    // Verify-pass edge: backfill must NOT touch a hysteria row whose auth is
+    // NULL (it authenticates by uuid) — changing it would desync xray.
+    #[tokio::test]
+    async fn backfill_leaves_null_auth_hysteria_row_untouched() {
+        let pool = setup().await;
+        add_inbound(&pool, "hy-swap", "hysteria2", 2001).await;
+        add_inbound(&pool, "hy-new", "hysteria2", 2002).await;
+
+        // a legacy / protocol-swapped hysteria row with NULL auth (wire = uuid)
+        sqlx::query(
+            "INSERT INTO clients (id, inbound_id, email, uuid, auth, sub_token) \
+             VALUES ('c1', 'hy-swap', 'carol', 'uuid-c', NULL, 'tk1')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // adding carol to another hysteria inbound mints H and runs backfill
+        let ident = create_client(&pool, "hy-new", "carol", true, "tk2").await;
+        assert!(ident.hysteria_auth.is_some());
+
+        assert_eq!(
+            auth_of(&pool, "carol", "hy-swap").await,
+            None,
+            "backfill must leave the NULL-auth hysteria row alone (wire stays uuid, no xray desync)",
+        );
+    }
+
+    // Guard: an inbound with the column-default empty protocol_config must not
+    // make the backfill query raise (json_extract on '' errors in SQLite).
+    #[tokio::test]
+    async fn backfill_survives_empty_protocol_config() {
+        let pool = setup().await;
+        add_inbound(&pool, "vless-E", "vless", 3001).await;
+        sqlx::query(
+            "INSERT INTO inbounds (id, tag, port, protocol_config) VALUES ('broken','broken',3002,'')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query("INSERT INTO clients (id, inbound_id, email, uuid, auth, sub_token) VALUES ('d1','vless-E','dave','uuid-d',NULL,'tk3')")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO clients (id, inbound_id, email, uuid, auth, sub_token) VALUES ('d2','broken','dave','uuid-d',NULL,'tk4')")
+            .execute(&pool).await.unwrap();
+
+        backfill_shared_auth(&pool, "dave", Some("H"))
+            .await
+            .expect("backfill must not raise on empty protocol_config");
+        assert_eq!(
+            auth_of(&pool, "dave", "vless-E").await.as_deref(),
+            Some("H"),
+            "vless row backfilled",
+        );
+        assert_eq!(
+            auth_of(&pool, "dave", "broken").await,
+            None,
+            "inbound with empty protocol_config is safely excluded",
+        );
+    }
+}
