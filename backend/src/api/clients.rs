@@ -112,24 +112,11 @@ async fn bulk_assign(
         return Err(AppError::NotFound);
     }
 
-    // Validate the optional caller-supplied uuid once — if it's bad we
-    // want to fail before we start mutating rows. (We don't pick the
-    // fallback yet — that needs the existing-rows snapshot below so we
-    // can prefer "keep the current uuid" over "generate a new one,"
-    // which would silently invalidate every already-installed share-
-    // link / subscription for this email.)
-    let caller_uuid: Option<String> = match body
-        .uuid
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        Some(s) => {
-            Uuid::parse_str(s).map_err(|e| AppError::BadRequest(format!("invalid uuid: {e}")))?;
-            Some(s.to_owned())
-        }
-        None => None,
-    };
+    // Validate the caller-supplied uuid once, before we mutate any rows —
+    // `resolve_shared_credentials` picks the actual value (caller > existing
+    // > mint); failing fast here just avoids letting malformed input
+    // silently invalidate every installed share-link / subscription.
+    let caller_uuid = parse_optional_uuid(body.uuid.as_deref())?;
     let shared_auth_explicit = body
         .auth
         .as_deref()
@@ -163,8 +150,7 @@ async fn bulk_assign(
     // DB tx — INSERT / UPDATE / DELETE in one shot. Returns the list
     // of (inbound_id, was_update) so the caller can drive xray sync
     // per row.
-    let applied =
-        commit_bulk_assign_tx(&state, &body, &target, &target_inbounds, &creds, &to_remove).await?;
+    let applied = commit_bulk_assign_tx(&state, &body, &target, &creds, &to_remove).await?;
 
     // Post-commit gRPC sync — best-effort. DB is consistent regardless;
     // failures are collected into `xray_failures` so the frontend can
@@ -188,56 +174,181 @@ async fn bulk_assign(
 }
 
 /// Snapshot of identity bits + existing-row index used downstream by
-/// every other bulk-assign helper. Built ONCE per request from a single
-/// `SELECT id, inbound_id, uuid, auth FROM clients WHERE email = ?`.
+/// every other bulk-assign helper. Built ONCE per request from the
+/// email's existing rows (via `fetch_email_identity_rows`).
 struct SharedCredentials {
     /// uuid to write into every row (vless wire, hysteria storage).
     uuid: String,
-    /// Auth secret to write into hysteria rows; `None` ≡ vless-only
-    /// target set (the column stays NULL).
+    /// Auth secret stamped onto EVERY row of the email (vless included —
+    /// it's ignored on the vless wire but keeps the secret alive if the
+    /// last hysteria attachment is later removed). `None` ≡ the email has
+    /// no hysteria identity.
     hysteria_auth: Option<String>,
     /// `inbound_id → row_id` for the existing assignments under this
     /// email. Drives UPDATE-vs-INSERT and the DELETE set.
     existing_by_inbound: std::collections::HashMap<String, String>,
 }
 
-/// Lift the caller's preferences + existing-row defaults into one
-/// `SharedCredentials`. Precedence order is explicit in the doc above
-/// the call site; this function just executes it without re-deciding.
-async fn resolve_shared_credentials(
-    state: &AppState,
+/// The identity-bearing projection of an email's existing client rows.
+/// Built from one query and shared by `resolve_shared_credentials` and
+/// per-inbound `create` so identity resolution has a single definition
+/// instead of two that can drift.
+struct EmailIdentityRow {
+    id: String,
+    inbound_id: String,
+    uuid: String,
+    auth: Option<String>,
+}
+
+/// Resolved stable identity for an email: the uuid every attachment
+/// shares, plus the hysteria auth (`None` when the email has no hysteria
+/// identity).
+struct EmailIdentity {
+    uuid: String,
+    hysteria_auth: Option<String>,
+}
+
+/// Validate an optional caller-supplied uuid: trim, treat empty as absent,
+/// reject a malformed value with a 400 (friendlier than xray's later
+/// `AlterInbound` 500). Borrows through, so the caller keeps ownership.
+fn parse_optional_uuid(raw: Option<&str>) -> AppResult<Option<&str>> {
+    match raw.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(s) => {
+            Uuid::parse_str(s).map_err(|e| AppError::BadRequest(format!("invalid uuid: {e}")))?;
+            Ok(Some(s))
+        }
+        None => Ok(None),
+    }
+}
+
+/// Load an email's existing attachments, oldest-first, projected to the
+/// identity columns. Byte-identical SQL to the query bulk-assign already
+/// relied on, so it maps to the same prepared-statement cache entry — no
+/// new `.sqlx` file to regenerate.
+async fn fetch_email_identity_rows(
+    db: &crate::db::DbPool,
     email: &str,
-    caller_uuid: Option<String>,
-    shared_auth_explicit: Option<&str>,
-    target_inbounds: &std::collections::HashMap<String, crate::models::Inbound>,
-) -> AppResult<SharedCredentials> {
-    // ORDER BY makes the "keep the current uuid/auth" choice deterministic:
-    // an email's rows can diverge in uuid (the per-row PATCH path), and an
-    // unordered `.first()` would then re-sync every attachment to whichever row
-    // SQLite happened to return first — silently rotating the others' creds.
-    // Oldest row wins.
-    let existing = sqlx::query!(
+) -> AppResult<Vec<EmailIdentityRow>> {
+    let rows = sqlx::query_as!(
+        EmailIdentityRow,
         "SELECT id, inbound_id, uuid, auth FROM clients WHERE email = ? ORDER BY created_at ASC, id ASC",
         email,
     )
-    .fetch_all(&state.db)
+    .fetch_all(db)
     .await?;
-    let existing_uuid: Option<String> = existing.first().map(|r| r.uuid.clone());
-    let existing_hysteria_auth: Option<String> = existing
-        .iter()
-        .find_map(|r| r.auth.clone().filter(|s| !s.is_empty()));
-    let existing_by_inbound: std::collections::HashMap<String, String> =
-        existing.into_iter().map(|r| (r.inbound_id, r.id)).collect();
+    Ok(rows)
+}
+
+/// Resolve the stable per-email identity with precedence
+/// caller-supplied > existing rows > fresh mint. The single source of
+/// truth every write path funnels through, so a user's uuid / hysteria
+/// auth never silently rotates or diverges no matter which endpoint adds
+/// (or removes) an attachment.
+///
+/// `existing` must be oldest-first: an email's rows can diverge (the
+/// per-row PATCH override), so "oldest wins" makes the pick deterministic
+/// rather than re-syncing everyone to whichever row the DB returned first.
+///
+/// Existing auth is inherited whenever present — even for a vless
+/// attachment — which keeps the secret alive as attachments come and go:
+/// `create` / `bulk-assign` carry it onto every vless sibling, so removing
+/// the last hysteria attachment doesn't drop it. A fresh auth is minted
+/// only when the email has none *and* at least one inbound being added is
+/// hysteria. (An explicit per-row PATCH of `auth` / `uuid` can still
+/// diverge rows by operator intent — that path is deliberately not
+/// reconciled here.)
+fn resolve_email_identity(
+    existing: &[EmailIdentityRow],
+    caller_uuid: Option<&str>,
+    caller_auth: Option<&str>,
+    wants_hysteria_auth: bool,
+) -> EmailIdentity {
     let uuid = caller_uuid
-        .or(existing_uuid)
+        .map(str::to_owned)
+        .or_else(|| existing.first().map(|r| r.uuid.clone()))
         .unwrap_or_else(|| Uuid::new_v4().to_string());
+    let hysteria_auth = caller_auth
+        .map(str::to_owned)
+        .or_else(|| {
+            existing
+                .iter()
+                .find_map(|r| r.auth.clone().filter(|s| !s.is_empty()))
+        })
+        .or_else(|| wants_hysteria_auth.then(|| Uuid::new_v4().to_string()));
+    EmailIdentity {
+        uuid,
+        hysteria_auth,
+    }
+}
+
+/// Stamp `auth` onto the email's **non-hysteria** attachments that are
+/// still missing it (NULL/empty). The hysteria secret is per-email
+/// identity, so it must survive removing the last hysteria attachment;
+/// carrying it on the vless siblings (where it's wire-ignored — vless
+/// keys off `uuid`) is what makes a later delete lossless.
+///
+/// Deliberately skips hysteria rows: there `auth` drives the wire (a NULL
+/// means "authenticate by uuid", see `effective_hysteria_auth`), so
+/// stamping a secret onto one would silently change its credential — and
+/// `create` only resyncs xray for the *new* inbound, so that row would
+/// drop offline until a restart. A hysteria row with an empty auth already
+/// carries a working secret (its `uuid`, which lives on every row and
+/// can't be lost), so it needs no backfill anyway.
+///
+/// No-op when `auth` is `None`. Runtime query (not the `query!` macro) so
+/// it needs no `.sqlx` entry; the SQL is a constant. Because it only ever
+/// touches non-hysteria rows, no xray resync is required.
+async fn backfill_shared_auth<'e, E>(executor: E, email: &str, auth: Option<&str>) -> AppResult<()>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
+    let Some(auth) = auth else {
+        return Ok(());
+    };
+    // The CASE guards `protocol_config` — its column default is '' and
+    // `json_extract` RAISES on malformed JSON (not NULL), so a bare extract
+    // could 500 the whole create. `json_valid` first (CASE fixes the eval
+    // order regardless of the planner); an empty/invalid config yields NULL
+    // and is treated as "not a match" → left untouched, the safe default.
+    // Any non-hysteria protocol keys off uuid, so stamping auth is wire-safe.
+    sqlx::query(
+        "UPDATE clients SET auth = ?, updated_at = datetime('now') \
+         WHERE email = ? AND (auth IS NULL OR auth = '') \
+         AND inbound_id IN ( \
+             SELECT id FROM inbounds \
+             WHERE CASE WHEN json_valid(protocol_config) \
+                        THEN json_extract(protocol_config, '$.kind') \
+                        ELSE NULL END <> 'hysteria2' \
+         )",
+    )
+    .bind(auth)
+    .bind(email)
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
+/// Lift the caller's preferences + existing-row defaults into one
+/// `SharedCredentials`. Identity comes from the shared
+/// [`resolve_email_identity`]; this adds the `inbound_id → row_id` index
+/// that bulk-assign needs for its INSERT-vs-UPDATE-vs-DELETE set math.
+async fn resolve_shared_credentials(
+    state: &AppState,
+    email: &str,
+    caller_uuid: Option<&str>,
+    shared_auth_explicit: Option<&str>,
+    target_inbounds: &std::collections::HashMap<String, crate::models::Inbound>,
+) -> AppResult<SharedCredentials> {
+    let existing = fetch_email_identity_rows(&state.db, email).await?;
     let any_hysteria = target_inbounds
         .values()
         .any(|i| matches!(&i.protocol, crate::protocols::ProtocolConfig::Hysteria2(_)));
-    let hysteria_auth = shared_auth_explicit
-        .map(str::to_owned)
-        .or(existing_hysteria_auth)
-        .or_else(|| any_hysteria.then(|| Uuid::new_v4().to_string()));
+    let EmailIdentity {
+        uuid,
+        hysteria_auth,
+    } = resolve_email_identity(&existing, caller_uuid, shared_auth_explicit, any_hysteria);
+    let existing_by_inbound: std::collections::HashMap<String, String> =
+        existing.into_iter().map(|r| (r.inbound_id, r.id)).collect();
     Ok(SharedCredentials {
         uuid,
         hysteria_auth,
@@ -254,7 +365,6 @@ async fn commit_bulk_assign_tx(
     state: &AppState,
     body: &ClientBulkAssign,
     target: &[String],
-    target_inbounds: &std::collections::HashMap<String, crate::models::Inbound>,
     creds: &SharedCredentials,
     to_remove: &[(String, String)],
 ) -> AppResult<Vec<(String, bool)>> {
@@ -262,18 +372,16 @@ async fn commit_bulk_assign_tx(
     let mut applied: Vec<(String, bool)> = Vec::with_capacity(target.len());
     let expires_at = normalize_expiry(body.expires_at.clone())?;
     for inbound_id in target {
-        let inbound = &target_inbounds[inbound_id];
-        let is_hysteria = matches!(
-            &inbound.protocol,
-            crate::protocols::ProtocolConfig::Hysteria2(_)
-        );
-        // Vless rows hold `auth = NULL`. Stamping the shared value on
-        // them would just be noise in the API output.
-        let auth = if is_hysteria {
-            creds.hysteria_auth.clone()
-        } else {
-            None
-        };
+        // Stamp the shared hysteria auth onto EVERY row of this email,
+        // vless included. The auth is per-email identity, so it has to
+        // outlive the removal of the last hysteria attachment: without
+        // this, dropping the hysteria inbound wrote NULL onto the
+        // surviving vless row, and re-adding hysteria later minted a
+        // fresh secret — silently breaking the user's installed link.
+        // vless ignores it on the wire (build_user keys off uuid), so
+        // carrying it is invisible in-app; `None` stays None for an
+        // email that never had a hysteria identity.
+        let auth = creds.hysteria_auth.clone();
         if let Some(existing_id) = creds.existing_by_inbound.get(inbound_id) {
             // `existing` was snapshotted OUTSIDE the tx — a parallel
             // admin tab could have deleted this row between then and
@@ -788,32 +896,25 @@ async fn create(
     let inbound_tag = inbound.tag.clone();
     let inbound_enabled = inbound.enabled;
 
-    // UUID: caller-supplied or freshly minted. We validate the input by
-    // parsing it — xray will reject malformed UUIDs at AlterInbound time
-    // anyway, but a 400 here is friendlier than a 500.
-    let uuid = match &body.uuid {
-        Some(s) if !s.trim().is_empty() => {
-            Uuid::parse_str(s.trim())
-                .map_err(|e| AppError::BadRequest(format!("invalid uuid: {e}")))?;
-            s.trim().to_owned()
-        }
-        _ => Uuid::new_v4().to_string(),
-    };
-
-    // Hysteria-only: auto-generate when omitted so the new client is
-    // immediately usable. For VLESS the column stays NULL.
-    let trimmed_auth = body
+    // Identity (uuid + hysteria auth) resolves through the SAME precedence
+    // as bulk-assign — caller > the email's existing rows > fresh mint — so
+    // this per-inbound path can't silently rotate or diverge a user's
+    // credentials, nor drop a hysteria secret a sibling attachment carries.
+    let caller_uuid = parse_optional_uuid(body.uuid.as_deref())?;
+    let caller_auth = body
         .auth
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty());
-    let auth: Option<String> = trimmed_auth.map(str::to_owned).or_else(|| {
-        matches!(
-            &inbound.protocol,
-            crate::protocols::ProtocolConfig::Hysteria2(_)
-        )
-        .then(|| Uuid::new_v4().to_string())
-    });
+    let existing = fetch_email_identity_rows(&state.db, &body.email).await?;
+    let wants_hysteria_auth = matches!(
+        &inbound.protocol,
+        crate::protocols::ProtocolConfig::Hysteria2(_)
+    );
+    let EmailIdentity {
+        uuid,
+        hysteria_auth: auth,
+    } = resolve_email_identity(&existing, caller_uuid, caller_auth, wants_hysteria_auth);
 
     let id = Uuid::new_v4().to_string();
     // Unique-checked token, matching bulk_assign / rotate_sub_token — a plain
@@ -826,6 +927,13 @@ async fn create(
     // attachment for an existing email starts behind and deleting the older row
     // would drop that history. Mirrors bulk_assign; NULL MAX (brand-new email)
     // → COALESCE to 0.
+    //
+    // INSERT + secret backfill run in one tx: the new row lands, then the
+    // email's hysteria secret is stamped onto any sibling still missing it, so
+    // the "every attachment carries the secret" invariant can't be left
+    // half-applied. This is what makes a later per-inbound delete lossless even
+    // for an email whose first hysteria attachment is created through this path.
+    let mut tx = state.db.begin().await?;
     sqlx::query!(
         r#"INSERT INTO clients (id, inbound_id, email, uuid, auth, flow, enabled, note,
                                 traffic_limit_bytes, disabled_reason, expires_at, sub_token,
@@ -846,7 +954,7 @@ async fn create(
         body.email,
         body.email,
     )
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await
     .map_err(|e| match e {
         sqlx::Error::Database(d) if d.is_unique_violation() => AppError::Conflict(format!(
@@ -856,6 +964,8 @@ async fn create(
         sqlx::Error::Database(d) if d.is_foreign_key_violation() => AppError::NotFound,
         e => e.into(),
     })?;
+    backfill_shared_auth(&mut *tx, &body.email, auth.as_deref()).await?;
+    tx.commit().await?;
 
     let row = read_row(&state, &inbound_id, &id).await?;
     let client = row_to_client(row);
@@ -1327,4 +1437,69 @@ async fn share_link_global(
 ) -> AppResult<Json<ShareLinkResponse>> {
     let inbound_id = inbound_id_for_client(&state, &id).await?;
     share_link_endpoint(user, State(state), Path((inbound_id, id))).await
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use super::{EmailIdentityRow, resolve_email_identity};
+
+    fn row(uuid: &str, auth: Option<&str>) -> EmailIdentityRow {
+        EmailIdentityRow {
+            id: String::new(),
+            inbound_id: String::new(),
+            uuid: uuid.to_owned(),
+            auth: auth.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn new_email_vless_mints_uuid_and_no_auth() {
+        let id = resolve_email_identity(&[], None, None, false);
+        assert!(!id.uuid.is_empty());
+        assert!(id.hysteria_auth.is_none());
+    }
+
+    #[test]
+    fn new_email_hysteria_mints_uuid_and_auth() {
+        let id = resolve_email_identity(&[], None, None, true);
+        assert!(!id.uuid.is_empty());
+        assert!(id.hysteria_auth.is_some());
+    }
+
+    #[test]
+    fn existing_auth_inherited_even_for_vless_attachment() {
+        // The regression guard: attaching a vless inbound to a
+        // hysteria-using email must carry the secret forward, never drop
+        // it to None — otherwise removing the last hysteria row loses it.
+        let existing = [row("uuid-1", Some("secret-h"))];
+        let id = resolve_email_identity(&existing, None, None, false);
+        assert_eq!(id.uuid, "uuid-1");
+        assert_eq!(id.hysteria_auth.as_deref(), Some("secret-h"));
+    }
+
+    #[test]
+    fn vless_only_email_gains_auth_when_hysteria_added() {
+        let existing = [row("uuid-1", None)];
+        let id = resolve_email_identity(&existing, None, None, true);
+        assert_eq!(id.uuid, "uuid-1");
+        assert!(id.hysteria_auth.is_some());
+    }
+
+    #[test]
+    fn caller_values_override_existing() {
+        let existing = [row("uuid-1", Some("secret-h"))];
+        let id = resolve_email_identity(&existing, Some("caller-uuid"), Some("caller-auth"), true);
+        assert_eq!(id.uuid, "caller-uuid");
+        assert_eq!(id.hysteria_auth.as_deref(), Some("caller-auth"));
+    }
+
+    #[test]
+    fn oldest_uuid_wins_and_empty_auth_is_skipped() {
+        // Rows arrive oldest-first: uuid comes from the oldest, auth from
+        // the first *non-empty* value (a cleared row is passed over).
+        let existing = [row("uuid-old", Some("")), row("uuid-new", Some("secret-h"))];
+        let id = resolve_email_identity(&existing, None, None, false);
+        assert_eq!(id.uuid, "uuid-old");
+        assert_eq!(id.hysteria_auth.as_deref(), Some("secret-h"));
+    }
 }

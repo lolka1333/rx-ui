@@ -27,10 +27,12 @@ pub struct Client {
     /// operator needs it to assemble a share-link. Frontend should treat it
     /// like a password (mask by default, eye-toggle to reveal).
     pub uuid: String,
-    /// Hysteria 2 auth secret. `None` for VLESS clients (ignored). For
-    /// hysteria inbounds: the per-user string the client sends in the
-    /// HTTP/3 Auth header. `None` falls back to `uuid` on the wire so
-    /// pre-hysteria rows keep working without manual backfill.
+    /// Hysteria 2 auth secret. On a hysteria inbound: the per-user string
+    /// the client sends in the HTTP/3 Auth header; `None` falls back to
+    /// `uuid` on the wire so pre-hysteria rows keep working without manual
+    /// backfill. A VLESS row may still carry the email's shared secret — so
+    /// it survives removing the last hysteria attachment — but VLESS ignores
+    /// it on the wire.
     pub auth: Option<String>,
     /// `None` → inherit the inbound's `vless_flow`. Explicit `Some` overrides.
     pub flow: Option<String>,
