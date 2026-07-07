@@ -16,7 +16,7 @@
 //! the params it contributes via its `share_link_params(...)` trait method.
 //! This file just stitches the slices together in a stable order, URL-
 //! encodes the result, and prepends the `vless://uuid@host:port?` /
-//! appends the `#email` fragment.
+//! appends the `#<inbound-tag>` fragment (the per-entry name in the client).
 
 use crate::models::{Client, Inbound};
 use crate::protocols::ProtocolConfig;
@@ -142,7 +142,9 @@ pub fn build_hysteria2_share_link(
         .map(|(k, v)| format!("{k}={}", urlencoding::encode(v)))
         .collect::<Vec<_>>()
         .join("&");
-    let name = urlencoding::encode(&client.email);
+    // Fragment = the inbound tag, so subscription entries are named per inbound
+    // (see the VLESS builder for the rationale).
+    let name = urlencoding::encode(&inbound.tag);
     let auth_enc = urlencoding::encode(client.effective_hysteria_auth());
 
     Ok(format!(
@@ -204,9 +206,11 @@ pub fn build_vless_share_link(
         .collect::<Vec<_>>()
         .join("&");
 
-    // Fragment = friendly name shown by the client app. `email` is what the
-    // operator typed for this user — better label than the bare UUID.
-    let name = urlencoding::encode(&client.email);
+    // Fragment = friendly name shown by the client app. Use the INBOUND tag:
+    // a subscription bundles one entry per inbound for the same user, so
+    // naming each by its inbound (`reality-tcp`, `ws-cdn`, …) lets the client
+    // tell them apart — the email is the same on every entry and useless here.
+    let name = urlencoding::encode(&inbound.tag);
 
     Ok(format!(
         "vless://{uuid}@{host}:{port}?{query}#{name}",
@@ -433,7 +437,7 @@ mod tests {
         assert!(link.contains("type=tcp"));
         assert!(link.contains("encryption=none"));
         assert!(link.contains("security=none"));
-        assert!(link.ends_with("#alice%40test"));
+        assert!(link.ends_with("#test-inbound"));
     }
 
     #[test]
@@ -785,13 +789,16 @@ mod tests {
     }
 
     #[test]
-    fn email_is_url_encoded_in_fragment() {
-        let inb = inbound(
+    fn inbound_tag_url_encoded_in_fragment() {
+        // The fragment is the inbound tag; a tag with a space (or other
+        // special char) must be URL-encoded so the link stays valid.
+        let mut inb = inbound(
             TransportConfig::Tcp(TcpTransport {}),
             SecurityConfig::None(NoneSecurity {}),
         );
+        inb.tag = "my inbound".into();
         let link = build_vless_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
-        assert!(link.ends_with("#alice%40test"), "got: {link}");
+        assert!(link.ends_with("#my%20inbound"), "got: {link}");
     }
 
     // ====================================================================
@@ -857,7 +864,7 @@ mod tests {
         assert!(link.contains("sni=hy.example.com"), "got: {link}");
         assert!(link.contains("alpn=h3"), "got: {link}");
         assert!(link.contains("insecure=0"), "got: {link}");
-        assert!(link.ends_with("#alice%40test"), "got: {link}");
+        assert!(link.ends_with("#hy-test"), "got: {link}");
     }
 
     /// A real self-signed Ed25519 leaf (CN=hytest.local). Its DER SHA-256 is
