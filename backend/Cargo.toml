@@ -12,7 +12,7 @@ workspace = true
 [dependencies]
 # Web framework
 axum = { version = "0.8", features = ["tower-log"] }
-tower-http = { version = "0.6", features = ["cors", "trace"] }
+tower-http = { version = "0.7", features = ["cors", "trace"] }
 # Operator-provided HTTPS for the panel's own listener. `tls-rustls-no-provider`
 # reuses the aws-lc-rs CryptoProvider already in the tree (rustls/reqwest) instead
 # of pulling a second `ring` provider — we install it explicitly at startup so the
@@ -40,7 +40,6 @@ ts-rs = { version = "12", features = ["serde-compat", "chrono-impl", "uuid-impl"
 # `default-features = false` also drops the unused PEM key-parsing features.
 jsonwebtoken = { version = "10", default-features = false, features = ["aws_lc_rs"] }
 argon2 = { version = "0.5", features = ["std"] }
-rand_core = { version = "0.6", features = ["getrandom"] }
 
 # Utils
 chrono = { version = "0.4", features = ["serde"] }
@@ -72,17 +71,16 @@ tonic-prost = "0.14"
 prost = "0.14"
 
 # Reality x25519 keypair generation (server-side)
-x25519-dalek = { version = "2", features = ["static_secrets"] }
-# OS-entropy random bytes for the JWT secret + public subscription tokens.
-# x25519-dalek 2.x and argon2/password-hash still require rand_core 0.6, so the
-# Reality keypair + salt source their OsRng from `rand_core` (below); only the
-# standalone secrets pull the current `rand`.
-rand = "0.9"
+x25519-dalek = { version = "3", features = ["static_secrets"] }
+# OS-entropy CSPRNG (`rand::rngs::SysRng`) for every secret we mint ourselves:
+# JWT secret, public subscription tokens, and the Reality x25519 keypair +
+# short_id. argon2/password-hash keeps its own (older) rand_core internally for
+# salt generation — that's transitive, not a direct dep here.
+rand = "0.10"
 base64 = "0.22"
 # SHA-256 of a self-signed leaf cert's DER — distributed in the hysteria2
-# share-link as `pinSHA256=` so clients pin it. Pinned to 0.10 to reuse the
-# 0.10.9 already pulled by rust-embed/sqlx — avoids compiling a second sha2.
-sha2 = "0.10"
+# share-link as `pinSHA256=` so clients pin it.
+sha2 = "0.11"
 # `StreamExt::for_each_concurrent` for the traffic poller's bounded-concurrency
 # enforcement. Already in the tree via tonic/hyper; pinned here as a direct dep.
 futures-util = { version = "0.3", default-features = false, features = ["std"] }

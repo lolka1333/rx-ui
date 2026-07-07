@@ -44,7 +44,7 @@ use axum::{
     routing::get,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
-use rand::TryRngCore;
+use rand::TryRng;
 use serde::Deserialize;
 use sqlx::SqlitePool;
 use std::fmt::Write as _;
@@ -54,7 +54,7 @@ use std::fmt::Write as _;
 /// attack surface.
 pub fn generate_token() -> String {
     let mut bytes = [0u8; 16];
-    rand::rngs::OsRng
+    rand::rngs::SysRng
         .try_fill_bytes(&mut bytes)
         .expect("OS RNG unavailable");
     let mut out = String::with_capacity(32);

@@ -13,12 +13,12 @@
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-// `OsRng` from rand_core (not the `rand` crate): x25519-dalek 2.x's
-// `random_from_rng` requires rand_core 0.6's RngCore + CryptoRng, and the same
-// OsRng fills the short_id bytes. rand_core 0.6's fill_bytes is infallible, so
-// these call sites stay exactly as before — no behaviour change in key/short_id
-// generation, we just stop routing through the (now newer) `rand` facade.
-use rand_core::{OsRng, RngCore};
+// OS entropy via `rand`'s `SysRng` — the same OS-CSPRNG source the JWT secret
+// and subscription tokens draw from. We fill raw bytes and hand them to
+// `StaticSecret::from`, which stores them verbatim (x25519 clamps at DH time),
+// so this is byte-for-byte equivalent to x25519-dalek's own `random_from_rng`
+// while staying decoupled from that crate's internal rand_core version.
+use rand::TryRng as _;
 use x25519_dalek::{PublicKey, StaticSecret};
 
 /// A freshly-generated Reality keypair, both halves encoded as base64-url
@@ -38,13 +38,25 @@ pub struct RealityKeypair {
     pub public_key: String,
 }
 
+/// Fill an `N`-byte array from the OS CSPRNG. A failure means the OS entropy
+/// source is unavailable — unrecoverable for a server whose security rests on
+/// unpredictable keys, so we panic rather than emit guessable bytes (exactly
+/// what x25519-dalek's own `StaticSecret::random()` does internally).
+fn os_random_bytes<const N: usize>() -> [u8; N] {
+    let mut bytes = [0u8; N];
+    rand::rngs::SysRng
+        .try_fill_bytes(&mut bytes)
+        .expect("OS RNG unavailable");
+    bytes
+}
+
 /// Generate a fresh x25519 keypair for Reality.
 ///
-/// Uses `OsRng` (the OS-level CSPRNG) — Reality's security model rests on
-/// the `private_key` being unknown to the client, so this must come from a
+/// Uses the OS-level CSPRNG — Reality's security model rests on the
+/// `private_key` being unknown to the client, so this must come from a
 /// cryptographically secure source.
 pub fn generate_reality_keypair() -> RealityKeypair {
-    let secret = StaticSecret::random_from_rng(OsRng);
+    let secret = StaticSecret::from(os_random_bytes::<32>());
     let public = PublicKey::from(&secret);
     RealityKeypair {
         private_key: URL_SAFE_NO_PAD.encode(secret.to_bytes()),
@@ -195,9 +207,7 @@ fn extract_trailing_key(line: &str, label: &str) -> anyhow::Result<String> {
 /// Generate a fresh 8-byte `short_id`, returned as a 16-character lowercase
 /// hex string.
 pub fn generate_short_id() -> String {
-    let mut bytes = [0u8; 8];
-    OsRng.fill_bytes(&mut bytes);
-    hex_lower(&bytes)
+    hex_lower(&os_random_bytes::<8>())
 }
 
 /// Encode bytes as a lowercase hex string. Uses a single allocation +
