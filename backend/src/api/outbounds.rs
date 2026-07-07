@@ -92,6 +92,9 @@ pub async fn load_custom_outbounds(db: &crate::db::DbPool) -> AppResult<Vec<Cust
     )
     .fetch_one(db)
     .await?;
+    // Legacy single-item Noise blobs fold into the current `items[]` shape
+    // automatically on deserialize (see `NoiseParams` / `NoiseParamsRepr`), so
+    // every read — list, connectivity test, share-link — sees one layout.
     Ok(serde_json::from_str(&json).unwrap_or_default())
 }
 
@@ -256,6 +259,12 @@ fn validate_outbounds(outbounds: &[CustomOutbound]) -> AppResult<()> {
                 "duplicate outbound tag '{tag}'"
             )));
         }
+        // A noise FinalMask rides outbounds too, and feeds the SAME xray as the
+        // inbounds — an out-of-range value crash-loops the whole process, so the
+        // outbound write path must run the identical per-item validation.
+        o.finalmask
+            .validate_noise()
+            .map_err(|e| AppError::BadRequest(format!("outbound '{tag}': {e}")))?;
         // Hysteria 2 is a QUIC proxy where the protocol and transport are one
         // and the same, so they must be paired — and the connection needs a
         // password, carried on the transport (where xray's dialer reads it).

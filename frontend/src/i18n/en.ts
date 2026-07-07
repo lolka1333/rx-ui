@@ -742,7 +742,12 @@ export const en: Dict = {
     finalmaskNoisePacketHexTooltip: 'Hex bytes always added at the start of the datagram. Whitespace / colons / 0x prefix are ignored. Empty = random bytes only (see Random range).',
     finalmaskNoisePacketHexInvalid: 'Only hex digits (0-9, a-f), whitespace, colons, and optional 0x prefix',
     finalmaskNoiseRand: 'Random bytes',
-    finalmaskNoiseRandTooltip: 'How many random bytes to append after the literal prefix. [min..max] — length picked randomly per datagram. Default 5..10 is usually enough to break pattern matching.',
+    finalmaskNoiseRandTooltip: 'How many random bytes the item adds. [min..max] — length picked randomly per datagram. Default 5..10 is usually enough to break pattern matching. Ignored when a literal prefix is set (an item is one or the other).',
+    finalmaskNoiseItem: 'Item {{n}}',
+    finalmaskNoiseAddItem: 'Add noise item',
+    finalmaskNoiseRemoveItem: 'Remove item',
+    finalmaskNoiseDelay: 'Delay (ms)',
+    finalmaskNoiseDelayTooltip: 'Optional pause before this item is sent — [min..max] ms picked per datagram. Empty = no delay. Only matters with multiple items, to stagger them in time.',
     // tabHysteria intentionally NOT here — kept next to other Hysteria
     // labels above for cohesion. Linter is happy because every key is
     // referenced from Inbounds.tsx, just from a different location.

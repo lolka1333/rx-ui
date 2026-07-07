@@ -197,9 +197,7 @@ export type FinalMaskFormFields = Pick<
   | 'finalmask_fragment_packets_to'
   | 'finalmask_fragment_lengths'
   | 'finalmask_fragment_delays'
-  | 'finalmask_noise_packet_hex'
-  | 'finalmask_noise_rand_min'
-  | 'finalmask_noise_rand_max'
+  | 'finalmask_noise_items'
   | 'finalmask_salamander_password'
 >;
 
@@ -240,9 +238,12 @@ export function hydrateFinalMask(target: FinalMaskFormFields, fm: FinalMask): vo
       .join(', ');
   } else if (fm.kind === 'noise') {
     target.finalmask_kind = 'noise';
-    target.finalmask_noise_packet_hex = fm.packet_hex;
-    target.finalmask_noise_rand_min = fm.rand_min;
-    target.finalmask_noise_rand_max = fm.rand_max;
+    // Backend always returns at least one item (legacy single-item blobs are
+    // folded server-side), but fall back to one blank row so the list editor
+    // never renders empty.
+    target.finalmask_noise_items = fm.items.length
+      ? fm.items.map((it) => ({ ...it }))
+      : [{ packet_hex: '', rand_min: null, rand_max: null, delay_min: null, delay_max: null }];
   } else if (fm.kind === 'salamander') {
     target.finalmask_kind = 'salamander';
     target.finalmask_salamander_password = fm.password;
@@ -608,9 +609,22 @@ export function buildFinalMask(v: FormValues): FinalMask {
     case 'noise':
       return {
         kind: 'noise',
-        packet_hex: v.finalmask_noise_packet_hex,
-        rand_min: v.finalmask_noise_rand_min,
-        rand_max: v.finalmask_noise_rand_max,
+        // Normalise each row so partially-filled inputs round-trip cleanly.
+        // A literal packet and a random count are mutually exclusive and the
+        // panel resolves it as "packet wins" (matching the tooltip, the backend
+        // build, and the share-link import in parseLink.ts) — so drop the now-
+        // ignored rand when a literal is present instead of sending both.
+        items: (v.finalmask_noise_items ?? []).map((it) => {
+          const packet_hex = it.packet_hex ?? '';
+          const hasLiteral = packet_hex.trim() !== '';
+          return {
+            packet_hex,
+            rand_min: hasLiteral ? null : (it.rand_min ?? null),
+            rand_max: hasLiteral ? null : (it.rand_max ?? null),
+            delay_min: it.delay_min ?? null,
+            delay_max: it.delay_max ?? null,
+          };
+        }),
         reset_min: null,
         reset_max: null,
       };

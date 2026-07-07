@@ -161,9 +161,8 @@ export const OUTBOUND_DEFAULTS: OutboundFormValues = {
   finalmask_fragment_packets_to: INB_DEFAULTS.finalmask_fragment_packets_to,
   finalmask_fragment_lengths: INB_DEFAULTS.finalmask_fragment_lengths,
   finalmask_fragment_delays: INB_DEFAULTS.finalmask_fragment_delays,
-  finalmask_noise_packet_hex: INB_DEFAULTS.finalmask_noise_packet_hex,
-  finalmask_noise_rand_min: INB_DEFAULTS.finalmask_noise_rand_min,
-  finalmask_noise_rand_max: INB_DEFAULTS.finalmask_noise_rand_max,
+  // Clone the item objects so the two forms don't share array/object refs.
+  finalmask_noise_items: INB_DEFAULTS.finalmask_noise_items.map((it) => ({ ...it })),
   finalmask_salamander_password: INB_DEFAULTS.finalmask_salamander_password,
 };
 

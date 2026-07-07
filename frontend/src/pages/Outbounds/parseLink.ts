@@ -277,7 +277,32 @@ function applyFinalMask(out: Partial<OutboundFormValues>, fmRaw: string): void {
     out.finalmask_sudoku_password = str('password');
   } else if (item.type === 'noise') {
     out.finalmask_kind = 'noise';
-    out.finalmask_noise_packet_hex = str('packet');
+    // Settings shape is `{reset, noise:[Item]}`; each item carries EITHER a
+    // literal `packet` (hex) or a `rand` "min-max" range, plus an optional
+    // `delay` "min-max" range. Parse the whole list back into form rows.
+    const parseRange = (val: unknown): [number | null, number | null] => {
+      if (typeof val !== 'string') return [null, null];
+      const [a, b] = val.split('-').map((x) => Number.parseInt(x.trim(), 10));
+      const min = Number.isFinite(a) ? a : null;
+      return [min, Number.isFinite(b) ? b : min];
+    };
+    const items = arr('noise').map((raw) => {
+      const ni = (raw ?? {}) as Record<string, unknown>;
+      const packet = typeof ni.packet === 'string' ? ni.packet : '';
+      const [rand_min, rand_max] = parseRange(ni.rand);
+      const [delay_min, delay_max] = parseRange(ni.delay);
+      return {
+        packet_hex: packet,
+        // Literal and random are mutually exclusive; a packet wins.
+        rand_min: packet ? null : rand_min,
+        rand_max: packet ? null : rand_max,
+        delay_min,
+        delay_max,
+      };
+    });
+    out.finalmask_noise_items = items.length
+      ? items
+      : [{ packet_hex: '', rand_min: null, rand_max: null, delay_min: null, delay_max: null }];
   } else if (item.type === 'salamander') {
     out.finalmask_kind = 'salamander';
     out.finalmask_salamander_password = str('password');

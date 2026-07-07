@@ -715,7 +715,12 @@ export const ru = {
     finalmaskNoisePacketHexTooltip: 'Hex-байты которые ВСЕГДА добавляются в начало датаграммы. Пробелы / двоеточия / 0x-префикс игнорируются. Пустое значение = только случайные байты (см. Random range).',
     finalmaskNoisePacketHexInvalid: 'Только hex-цифры (0-9, a-f), пробелы, двоеточия и опциональный 0x-префикс',
     finalmaskNoiseRand: 'Случайных байт',
-    finalmaskNoiseRandTooltip: 'Сколько случайных байт добавить после литерального префикса. [min..max] — длина выбирается случайно в этом диапазоне на каждую датаграмму. Дефолт 5..10 — обычно достаточно чтобы сломать паттерн-матчинг.',
+    finalmaskNoiseRandTooltip: 'Сколько случайных байт добавляет элемент. [min..max] — длина выбирается случайно на каждую датаграмму. Дефолт 5..10 обычно достаточно чтобы сломать паттерн-матчинг. Игнорируется если задан литеральный префикс (элемент — либо то, либо другое).',
+    finalmaskNoiseItem: 'Элемент {{n}}',
+    finalmaskNoiseAddItem: 'Добавить элемент',
+    finalmaskNoiseRemoveItem: 'Удалить элемент',
+    finalmaskNoiseDelay: 'Задержка (мс)',
+    finalmaskNoiseDelayTooltip: 'Опциональная пауза перед отправкой этого элемента — [min..max] мс на каждую датаграмму. Пусто = без задержки. Имеет смысл только при нескольких элементах, чтобы разнести их во времени.',
     // VLESS Encryption — post-quantum application-layer cipher on top of TLS.
     vlessEncSection: 'Шифрование VLESS (post-quantum)',
     vlessEncMode: 'Режим',

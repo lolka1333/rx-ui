@@ -84,6 +84,8 @@ fn row_to_inbound(r: Row) -> AppResult<Inbound> {
         .map_err(|e| AppError::Internal(anyhow::anyhow!("security_config JSON: {e}")))?;
     let sniffing = serde_json::from_str(&r.sniffing_config)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("sniffing_config JSON: {e}")))?;
+    // Legacy single-item Noise blobs fold into the current `items[]` shape
+    // automatically on deserialize (see `NoiseParams` / `NoiseParamsRepr`).
     let finalmask = serde_json::from_str(&r.finalmask_config)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("finalmask_config JSON: {e}")))?;
     let sockopt = serde_json::from_str(&r.sockopt_config)
@@ -170,6 +172,11 @@ fn validate_finalmask(security: &SecurityConfig, finalmask: &FinalMask) -> AppRe
             ));
         }
     }
+
+    // Noise per-item invariants (literal-XOR-rand, decodable literal, bounded
+    // rand/delay/reset). Shared with the outbound write path so the same xray
+    // process can't be crashed from either — see `FinalMask::validate_noise`.
+    finalmask.validate_noise().map_err(AppError::BadRequest)?;
 
     Ok(())
 }
@@ -1011,7 +1018,7 @@ mod validate_layers_tests {
     use crate::security::NoneSecurity;
     use crate::security::reality::RealitySecurity;
     use crate::security::tls::TlsSecurity;
-    use crate::transports::finalmask::{FragmentParams, SudokuParams};
+    use crate::transports::finalmask::{FragmentParams, NoiseItem, NoiseParams, SudokuParams};
     use crate::transports::tcp::TcpTransport;
     use crate::transports::ws::WsTransport;
     use crate::transports::xhttp::{XhttpMode, XhttpTransport};
@@ -1057,6 +1064,104 @@ mod validate_layers_tests {
             &vless(VlessFlow::XtlsRprxVision),
             &TransportConfig::Tcp(TcpTransport {}),
             &reality_ok(),
+        )
+        .unwrap();
+    }
+
+    fn noise(items: Vec<NoiseItem>) -> FinalMask {
+        FinalMask::Noise(NoiseParams {
+            items,
+            ..NoiseParams::default()
+        })
+    }
+
+    #[test]
+    fn noise_negative_rand_rejected() {
+        // Reachable only via a direct API body (the UI pins min=0); a negative
+        // rand would panic xray at runtime (`make([]byte, RandBetween(neg))`).
+        let err = validate_finalmask(
+            &SecurityConfig::None(NoneSecurity {}),
+            &noise(vec![NoiseItem {
+                rand_min: Some(-5),
+                rand_max: Some(8),
+                ..NoiseItem::default()
+            }]),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("random length must be between"), "got: {err}");
+    }
+
+    #[test]
+    fn noise_oversized_rand_rejected() {
+        let err = validate_finalmask(
+            &SecurityConfig::None(NoneSecurity {}),
+            &noise(vec![NoiseItem {
+                rand_max: Some(5_000_000_000),
+                ..NoiseItem::default()
+            }]),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("random length must be between"), "got: {err}");
+    }
+
+    #[test]
+    fn noise_literal_plus_rand_accepted_packet_wins() {
+        // A literal + a stray rand is NOT rejected — it's the old UI's normal
+        // output and the default literal flow. "Packet wins" is applied at
+        // build time (rand zeroed), matching the tooltip; a hard 400 here would
+        // block editing legacy inbounds and the default literal flow.
+        validate_finalmask(
+            &SecurityConfig::None(NoneSecurity {}),
+            &noise(vec![NoiseItem {
+                packet_hex: "dead".into(),
+                rand_min: Some(5),
+                rand_max: Some(10),
+                ..NoiseItem::default()
+            }]),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn noise_undecodable_literal_rejected() {
+        // Odd-length / separator-only literals decode to junk or empty — the
+        // operator gets an error, not a silent no-op mask.
+        for bad in ["abc", "a", ",", "zz"] {
+            let err = validate_finalmask(
+                &SecurityConfig::None(NoneSecurity {}),
+                &noise(vec![NoiseItem {
+                    packet_hex: bad.into(),
+                    ..NoiseItem::default()
+                }]),
+            )
+            .unwrap_err()
+            .to_string();
+            assert!(err.contains("literal packet"), "input {bad:?} got: {err}");
+        }
+    }
+
+    #[test]
+    fn noise_in_range_ok() {
+        validate_finalmask(
+            &SecurityConfig::None(NoneSecurity {}),
+            &noise(vec![NoiseItem {
+                rand_min: Some(5),
+                rand_max: Some(10),
+                delay_min: Some(0),
+                delay_max: Some(65_535),
+                ..NoiseItem::default()
+            }]),
+        )
+        .unwrap();
+        // A clean literal with separators is accepted.
+        validate_finalmask(
+            &SecurityConfig::None(NoneSecurity {}),
+            &noise(vec![NoiseItem {
+                packet_hex: "de:ad be,ef".into(),
+                ..NoiseItem::default()
+            }]),
         )
         .unwrap();
     }

@@ -6,6 +6,7 @@
 
 import type {
   FinalMask,
+  NoiseItem,
   QuicCongestion,
   SecurityConfig,
   TlsCertificate,
@@ -254,10 +255,9 @@ export interface FormValues {
   // Per-segment ranges as comma-separated "min-max" lists, e.g. "100-200, 3-5".
   finalmask_fragment_lengths: string;
   finalmask_fragment_delays: string;
-  // noise
-  finalmask_noise_packet_hex: string;
-  finalmask_noise_rand_min: number | null;
-  finalmask_noise_rand_max: number | null;
+  // noise — an ordered list of items, each a literal-or-random prefix with
+  // an optional per-item delay (mirrors xray's `noise[]`).
+  finalmask_noise_items: NoiseItem[];
   // salamander (Hysteria 2 native obfs)
   finalmask_salamander_password: string;
   sniffing_enabled: boolean;

@@ -44,28 +44,51 @@ lengths_min: number[], lengths_max: number[],
 delays_min: number[], delays_max: number[], max_split_min: number | null, max_split_max: number | null, };
 
 /**
- * Noise finalmask knobs. xray's wire shape is a list of `Item`s plus
- * a reset interval (rotates which item is used between datagrams).
- * `Item.packet` is the literal byte prefix; `rand_min/max` adds N
- * random bytes after the literal, and `rand_range_min/max` picks the
- * byte value range for those random bytes. For v1 we expose a
- * single item built from a hex-encoded `packet` plus the random
- * length pair — covers the common "10 random bytes per datagram"
- * pattern people use to mask QUIC long-header detection.
+ * One noise item. xray builds a datagram prefix from EITHER a literal
+ * `packet` (hex) OR `rand_min..rand_max` random bytes — never both on the
+ * same item (xray's conf parser errors on `len(packet) > 0 && rand.To > 0`).
+ * `rand_range_min/max` (the byte-value range) is pinned to xray's 0..255
+ * conf default at build time. `delay_min..delay_max` is an optional per-item
+ * pause (ms) before the item is emitted; `0..0` ≡ no delay.
  */
-export type NoiseParams = { 
+export type NoiseItem = { 
 /**
- * Hex-encoded literal prefix bytes. Empty = no literal, only
- * random bytes used.
+ * Hex-encoded literal prefix bytes. Empty ≡ random-bytes mode.
  */
 packet_hex: string, 
 /**
- * Random byte count appended to the literal prefix.
+ * Random byte count appended when there's no literal prefix.
  */
 rand_min: number | null, rand_max: number | null, 
 /**
- * Datagram count after which xray rotates noise state. `0..0` =
- * xray default.
+ * Per-item send delay (ms). `0..0` ≡ no delay.
+ */
+delay_min: number | null, delay_max: number | null, };
+
+/**
+ * Noise finalmask knobs. xray's wire shape is a list of `Item`s plus a
+ * reset interval (rotates which item is used between datagrams). We expose
+ * the full item list with per-item random-length and delay ranges — covers
+ * both the common "N random bytes per datagram" QUIC-masking case and
+ * multi-item sequences (e.g. a literal fake-handshake item followed by a
+ * random-filler item, each with its own delay).
+ *
+ * Older rows stored a single item inline (`packet_hex`/`rand_min`/`rand_max`
+ * at the top level). The hand-written [`Deserialize`] (below) folds that
+ * legacy shape into `items` DURING deserialization via [`NoiseParamsRepr`],
+ * so EVERY read path (API GET, config-gen reconcile, share-link, and request
+ * bodies) sees one shape with no per-call-site `normalize()` to forget — no
+ * data migration needed, and the serialized form is always the new `items[]`
+ * layout.
+ */
+export type NoiseParams = { 
+/**
+ * Ordered list of noise items applied per datagram.
+ */
+items: Array<NoiseItem>, 
+/**
+ * Datagram count after which xray rotates noise state. `0..0` ≡ xray
+ * default. Not surfaced in the UI (pinned null → 0).
  */
 reset_min: number | null, reset_max: number | null, };
 

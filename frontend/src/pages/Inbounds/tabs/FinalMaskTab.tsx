@@ -13,7 +13,8 @@
 //! understand `fm=` will fail to connect — that's intentional.
 
 import { useMemo } from 'react';
-import { Alert, Form, Input, InputNumber, Select, Typography } from 'antd';
+import { Alert, Button, Form, Input, InputNumber, Select, Typography } from 'antd';
+import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import type { FinalMask } from '@/api/types';
 import { InputField, RangePair, Section, SelectField, SideBySide } from '../widgets';
@@ -231,6 +232,13 @@ function FragmentFields() {
 
 function NoiseFields() {
   const { t } = useTranslation();
+  // Backend's `decode_hex_relaxed` returns an empty Vec on the first non-hex
+  // character, silently disabling that item. Catch typos at submit time so the
+  // operator sees an error instead of a mysteriously broken inbound.
+  const hexRule = {
+    pattern: /^(?:0[xX])?[0-9a-fA-F\s:,]*$/,
+    message: t('inbounds.finalmaskNoisePacketHexInvalid'),
+  };
   return (
     <Section itemKey="finalmask-noise" labelKey="inbounds.finalmaskNoiseSection">
       <Typography.Paragraph
@@ -239,31 +247,101 @@ function NoiseFields() {
       >
         {t('inbounds.finalmaskNoiseHint')}
       </Typography.Paragraph>
-      <Form.Item
-        name="finalmask_noise_packet_hex"
-        label={t('inbounds.finalmaskNoisePacketHex')}
-        tooltip={t('inbounds.finalmaskNoisePacketHexTooltip')}
-        rules={[
-          {
-            // Backend's `decode_hex_relaxed` returns an empty Vec on the
-            // first non-hex character, silently disabling the noise mask.
-            // Catch typos at form-submit time so the operator sees an
-            // error instead of a mysteriously broken inbound.
-            pattern: /^(?:0[xX])?[0-9a-fA-F\s:,]*$/,
-            message: t('inbounds.finalmaskNoisePacketHexInvalid'),
-          },
-        ]}
-        style={{ marginBottom: 12 }}
-      >
-        <Input placeholder="e.g. deadbeef or empty" allowClear />
-      </Form.Item>
-      <RangePair
-        labelKey="inbounds.finalmaskNoiseRand"
-        tooltipKey="inbounds.finalmaskNoiseRandTooltip"
-        minName="finalmask_noise_rand_min"
-        maxName="finalmask_noise_rand_max"
-        last
-      />
+      <Form.List name="finalmask_noise_items">
+        {(fields, { add, remove }) => (
+          <>
+            {fields.map((field, idx) => (
+              <div
+                key={field.key}
+                style={{
+                  border: '1px solid var(--border)',
+                  borderRadius: 8,
+                  padding: 12,
+                  marginBottom: 8,
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: 8,
+                  }}
+                >
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    {t('inbounds.finalmaskNoiseItem', { n: idx + 1 })}
+                  </Typography.Text>
+                  <Button
+                    type="text"
+                    danger
+                    size="small"
+                    icon={<DeleteOutlined />}
+                    // Keep at least one row so the list never renders empty;
+                    // a single blank item is treated as "no noise" server-side.
+                    disabled={fields.length <= 1}
+                    aria-label={t('inbounds.finalmaskNoiseRemoveItem')}
+                    onClick={() => remove(field.name)}
+                  />
+                </div>
+                <Form.Item
+                  name={[field.name, 'packet_hex']}
+                  label={t('inbounds.finalmaskNoisePacketHex')}
+                  tooltip={t('inbounds.finalmaskNoisePacketHexTooltip')}
+                  rules={[hexRule]}
+                  style={{ marginBottom: 12 }}
+                >
+                  <Input placeholder="e.g. deadbeef or empty" allowClear />
+                </Form.Item>
+                <Form.Item
+                  label={t('inbounds.finalmaskNoiseRand')}
+                  tooltip={t('inbounds.finalmaskNoiseRandTooltip')}
+                  style={{ marginBottom: 12 }}
+                >
+                  <SideBySide>
+                    <Form.Item name={[field.name, 'rand_min']} noStyle>
+                      <InputNumber min={0} placeholder="min" style={{ width: '100%' }} />
+                    </Form.Item>
+                    <Form.Item name={[field.name, 'rand_max']} noStyle>
+                      <InputNumber min={0} placeholder="max" style={{ width: '100%' }} />
+                    </Form.Item>
+                  </SideBySide>
+                </Form.Item>
+                <Form.Item
+                  label={t('inbounds.finalmaskNoiseDelay')}
+                  tooltip={t('inbounds.finalmaskNoiseDelayTooltip')}
+                  style={{ marginBottom: 0 }}
+                >
+                  <SideBySide>
+                    <Form.Item name={[field.name, 'delay_min']} noStyle>
+                      <InputNumber min={0} placeholder="min" style={{ width: '100%' }} />
+                    </Form.Item>
+                    <Form.Item name={[field.name, 'delay_max']} noStyle>
+                      <InputNumber min={0} placeholder="max" style={{ width: '100%' }} />
+                    </Form.Item>
+                  </SideBySide>
+                </Form.Item>
+              </div>
+            ))}
+            <Button
+              type="dashed"
+              size="small"
+              icon={<PlusOutlined />}
+              block
+              onClick={() =>
+                add({
+                  packet_hex: '',
+                  rand_min: null,
+                  rand_max: null,
+                  delay_min: null,
+                  delay_max: null,
+                })
+              }
+            >
+              {t('inbounds.finalmaskNoiseAddItem')}
+            </Button>
+          </>
+        )}
+      </Form.List>
     </Section>
   );
 }

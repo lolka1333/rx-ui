@@ -285,16 +285,37 @@ fn finalmask_share_link_param(fm: &FinalMask) -> Option<(String, String)> {
         // `{packetHex, randMin, …}` object parsed to an empty `noise:[]` — i.e.
         // a silent no-op, the client applied no obfuscation at all.
         FinalMask::Noise(p) => {
-            let item = if p.packet_hex.trim().is_empty() {
-                serde_json::json!({
-                    "rand": format!("{}-{}", p.rand_min.unwrap_or(0), p.rand_max.unwrap_or(0)),
+            // One conf `noise[]` entry per active item, matching the proto path
+            // (literal XOR random) so the server the panel builds and the client
+            // this `fm=` configures stay symmetric. Per-item `delay` (an
+            // Int32Range "min-max" string) rides along only when the operator
+            // set it, keeping the link compact for the common no-delay case.
+            let noise: Vec<serde_json::Value> = p
+                .items
+                .iter()
+                .filter(|it| it.is_active())
+                .map(|it| {
+                    let mut item = if it.has_literal() {
+                        // Emit CANONICAL hex (0x/colons/whitespace stripped,
+                        // even length) — xray's client parses `packet` with a
+                        // strict `hex.DecodeString` that would reject the raw
+                        // operator string and fail to load the whole node.
+                        serde_json::json!({ "type": "hex", "packet": it.packet_hex_canonical() })
+                    } else {
+                        let (lo, hi) = it.rand_range();
+                        serde_json::json!({ "rand": format!("{lo}-{hi}") })
+                    };
+                    if it.delay_min.is_some() || it.delay_max.is_some() {
+                        let (lo, hi) = it.delay_range();
+                        item["delay"] = serde_json::json!(format!("{lo}-{hi}"));
+                    }
+                    item
                 })
-            } else {
-                serde_json::json!({ "type": "hex", "packet": p.packet_hex })
-            };
+                .collect();
+            let (reset_lo, reset_hi) = p.reset_range();
             serde_json::json!({
-                "reset": format!("{}-{}", p.reset_min.unwrap_or(0), p.reset_max.unwrap_or(0)),
-                "noise": [item],
+                "reset": format!("{reset_lo}-{reset_hi}"),
+                "noise": noise,
             })
         }
         // Salamander is a single password (packetSize left at xray default).
@@ -926,11 +947,14 @@ mod tests {
 
     #[test]
     fn hysteria2_noise_rides_as_fm_not_obfs() {
-        use crate::transports::finalmask::NoiseParams;
+        use crate::transports::finalmask::{NoiseItem, NoiseParams};
         let mut inb = hy_inbound(tls_with_sni("hy.example.com"));
         inb.finalmask = FinalMask::Noise(NoiseParams {
-            rand_min: Some(5),
-            rand_max: Some(10),
+            items: vec![NoiseItem {
+                rand_min: Some(5),
+                rand_max: Some(10),
+                ..NoiseItem::default()
+            }],
             ..NoiseParams::default()
         });
         let link = build_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
@@ -1379,7 +1403,9 @@ mod tests {
     // silently lose FinalMask client-side and connections fail with
     // mysterious handshake mismatches.
 
-    use crate::transports::finalmask::{FinalMask, FragmentParams, NoiseParams, SudokuParams};
+    use crate::transports::finalmask::{
+        FinalMask, FragmentParams, NoiseItem, NoiseParams, SudokuParams,
+    };
 
     /// Pull the `fm=` parameter out of a share-link, URL-decode, and
     /// parse the embedded JSON. Returns the JSON body for assertions.
@@ -1457,11 +1483,14 @@ mod tests {
             SecurityConfig::None(NoneSecurity {}),
         );
         inb.finalmask = FinalMask::Noise(NoiseParams {
-            packet_hex: "deadbeef".into(),
-            // rand is supplied too, but a packet wins: xray rejects an item that
-            // carries both a packet and rand.To > 0, so the encoder drops rand.
-            rand_min: Some(5),
-            rand_max: Some(10),
+            items: vec![NoiseItem {
+                packet_hex: "deadbeef".into(),
+                // rand is supplied too, but a packet wins: xray rejects an item
+                // that carries both a packet and rand.To > 0, so we drop rand.
+                rand_min: Some(5),
+                rand_max: Some(10),
+                ..NoiseItem::default()
+            }],
             ..NoiseParams::default()
         });
         let link = build_vless_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
@@ -1479,15 +1508,58 @@ mod tests {
     }
 
     #[test]
+    fn fm_noise_multi_item_emits_ordered_list_with_delay() {
+        let mut inb = inbound(
+            TransportConfig::Tcp(TcpTransport {}),
+            SecurityConfig::None(NoneSecurity {}),
+        );
+        inb.finalmask = FinalMask::Noise(NoiseParams {
+            items: vec![
+                NoiseItem {
+                    packet_hex: "deadbeef".into(),
+                    delay_min: Some(1),
+                    delay_max: Some(2),
+                    ..NoiseItem::default()
+                },
+                // Blank draft row — dropped from the emitted list.
+                NoiseItem::default(),
+                NoiseItem {
+                    rand_min: Some(4),
+                    rand_max: Some(8),
+                    ..NoiseItem::default()
+                },
+            ],
+            ..NoiseParams::default()
+        });
+        let link = build_vless_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
+        let v = extract_fm(&link);
+        let noise = &v["udp"][0]["settings"]["noise"];
+        assert_eq!(
+            noise.as_array().map(Vec::len),
+            Some(2),
+            "blank row dropped: {noise}"
+        );
+        // Item 0: literal + its delay.
+        assert_eq!(noise[0]["type"], "hex");
+        assert_eq!(noise[0]["packet"], "deadbeef");
+        assert_eq!(noise[0]["delay"], "1-2");
+        // Item 1: random mode, no delay key emitted.
+        assert_eq!(noise[1]["rand"], "4-8");
+        assert!(noise[1]["delay"].is_null(), "no delay set → no delay key");
+    }
+
+    #[test]
     fn fm_noise_rand_only_emits_rand_range() {
         let mut inb = inbound(
             TransportConfig::Tcp(TcpTransport {}),
             SecurityConfig::None(NoneSecurity {}),
         );
         inb.finalmask = FinalMask::Noise(NoiseParams {
-            packet_hex: String::new(),
-            rand_min: Some(5),
-            rand_max: Some(10),
+            items: vec![NoiseItem {
+                rand_min: Some(5),
+                rand_max: Some(10),
+                ..NoiseItem::default()
+            }],
             reset_min: Some(3),
             reset_max: Some(7),
         });
@@ -1497,6 +1569,54 @@ mod tests {
         assert_eq!(v["udp"][0]["settings"]["reset"], "3-7");
         assert_eq!(v["udp"][0]["settings"]["noise"][0]["rand"], "5-10");
         assert!(v["udp"][0]["settings"]["noise"][0]["packet"].is_null());
+    }
+
+    /// The operator may type `0x`, colons, commas or whitespace in a literal
+    /// packet (the UI regex/tooltip invite it) and the server decodes it
+    /// relaxed. The `fm=` MUST ship CANONICAL even-length hex — xray's client
+    /// parses `packet` with a strict `hex.DecodeString` that rejects all of
+    /// those and would fail to load the whole node.
+    #[test]
+    fn fm_noise_canonicalizes_literal_hex() {
+        let mut inb = inbound(
+            TransportConfig::Tcp(TcpTransport {}),
+            SecurityConfig::None(NoneSecurity {}),
+        );
+        inb.finalmask = FinalMask::Noise(NoiseParams {
+            items: vec![NoiseItem {
+                packet_hex: "0xDE:ad be,ef".into(),
+                ..NoiseItem::default()
+            }],
+            ..NoiseParams::default()
+        });
+        let link = build_vless_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
+        let v = extract_fm(&link);
+        assert_eq!(
+            v["udp"][0]["settings"]["noise"][0]["packet"], "deadbeef",
+            "fm= must carry clean hex, not the raw operator string"
+        );
+    }
+
+    /// A partially-filled random range (min set, max blank → 0) is sorted, so
+    /// the `fm=` and the server proto agree instead of one emitting an empty
+    /// datagram and the other real random bytes.
+    #[test]
+    fn fm_noise_partial_rand_range_is_sorted() {
+        let mut inb = inbound(
+            TransportConfig::Tcp(TcpTransport {}),
+            SecurityConfig::None(NoneSecurity {}),
+        );
+        inb.finalmask = FinalMask::Noise(NoiseParams {
+            items: vec![NoiseItem {
+                rand_min: Some(5),
+                rand_max: None,
+                ..NoiseItem::default()
+            }],
+            ..NoiseParams::default()
+        });
+        let link = build_vless_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
+        let v = extract_fm(&link);
+        assert_eq!(v["udp"][0]["settings"]["noise"][0]["rand"], "0-5");
     }
 
     #[test]

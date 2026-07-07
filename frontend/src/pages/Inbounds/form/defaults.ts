@@ -156,9 +156,12 @@ export const DEFAULTS: FormValues = {
   finalmask_fragment_packets_to: null,
   finalmask_fragment_lengths: '100-200',
   finalmask_fragment_delays: '',
-  finalmask_noise_packet_hex: '',
-  finalmask_noise_rand_min: 5,
-  finalmask_noise_rand_max: 10,
+  // One seeded noise item — the common "5..10 random bytes per datagram"
+  // pattern that masks QUIC long-header detection. Operator can add more
+  // items (each a literal prefix or a random range, with an optional delay).
+  finalmask_noise_items: [
+    { packet_hex: '', rand_min: 5, rand_max: 10, delay_min: null, delay_max: null },
+  ],
   finalmask_salamander_password: '',
   // Sockopt off by default — empty trusted list + null keepalive + no
   // mptcp means `buildSockopt` returns an all-empty SocketOpt, the
