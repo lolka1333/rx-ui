@@ -119,7 +119,14 @@ async fn test(
         .into_iter()
         .find(|o| o.id == id)
         .ok_or(AppError::NotFound)?;
-    Ok(Json(test_outbound(&state.xray.binary, &ob).await))
+    // Probe the operator-configured URL (`xray_test_url`), not a hardcoded one,
+    // so the exit test reflects the endpoint set in Settings.
+    let test_url = crate::api::settings::load_panel_settings(&state.db)
+        .await?
+        .xray_test_url;
+    Ok(Json(
+        test_outbound(&state.xray.binary, &ob, &test_url).await,
+    ))
 }
 
 /// Connectivity test for a built-in outbound. `direct` / `direct-ipv4` make a
@@ -127,11 +134,15 @@ async fn test(
 /// blackhole (drops everything by design) so it isn't testable.
 async fn test_builtin(
     _user: AuthUser,
+    State(state): State<AppState>,
     Path(tag): Path<String>,
 ) -> AppResult<Json<OutboundTestResult>> {
+    let test_url = crate::api::settings::load_panel_settings(&state.db)
+        .await?
+        .xray_test_url;
     let result = match tag.as_str() {
-        "direct" => test_direct(false).await,
-        "direct-ipv4" => test_direct(true).await,
+        "direct" => test_direct(false, &test_url).await,
+        "direct-ipv4" => test_direct(true, &test_url).await,
         other => {
             return Err(AppError::BadRequest(format!("'{other}' is not testable")));
         }

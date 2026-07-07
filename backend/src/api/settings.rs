@@ -78,6 +78,14 @@ async fn get_panel(
     _user: AuthUser,
     State(state): State<AppState>,
 ) -> AppResult<Json<PanelSettings>> {
+    Ok(Json(load_panel_settings(&state.db).await?))
+}
+
+/// Load the whole `panel_settings` row into `PanelSettings`. Shared by the GET
+/// handler and callers that need one stored value — e.g. the outbound
+/// connectivity test reading `xray_test_url`. The query string is identical to
+/// the GET handler's original inline one, so it reuses the same offline cache.
+pub async fn load_panel_settings(db: &crate::db::DbPool) -> AppResult<PanelSettings> {
     let row = sqlx::query!(
         "SELECT panel_port, panel_base_path,
                 sub_enabled, sub_host_override, sub_link_host,
@@ -90,14 +98,14 @@ async fn get_panel(
                 sub_tls_mode, sub_cert_pem, sub_key_pem
             FROM panel_settings WHERE id = 1"
     )
-    .fetch_one(&state.db)
+    .fetch_one(db)
     .await?;
     // JSON-array / JSON-object columns; a parse failure (hand-edited DB)
     // degrades to an empty value rather than a 500.
     let list = |s: &str| serde_json::from_str::<Vec<String>>(s).unwrap_or_default();
     let xray_custom_rules =
         serde_json::from_str::<Vec<RoutingRule>>(&row.xray_custom_rules).unwrap_or_default();
-    Ok(Json(PanelSettings {
+    Ok(PanelSettings {
         panel_port: i32::try_from(row.panel_port).unwrap_or(8080),
         panel_base_path: row.panel_base_path,
         sub_enabled: row.sub_enabled != 0,
@@ -123,7 +131,7 @@ async fn get_panel(
         sub_tls_mode: row.sub_tls_mode,
         sub_cert_pem: row.sub_cert_pem,
         sub_key_set: !row.sub_key_pem.trim().is_empty(),
-    }))
+    })
 }
 
 async fn update_panel(

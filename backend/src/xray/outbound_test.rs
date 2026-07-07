@@ -21,9 +21,6 @@ use crate::xray::grpc::XrayClient;
 use crate::xray::orchestrator::outbound_to_handler_config;
 use crate::xray::proto::xray::core::OutboundHandlerConfig;
 
-/// Endpoint that echoes the caller's egress IP + datacenter — so a success also
-/// tells the operator *where* the outbound exits.
-const TEST_URL: &str = "https://www.cloudflare.com/cdn-cgi/trace";
 const PROBE_TIMEOUT: Duration = Duration::from_secs(12);
 /// Warm probes after the first. The DPI/TSPU filter inspects only the FIRST
 /// packet of a new connection (so the cold request pays a one-time penalty);
@@ -65,14 +62,22 @@ fn free_port() -> std::io::Result<u16> {
 
 /// Run the test. Never panics — any failure is surfaced as `ok: false` + an
 /// `error` message the UI can show.
-pub async fn test_outbound(binary: &Path, ob: &CustomOutbound) -> OutboundTestResult {
-    match run(binary, ob).await {
+pub async fn test_outbound(
+    binary: &Path,
+    ob: &CustomOutbound,
+    test_url: &str,
+) -> OutboundTestResult {
+    match run(binary, ob, test_url).await {
         Ok(r) => r,
         Err(e) => OutboundTestResult::fail(e.to_string()),
     }
 }
 
-async fn run(binary: &Path, ob: &CustomOutbound) -> anyhow::Result<OutboundTestResult> {
+async fn run(
+    binary: &Path,
+    ob: &CustomOutbound,
+    test_url: &str,
+) -> anyhow::Result<OutboundTestResult> {
     // Build the handler up front: a malformed config fails clearly before we
     // spawn anything. The tag must match the routing rule below.
     let mut test_ob = ob.clone();
@@ -123,7 +128,7 @@ async fn run(binary: &Path, ob: &CustomOutbound) -> anyhow::Result<OutboundTestR
     };
 
     // From here on, always tear down (kill + rm) regardless of outcome.
-    let result = probe(api_port, http_port, handler).await;
+    let result = probe(api_port, http_port, handler, test_url).await;
     let _ = child.kill().await;
     let _ = tokio::fs::remove_file(&cfg_path).await;
 
@@ -134,6 +139,7 @@ async fn probe(
     api_port: u16,
     http_port: u16,
     handler: OutboundHandlerConfig,
+    test_url: &str,
 ) -> anyhow::Result<OutboundTestResult> {
     // Push the outbound into the temp xray (blocks until its API is reachable).
     let xray = XrayClient::new(format!("http://127.0.0.1:{api_port}"));
@@ -149,14 +155,14 @@ async fn probe(
         // Keep the relay connection warm so the follow-up ping probes reuse it.
         .pool_max_idle_per_host(1)
         .build()?;
-    measure(&http).await
+    measure(&http, test_url).await
 }
 
 /// Test a built-in `direct` outbound: a direct HTTPS request with NO proxy,
 /// measuring the server's own egress IP + steady-state latency — the baseline
 /// to compare a relay against. `ipv4_only` binds an IPv4 source to mirror the
 /// `direct-ipv4` outbound (`domainStrategy: UseIPv4`). No xray involved.
-pub async fn test_direct(ipv4_only: bool) -> OutboundTestResult {
+pub async fn test_direct(ipv4_only: bool, test_url: &str) -> OutboundTestResult {
     let mut builder = reqwest::Client::builder()
         .timeout(PROBE_TIMEOUT)
         .pool_max_idle_per_host(1)
@@ -168,7 +174,7 @@ pub async fn test_direct(ipv4_only: bool) -> OutboundTestResult {
         builder = builder.local_address(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED));
     }
     match builder.build() {
-        Ok(http) => measure(&http)
+        Ok(http) => measure(&http, test_url)
             .await
             .unwrap_or_else(|e| OutboundTestResult::fail(e.to_string())),
         Err(e) => OutboundTestResult::fail(e.to_string()),
@@ -180,8 +186,17 @@ pub async fn test_direct(ipv4_only: bool) -> OutboundTestResult {
 /// one-time first-packet cost (and yields the exit IP/country), then a few warm
 /// probes over the reused keep-alive connection — report the best as the real
 /// steady-state latency rather than the cold-start spike.
-async fn measure(http: &reqwest::Client) -> anyhow::Result<OutboundTestResult> {
-    let first = match http.get(TEST_URL).send().await {
+async fn measure(http: &reqwest::Client, test_url: &str) -> anyhow::Result<OutboundTestResult> {
+    // The probe URL is entirely the operator's `xray_test_url` — no hardcoded
+    // fallback. Blank means "not configured": a clear operator error, not
+    // something to silently paper over with some third party's endpoint.
+    let url = test_url.trim();
+    if url.is_empty() {
+        return Ok(OutboundTestResult::fail(
+            "no test URL configured — set one in Settings (xray_test_url)",
+        ));
+    }
+    let first = match http.get(url).send().await {
         Ok(r) if r.status().is_success() => r,
         Ok(r) => {
             return Ok(OutboundTestResult::fail(format!(
@@ -196,7 +211,7 @@ async fn measure(http: &reqwest::Client) -> anyhow::Result<OutboundTestResult> {
     let mut best: Option<u64> = None;
     for _ in 0..PING_SAMPLES {
         let start = Instant::now();
-        if let Ok(r) = http.get(TEST_URL).send().await
+        if let Ok(r) = http.get(url).send().await
             && r.status().is_success()
         {
             // Drain the body so the connection returns to the pool for reuse.
@@ -215,7 +230,10 @@ async fn measure(http: &reqwest::Client) -> anyhow::Result<OutboundTestResult> {
     })
 }
 
-/// Pull `ip=` / `loc=` out of Cloudflare's `cdn-cgi/trace` body.
+/// Pull `ip=` / `loc=` out of Cloudflare's `cdn-cgi/trace` body. Falls back to
+/// treating a bare single-line IP as the exit IP, so plain "what's my IP"
+/// endpoints (`ifconfig.me/ip`, `api.ipify.org`, ...) also report the exit
+/// address when set as `xray_test_url`. `loc` (country) stays trace-only.
 fn parse_trace(body: &str) -> (Option<String>, Option<String>) {
     let mut ip = None;
     let mut loc = None;
@@ -226,5 +244,49 @@ fn parse_trace(body: &str) -> (Option<String>, Option<String>) {
             loc = Some(v.trim().to_owned());
         }
     }
+    if ip.is_none() {
+        let trimmed = body.trim();
+        if trimmed.lines().count() == 1 && trimmed.parse::<std::net::IpAddr>().is_ok() {
+            ip = Some(trimmed.to_owned());
+        }
+    }
     (ip, loc)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_trace;
+
+    #[test]
+    fn parses_cloudflare_trace() {
+        let (ip, loc) = parse_trace("fl=1f2\nip=203.0.113.7\nts=1\nloc=DE\ncolo=FRA\n");
+        assert_eq!(ip.as_deref(), Some("203.0.113.7"));
+        assert_eq!(loc.as_deref(), Some("DE"));
+    }
+
+    #[test]
+    fn parses_bare_ip_endpoint() {
+        // ifconfig.me/ip, api.ipify.org, ... return just the address.
+        assert_eq!(
+            parse_trace("198.51.100.42\n").0.as_deref(),
+            Some("198.51.100.42")
+        );
+        // IPv6 bare address too; no country from a bare endpoint.
+        let (ip6, loc) = parse_trace("2001:db8::1");
+        assert_eq!(ip6.as_deref(), Some("2001:db8::1"));
+        assert!(loc.is_none());
+    }
+
+    #[test]
+    fn empty_or_non_ip_body_yields_nothing() {
+        // generate_204 (the default xray_test_url) returns an empty body.
+        assert_eq!(parse_trace(""), (None, None));
+        // A multi-line non-trace body isn't mistaken for an IP.
+        assert_eq!(
+            parse_trace("<html>\n<body>hi</body>\n</html>"),
+            (None, None)
+        );
+        // A single non-IP line isn't an IP.
+        assert_eq!(parse_trace("hello"), (None, None));
+    }
 }
