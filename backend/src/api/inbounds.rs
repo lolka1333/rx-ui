@@ -508,13 +508,39 @@ async fn create(
     crate::xray::orchestrator::validate_sniffing(&sniffing)
         .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
-    let protocol_json = serde_json::to_string(&protocol)?;
-    let transport_json = serde_json::to_string(&transport)?;
-    let security_json = serde_json::to_string(&security)?;
-    let sniffing_json = serde_json::to_string(&sniffing)?;
-    let finalmask_json = serde_json::to_string(&finalmask)?;
-    let sockopt_json = serde_json::to_string(&sockopt)?;
-    let port_i = i64::from(port);
+    // Assemble the inbound in memory and build its xray handler config
+    // *before* the INSERT. A config that can't be built — e.g. `security=tls`
+    // with no certificate — is a permanent bad-config error, so reject it as
+    // a 400 here rather than committing a row that xray will never load. That
+    // matters because the reconcile loop silently skips un-buildable rows, so
+    // a post-commit build failure would leave a phantom enabled inbound in the
+    // list forever. Timestamps are placeholders — the response re-reads the
+    // persisted row for the real values.
+    let inbound = Inbound {
+        id: id.clone(),
+        tag,
+        enabled: true,
+        listen,
+        port,
+        protocol,
+        transport,
+        security,
+        sniffing,
+        finalmask,
+        sockopt,
+        created_at: String::new(),
+        updated_at: String::new(),
+    };
+    let handler = crate::xray::orchestrator::inbound_to_handler_config(&inbound, &[])
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    let protocol_json = serde_json::to_string(&inbound.protocol)?;
+    let transport_json = serde_json::to_string(&inbound.transport)?;
+    let security_json = serde_json::to_string(&inbound.security)?;
+    let sniffing_json = serde_json::to_string(&inbound.sniffing)?;
+    let finalmask_json = serde_json::to_string(&inbound.finalmask)?;
+    let sockopt_json = serde_json::to_string(&inbound.sockopt)?;
+    let port_i = i64::from(inbound.port);
 
     sqlx::query!(
         r#"INSERT INTO inbounds (
@@ -522,9 +548,9 @@ async fn create(
             protocol_config, transport_config, security_config, sniffing_config,
             finalmask_config, sockopt_config
         ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)"#,
-        id,
-        tag,
-        listen,
+        inbound.id,
+        inbound.tag,
+        inbound.listen,
         port_i,
         protocol_json,
         transport_json,
@@ -537,19 +563,18 @@ async fn create(
     .await
     .map_err(|e| match e {
         sqlx::Error::Database(d) if d.is_unique_violation() => {
-            AppError::Conflict(format!("inbound with tag '{tag}' already exists"))
+            AppError::Conflict(format!("inbound with tag '{}' already exists", inbound.tag))
         }
         e => e.into(),
     })?;
 
+    // Re-read for the canonical DB timestamps returned to the client.
     let inbound = row_to_inbound(read_row(&state, &id).await?)?;
 
-    // Push the new handler into xray. A brand-new inbound has no
-    // clients yet (pass empty slice). A gRPC blip here logs loudly and
-    // surfaces a 500 — the DB row stays so the next reconcile or
-    // restart picks it up.
-    let handler = crate::xray::orchestrator::inbound_to_handler_config(&inbound, &[])
-        .map_err(AppError::Internal)?;
+    // Push the freshly-built handler into xray. The config already built
+    // cleanly above, so a failure here is a live-apply problem (gRPC blip /
+    // xray down), not bad config: log it and surface a 500, but keep the DB
+    // row so the next reconcile or restart applies it.
     if let Err(e) = state.xray_client.add_inbound(handler).await {
         tracing::error!(
             "DB inbound {} created but xray AddInbound failed: {e}",
@@ -583,6 +608,42 @@ async fn update(
     let next_sniffing = body.sniffing.as_ref().unwrap_or(&before.sniffing);
     crate::xray::orchestrator::validate_sniffing(next_sniffing)
         .map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    // If the post-change inbound would be enabled, confirm its config actually
+    // builds *before* committing the DB change — same reasoning as `create`.
+    // An un-buildable edit (e.g. switching to `security=tls` with no cert) is
+    // worse on this path: `sync_inbound_update_to_xray` removes the old working
+    // handler *before* failing to add the new one, so the inbound goes offline
+    // with the bad config committed and no way back until manual repair. Reject
+    // it as a 400 here instead. A disabled result skips this (never pushed), and
+    // disabling or deleting a broken inbound stays possible.
+    if body.enabled.unwrap_or(before.enabled) {
+        let next_sockopt = body.sockopt.as_ref().unwrap_or(&before.sockopt);
+        // Build the candidate from the same Reality-keypair-preserved security
+        // the write path persists (`preserve_reality_keypair_tx`): a Reality
+        // PATCH submits a blank `private_key` (the frontend can't read it) and
+        // the stored keypair is carried forward. Validating the raw blank-key
+        // body instead would falsely 400 a routine Reality edit with "x25519
+        // key must decode to 32 bytes, got 0".
+        let candidate_security = preserve_reality_keypair(next_security, &before.security);
+        let candidate = Inbound {
+            id: before.id.clone(),
+            tag: body.tag.clone().unwrap_or_else(|| before.tag.clone()),
+            enabled: true,
+            listen: body.listen.clone().unwrap_or_else(|| before.listen.clone()),
+            port: body.port.unwrap_or(before.port),
+            protocol: next_protocol.clone(),
+            transport: next_transport.clone(),
+            security: candidate_security,
+            sniffing: next_sniffing.clone(),
+            finalmask: next_finalmask.clone(),
+            sockopt: next_sockopt.clone(),
+            created_at: before.created_at.clone(),
+            updated_at: before.updated_at.clone(),
+        };
+        crate::xray::orchestrator::inbound_to_handler_config(&candidate, &[])
+            .map_err(|e| AppError::BadRequest(e.to_string()))?;
+    }
 
     write_inbound_update_tx(&state, &id, &body).await?;
     let after = row_to_inbound(read_row(&state, &id).await?)?;
@@ -733,6 +794,30 @@ async fn write_inbound_layers_tx(
     Ok(())
 }
 
+/// Pure Reality keypair-preserve merge (no DB). Returns `incoming` unchanged
+/// unless it is Reality with a blank `private_key` layered over a `stored`
+/// Reality keypair, in which case the stored private/public keypair is lifted
+/// across. Shared by `preserve_reality_keypair_tx` (write path, reads the
+/// stored config inside the tx) and the `update` pre-commit validation (which
+/// merges against the already re-read `before.security`) so both build the
+/// exact same security.
+fn preserve_reality_keypair(
+    incoming: &crate::security::SecurityConfig,
+    stored: &crate::security::SecurityConfig,
+) -> crate::security::SecurityConfig {
+    use crate::security::SecurityConfig;
+    let (SecurityConfig::Reality(new), SecurityConfig::Reality(old)) = (incoming, stored) else {
+        return incoming.clone();
+    };
+    if !new.private_key.is_empty() || old.private_key.is_empty() {
+        return incoming.clone();
+    }
+    let mut merged = new.clone();
+    merged.private_key.clone_from(&old.private_key);
+    merged.public_key.clone_from(&old.public_key);
+    SecurityConfig::Reality(merged)
+}
+
 /// Preserve the server-managed Reality x25519 keypair across an inbound
 /// update. The frontend can't read the private key, so it always submits
 /// it (and the derived public key) blank; without this, editing any other
@@ -746,6 +831,7 @@ async fn preserve_reality_keypair_tx(
     incoming: &crate::security::SecurityConfig,
 ) -> AppResult<crate::security::SecurityConfig> {
     use crate::security::SecurityConfig;
+    // Fast path: only a Reality PATCH with a blank private key needs the DB read.
     let SecurityConfig::Reality(new) = incoming else {
         return Ok(incoming.clone());
     };
@@ -758,18 +844,10 @@ async fn preserve_reality_keypair_tx(
     else {
         return Ok(incoming.clone());
     };
-    let Ok(SecurityConfig::Reality(old)) =
-        serde_json::from_str::<SecurityConfig>(&row.security_config)
-    else {
+    let Ok(stored) = serde_json::from_str::<SecurityConfig>(&row.security_config) else {
         return Ok(incoming.clone());
     };
-    if old.private_key.is_empty() {
-        return Ok(incoming.clone());
-    }
-    let mut merged = new.clone();
-    merged.private_key = old.private_key;
-    merged.public_key = old.public_key;
-    Ok(SecurityConfig::Reality(merged))
+    Ok(preserve_reality_keypair(incoming, &stored))
 }
 
 /// Push the inbound update to xray. Tag / port / listen / layer changes
@@ -1614,5 +1692,68 @@ mod validate_layers_tests {
             err.contains("Hysteria 2") && err.contains("none"),
             "got: {err}"
         );
+    }
+
+    // === preserve_reality_keypair (update pre-commit build must see the same
+    // security the write path persists) ======================================
+    #[test]
+    fn preserve_reality_keypair_lifts_stored_key_over_blank_patch() {
+        // A Reality PATCH submits a blank private_key; the stored keypair must
+        // carry forward so the update pre-commit build sees a valid key rather
+        // than falsely 400ing with "x25519 key must decode to 32 bytes, got 0".
+        let stored = SecurityConfig::Reality(RealitySecurity {
+            private_key: "storedPrivateKey".into(),
+            public_key: "storedPublicKey".into(),
+            dest: "old.example.com:443".into(),
+            server_names: vec!["old.example.com".into()],
+            ..RealitySecurity::default()
+        });
+        // Operator edits only `dest`/`server_names`; the frontend blanks the key.
+        let incoming = SecurityConfig::Reality(RealitySecurity {
+            private_key: String::new(),
+            public_key: String::new(),
+            dest: "new.example.com:443".into(),
+            server_names: vec!["new.example.com".into()],
+            ..RealitySecurity::default()
+        });
+        let SecurityConfig::Reality(merged) = preserve_reality_keypair(&incoming, &stored) else {
+            panic!("expected a Reality security");
+        };
+        assert_eq!(merged.private_key, "storedPrivateKey");
+        assert_eq!(merged.public_key, "storedPublicKey");
+        assert_eq!(
+            merged.dest, "new.example.com:443",
+            "the actual edit is kept"
+        );
+    }
+
+    #[test]
+    fn preserve_reality_keypair_passthrough_cases() {
+        // Explicit rotate (non-blank incoming key) is left untouched.
+        let stored = SecurityConfig::Reality(RealitySecurity {
+            private_key: "storedKey".into(),
+            ..RealitySecurity::default()
+        });
+        let rotate = SecurityConfig::Reality(RealitySecurity {
+            private_key: "freshKey".into(),
+            ..RealitySecurity::default()
+        });
+        let SecurityConfig::Reality(r) = preserve_reality_keypair(&rotate, &stored) else {
+            panic!("expected Reality");
+        };
+        assert_eq!(r.private_key, "freshKey");
+
+        // Switching TO Reality (blank key) over a non-Reality stored config has
+        // no keypair to lift — it stays blank, so the pre-commit build correctly
+        // rejects it (this is the fix working, not a regression).
+        let stored_none = SecurityConfig::None(NoneSecurity {});
+        let blank = SecurityConfig::Reality(RealitySecurity {
+            private_key: String::new(),
+            ..RealitySecurity::default()
+        });
+        let SecurityConfig::Reality(r2) = preserve_reality_keypair(&blank, &stored_none) else {
+            panic!("expected Reality");
+        };
+        assert!(r2.private_key.is_empty());
     }
 }

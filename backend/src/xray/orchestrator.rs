@@ -389,7 +389,9 @@ mod tests {
     use super::*;
     use crate::models::{HysteriaOutbound, OutboundMux, Sniffing};
     use crate::protocols::ProtocolConfig;
+    use crate::protocols::hysteria::HysteriaProtocol;
     use crate::protocols::vless::{VlessEncryptionMode, VlessFlow, VlessProtocol};
+    use crate::security::tls::{TlsCertSource, TlsCertUsage, TlsCertificate, TlsSecurity};
     use crate::security::{NoneSecurity, SecurityConfig};
     use crate::transports::TransportConfig;
     use crate::transports::finalmask::FinalMask;
@@ -592,5 +594,63 @@ mod tests {
         let sender = SenderConfig::decode(&cfg.sender_settings.unwrap().value[..]).unwrap();
         let stream = sender.stream_settings.expect("stream settings");
         assert_eq!(stream.protocol_name, "hysteria");
+    }
+
+    // === TLS cert presence gates the build (create → 400, not a phantom row) ==
+    fn hysteria2_tls_inbound(certificates: Vec<TlsCertificate>) -> Inbound {
+        Inbound {
+            id: "id-hy".into(),
+            tag: "hy".into(),
+            enabled: true,
+            listen: "0.0.0.0".into(),
+            port: 8443,
+            protocol: ProtocolConfig::Hysteria2(HysteriaProtocol {}),
+            transport: TransportConfig::Hysteria(HysteriaTransport::default()),
+            security: SecurityConfig::Tls(TlsSecurity {
+                certificates,
+                ..TlsSecurity::default()
+            }),
+            sniffing: Sniffing::default(),
+            finalmask: FinalMask::None,
+            sockopt: SocketOpt::default(),
+            created_at: "now".into(),
+            updated_at: "now".into(),
+        }
+    }
+
+    fn inline_cert() -> TlsCertificate {
+        TlsCertificate {
+            source: TlsCertSource::Inline,
+            cert: "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----".into(),
+            key: "-----BEGIN PRIVATE KEY-----\nMIIB\n-----END PRIVATE KEY-----".into(),
+            usage: TlsCertUsage::Encipherment,
+            ocsp_stapling: 0,
+            build_chain: false,
+            one_time_loading: false,
+        }
+    }
+
+    #[test]
+    fn tls_inbound_without_cert_fails_to_build() {
+        // `security=tls` with an empty certificate list must fail
+        // `inbound_to_handler_config` so the create handler rejects it with a
+        // 400 BEFORE the DB insert. Otherwise the committed row survives while
+        // xray never loads the inbound — a phantom enabled inbound in the list
+        // (the reconcile loop silently skips un-buildable rows).
+        let err = inbound_to_handler_config(&hysteria2_tls_inbound(vec![]), &[])
+            .expect_err("TLS with no certificate must not build");
+        assert!(
+            err.to_string().contains("certificate"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn tls_inbound_with_cert_builds() {
+        // The fix must not over-reject: one certificate is enough to build.
+        assert!(
+            inbound_to_handler_config(&hysteria2_tls_inbound(vec![inline_cert()]), &[]).is_ok(),
+            "TLS with one certificate should build"
+        );
     }
 }

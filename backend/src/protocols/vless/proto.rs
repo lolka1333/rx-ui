@@ -3,6 +3,8 @@
 //! and the conversion into xray's `vless::inbound::Config` /
 //! `vless::Account` proto messages.
 
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+
 use crate::models::Client;
 use crate::protocols::Protocol;
 use crate::xray::proto::xray::common::protocol::User;
@@ -241,6 +243,41 @@ impl VlessProtocol {
         }
     }
 
+    /// Validate the server decryption key when VLESS post-quantum encryption is
+    /// enabled. xray's `ServerInstance.Init` (`proxy/vless/encryption/server.go`)
+    /// base64-url-decodes the key and accepts only a 32-byte X25519 private key
+    /// or a 64-byte ML-KEM-768 seed; anything else fails `AddInbound`. Checking
+    /// it here — the shared `build_proxy_settings` choke point that both create
+    /// and update pre-commit validation run — turns a malformed key into a
+    /// pre-commit 400 instead of a committed row xray rejects. That matters most
+    /// on update, where `sync_inbound_update_to_xray` removes the old handler
+    /// before failing to add the new one, taking the inbound offline. An empty
+    /// key is left alone (it degrades to `decryption=none`, handled elsewhere).
+    fn validate_server_encryption_key(&self) -> anyhow::Result<()> {
+        if self.encryption_mode != VlessEncryptionMode::Mlkem768x25519Plus {
+            return Ok(());
+        }
+        let Some(key) = self
+            .encryption_server_key
+            .as_deref()
+            .filter(|k| !k.is_empty())
+        else {
+            return Ok(());
+        };
+        let len = URL_SAFE_NO_PAD
+            .decode(key)
+            .map_err(|e| {
+                anyhow::anyhow!("VLESS encryption server key is not valid base64-url: {e}")
+            })?
+            .len();
+        anyhow::ensure!(
+            len == 32 || len == 64,
+            "VLESS encryption server key must decode to 32 bytes (X25519) or 64 bytes \
+             (ML-KEM-768), got {len}"
+        );
+        Ok(())
+    }
+
     fn client_encryption_fields(&self) -> (String, u32, u32, String) {
         vless_client_encryption_fields(
             self.encryption_mode,
@@ -286,6 +323,7 @@ pub fn vless_client_encryption_fields(
 
 impl Protocol for VlessProtocol {
     fn build_proxy_settings(&self, users: Vec<User>) -> anyhow::Result<TypedMessage> {
+        self.validate_server_encryption_key()?;
         let (decryption, padding, xor_mode, seconds_from, seconds_to) =
             self.server_encryption_fields();
         let decryption = if decryption.is_empty() {
@@ -364,5 +402,73 @@ impl Protocol for VlessProtocol {
             params.push(("flow".to_owned(), effective_flow));
         }
         params
+    }
+}
+
+#[cfg(test)]
+mod encryption_key_tests {
+    //! The VLESS post-quantum server key must build only when xray's
+    //! `ServerInstance.Init` would accept it (32-byte X25519 or 64-byte
+    //! ML-KEM-768), so a malformed key is a pre-commit 400, never a committed
+    //! row that `AddInbound` rejects.
+    use super::*;
+
+    fn mlkem(server_key: Option<String>) -> VlessProtocol {
+        VlessProtocol {
+            encryption_mode: VlessEncryptionMode::Mlkem768x25519Plus,
+            encryption_server_key: server_key,
+            ..VlessProtocol::default()
+        }
+    }
+
+    #[test]
+    fn valid_x25519_and_mlkem_lengths_build() {
+        for n in [32usize, 64] {
+            let key = URL_SAFE_NO_PAD.encode(vec![7u8; n]);
+            assert!(
+                mlkem(Some(key)).build_proxy_settings(vec![]).is_ok(),
+                "{n}-byte key should build"
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_key_fails_to_build() {
+        let err = mlkem(Some("not-a-key!".into()))
+            .build_proxy_settings(vec![])
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("base64-url"), "got: {err}");
+    }
+
+    #[test]
+    fn wrong_length_key_fails_to_build() {
+        let short = URL_SAFE_NO_PAD.encode([7u8; 16]);
+        let err = mlkem(Some(short))
+            .build_proxy_settings(vec![])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("32 bytes") && err.contains("64 bytes"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn empty_key_and_plain_mode_skip_validation() {
+        // Empty key degrades to decryption=none — not this check's concern.
+        assert!(
+            mlkem(Some(String::new()))
+                .build_proxy_settings(vec![])
+                .is_ok()
+        );
+        assert!(mlkem(None).build_proxy_settings(vec![]).is_ok());
+        // encryption_mode=None never validates, even with garbage in the field.
+        let plain = VlessProtocol {
+            encryption_mode: VlessEncryptionMode::None,
+            encryption_server_key: Some("garbage!".into()),
+            ..VlessProtocol::default()
+        };
+        assert!(plain.build_proxy_settings(vec![]).is_ok());
     }
 }
