@@ -21,6 +21,23 @@ gRPC `HandlerService` (no config-file restarts).
 For the system architecture — process model, request flow,
 schema choices — see [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## Wire obfuscation (FinalMask)
+
+Inbounds can wrap the post-handshake socket in an extra masking layer
+(`streamSettings.finalmask`), configured per-inbound in the FinalMask tab
+and shipped to clients automatically through the share-link `fm=` parameter:
+
+- **Sudoku** — password-keyed TCP/UDP payload obfuscation.
+- **Fragment** — client-side TCP `ClientHello` fragmentation (anti-SNI-DPI).
+- **Noise** — an ordered list of UDP prefix items (for QUIC / Hysteria 2),
+  each a literal hex prefix **or** a random-length range, with an optional
+  per-item delay — masks well-known long-header byte patterns.
+- **Salamander** — Hysteria 2's native UDP obfs.
+
+Server and client settings are derived from the same source, so the values
+stay symmetric and importing the share-link into v2rayN / Hiddify / sing-box
+just works.
+
 ## Quick start
 
 ### Single-binary release (the easy way)
