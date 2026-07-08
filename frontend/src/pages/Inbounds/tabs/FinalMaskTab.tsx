@@ -14,6 +14,7 @@
 
 import { useMemo } from 'react';
 import { Alert, Button, Form, Input, InputNumber, Select, Typography } from 'antd';
+import type { FormListFieldData } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import type { FinalMask } from '@/api/types';
@@ -230,6 +231,114 @@ function FragmentFields() {
   );
 }
 
+/** One noise item. Extracted into its own component so it can `useWatch` its
+ *  own `packet_hex`: per xray a noise item is EITHER a literal hex prefix OR a
+ *  random-length range, never both. When a literal is set the range is dropped
+ *  on save ("packet wins"), so we disable the random inputs — otherwise the
+ *  operator fills both and the random bytes vanish silently. */
+function NoiseItemRow({
+  field,
+  idx,
+  disableRemove,
+  onRemove,
+  hexRule,
+}: {
+  field: FormListFieldData;
+  idx: number;
+  disableRemove: boolean;
+  onRemove: () => void;
+  hexRule: object;
+}) {
+  const { t } = useTranslation();
+  const form = Form.useFormInstance<FormValues>();
+  const packetHex = Form.useWatch(
+    ['finalmask_noise_items', field.name, 'packet_hex'],
+    form,
+  );
+  const hasLiteral = (packetHex ?? '').trim() !== '';
+  return (
+    <div
+      style={{
+        border: '1px solid var(--border)',
+        borderRadius: 8,
+        padding: 12,
+        marginBottom: 8,
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: 8,
+        }}
+      >
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          {t('inbounds.finalmaskNoiseItem', { n: idx + 1 })}
+        </Typography.Text>
+        <Button
+          type="text"
+          danger
+          size="small"
+          icon={<DeleteOutlined />}
+          // Keep at least one row so the list never renders empty;
+          // a single blank item is treated as "no noise" server-side.
+          disabled={disableRemove}
+          aria-label={t('inbounds.finalmaskNoiseRemoveItem')}
+          onClick={onRemove}
+        />
+      </div>
+      <Form.Item
+        name={[field.name, 'packet_hex']}
+        label={t('inbounds.finalmaskNoisePacketHex')}
+        tooltip={t('inbounds.finalmaskNoisePacketHexTooltip')}
+        rules={[hexRule]}
+        style={{ marginBottom: 12 }}
+      >
+        <Input placeholder="e.g. deadbeef or empty" allowClear />
+      </Form.Item>
+      <Form.Item
+        label={t('inbounds.finalmaskNoiseRand')}
+        tooltip={t('inbounds.finalmaskNoiseRandTooltip')}
+        style={{ marginBottom: 12 }}
+      >
+        <SideBySide>
+          <Form.Item name={[field.name, 'rand_min']} noStyle>
+            <InputNumber
+              min={0}
+              disabled={hasLiteral}
+              placeholder="min"
+              style={{ width: '100%' }}
+            />
+          </Form.Item>
+          <Form.Item name={[field.name, 'rand_max']} noStyle>
+            <InputNumber
+              min={0}
+              disabled={hasLiteral}
+              placeholder="max"
+              style={{ width: '100%' }}
+            />
+          </Form.Item>
+        </SideBySide>
+      </Form.Item>
+      <Form.Item
+        label={t('inbounds.finalmaskNoiseDelay')}
+        tooltip={t('inbounds.finalmaskNoiseDelayTooltip')}
+        style={{ marginBottom: 0 }}
+      >
+        <SideBySide>
+          <Form.Item name={[field.name, 'delay_min']} noStyle>
+            <InputNumber min={0} placeholder="min" style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name={[field.name, 'delay_max']} noStyle>
+            <InputNumber min={0} placeholder="max" style={{ width: '100%' }} />
+          </Form.Item>
+        </SideBySide>
+      </Form.Item>
+    </div>
+  );
+}
+
 function NoiseFields() {
   const { t } = useTranslation();
   // Backend's `decode_hex_relaxed` returns an empty Vec on the first non-hex
@@ -251,76 +360,14 @@ function NoiseFields() {
         {(fields, { add, remove }) => (
           <>
             {fields.map((field, idx) => (
-              <div
+              <NoiseItemRow
                 key={field.key}
-                style={{
-                  border: '1px solid var(--border)',
-                  borderRadius: 8,
-                  padding: 12,
-                  marginBottom: 8,
-                }}
-              >
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: 8,
-                  }}
-                >
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    {t('inbounds.finalmaskNoiseItem', { n: idx + 1 })}
-                  </Typography.Text>
-                  <Button
-                    type="text"
-                    danger
-                    size="small"
-                    icon={<DeleteOutlined />}
-                    // Keep at least one row so the list never renders empty;
-                    // a single blank item is treated as "no noise" server-side.
-                    disabled={fields.length <= 1}
-                    aria-label={t('inbounds.finalmaskNoiseRemoveItem')}
-                    onClick={() => remove(field.name)}
-                  />
-                </div>
-                <Form.Item
-                  name={[field.name, 'packet_hex']}
-                  label={t('inbounds.finalmaskNoisePacketHex')}
-                  tooltip={t('inbounds.finalmaskNoisePacketHexTooltip')}
-                  rules={[hexRule]}
-                  style={{ marginBottom: 12 }}
-                >
-                  <Input placeholder="e.g. deadbeef or empty" allowClear />
-                </Form.Item>
-                <Form.Item
-                  label={t('inbounds.finalmaskNoiseRand')}
-                  tooltip={t('inbounds.finalmaskNoiseRandTooltip')}
-                  style={{ marginBottom: 12 }}
-                >
-                  <SideBySide>
-                    <Form.Item name={[field.name, 'rand_min']} noStyle>
-                      <InputNumber min={0} placeholder="min" style={{ width: '100%' }} />
-                    </Form.Item>
-                    <Form.Item name={[field.name, 'rand_max']} noStyle>
-                      <InputNumber min={0} placeholder="max" style={{ width: '100%' }} />
-                    </Form.Item>
-                  </SideBySide>
-                </Form.Item>
-                <Form.Item
-                  label={t('inbounds.finalmaskNoiseDelay')}
-                  tooltip={t('inbounds.finalmaskNoiseDelayTooltip')}
-                  style={{ marginBottom: 0 }}
-                >
-                  <SideBySide>
-                    <Form.Item name={[field.name, 'delay_min']} noStyle>
-                      <InputNumber min={0} placeholder="min" style={{ width: '100%' }} />
-                    </Form.Item>
-                    <Form.Item name={[field.name, 'delay_max']} noStyle>
-                      <InputNumber min={0} placeholder="max" style={{ width: '100%' }} />
-                    </Form.Item>
-                  </SideBySide>
-                </Form.Item>
-              </div>
+                field={field}
+                idx={idx}
+                disableRemove={fields.length <= 1}
+                onRemove={() => remove(field.name)}
+                hexRule={hexRule}
+              />
             ))}
             <Button
               type="dashed"
