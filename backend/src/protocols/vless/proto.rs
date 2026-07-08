@@ -212,12 +212,20 @@ impl VlessProtocol {
         }
     }
 
-    /// Compose the dot-separated wire string for `decryption` /
-    /// `encryption` proto fields. Format depends on side:
-    /// * server: prepends padding (if any) before the key bytes.
-    /// * client: same shape, but uses the public `client_key`.
+    /// Compute the inbound's `decryption` proto field plus the separate
+    /// `padding` field.
     ///
     /// Returns `(decryption_string, padding, xor_proto_u32, secs_from, secs_to)`.
+    ///
+    /// `decryption` is the KEY ONLY — no `mlkem768x25519plus.<mode>.<secs>.`
+    /// prefix and, crucially, no inline padding token. xray's direct-proto
+    /// loader (`proxy/vless/inbound/inbound.go`) splits `Decryption` on `.` and
+    /// decodes EVERY token as a key, so an inline padding token like `100-111-1111`
+    /// decodes to a 9-byte slice and fails `mlkem: invalid seed length` at
+    /// `AddInbound` (verified live against xray 26.6.27). Padding instead rides
+    /// in the dedicated `padding` proto field, which xray's `ParsePadding`
+    /// consumes at Init. The prefixed + inline-padding form exists only for
+    /// xray's JSON-config parser / share-links, which strip both back out.
     fn server_encryption_fields(&self) -> (String, String, u32, i64, i64) {
         match self.encryption_mode {
             VlessEncryptionMode::None => (String::new(), String::new(), 0, 0, 0),
@@ -227,18 +235,7 @@ impl VlessProtocol {
                 let from = self.encryption_seconds_from.unwrap_or(600);
                 let to = self.encryption_seconds_to.unwrap_or(0);
                 let key = self.encryption_server_key.clone().unwrap_or_default();
-                // gRPC direct path: Decryption carries ONLY the keys (+
-                // optional padding tokens). The `mlkem768x25519plus.<mode>.<secs>.`
-                // prefix is stripped only by xray's JSON-config parser;
-                // sending it via direct proto would make xray try to
-                // base64-decode "mlkem768x25519plus" as a key and fail
-                // with "invalid seed length".
-                let decryption = if pad.is_empty() {
-                    key
-                } else {
-                    format!("{pad}.{key}")
-                };
-                (decryption, pad, xor.as_proto_u32(), from, to)
+                (key, pad, xor.as_proto_u32(), from, to)
             }
         }
     }
@@ -252,7 +249,9 @@ impl VlessProtocol {
     /// pre-commit 400 instead of a committed row xray rejects. That matters most
     /// on update, where `sync_inbound_update_to_xray` removes the old handler
     /// before failing to add the new one, taking the inbound offline. An empty
-    /// key is left alone (it degrades to `decryption=none`, handled elsewhere).
+    /// key is skipped here — on create `complete_server_managed_fields` backfills
+    /// it before the build; an empty key that still reaches the build makes
+    /// `decryption` fall back to `none`.
     fn validate_server_encryption_key(&self) -> anyhow::Result<()> {
         if self.encryption_mode != VlessEncryptionMode::Mlkem768x25519Plus {
             return Ok(());
@@ -278,6 +277,47 @@ impl VlessProtocol {
         Ok(())
     }
 
+    /// Validate `encryption_padding` against xray's `ParsePadding`
+    /// (`proxy/vless/encryption/common.go`) so a malformed value is a pre-commit
+    /// 400 rather than an `AddInbound` failure after the row is committed —
+    /// padding rides in its own proto field (see `server_encryption_fields`) and
+    /// is only consumed there. Empty is valid (no padding). Each `.`-separated
+    /// token is `min-a-b` (three ints); the first token additionally requires
+    /// `min >= 100` and both gaps `>= 35`, and the summed length is capped.
+    fn validate_encryption_padding(&self) -> anyhow::Result<()> {
+        if self.encryption_mode != VlessEncryptionMode::Mlkem768x25519Plus {
+            return Ok(());
+        }
+        let Some(padding) = self.encryption_padding.as_deref().filter(|p| !p.is_empty()) else {
+            return Ok(());
+        };
+        let mut max_len: i64 = 0;
+        for (i, token) in padding.split('.').enumerate() {
+            let parts: Vec<&str> = token.split('-').collect();
+            if parts.len() < 3 || parts[..3].iter().any(|p| p.is_empty()) {
+                anyhow::bail!("invalid encryption padding length/gap parameter: {token}");
+            }
+            let y = parts[..3]
+                .iter()
+                .map(|p| p.parse::<i64>())
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_| {
+                    anyhow::anyhow!("encryption padding parameter is not an integer: {token}")
+                })?;
+            if i == 0 && (y[0] < 100 || y[1] < 35 || y[2] < 35) {
+                anyhow::bail!("first encryption padding length must not be smaller than 35");
+            }
+            if i % 2 == 0 {
+                max_len += y[1].max(y[2]);
+            }
+        }
+        anyhow::ensure!(
+            max_len <= 18 + 65535,
+            "total encryption padding length must not be larger than 65553"
+        );
+        Ok(())
+    }
+
     fn client_encryption_fields(&self) -> (String, u32, u32, String) {
         vless_client_encryption_fields(
             self.encryption_mode,
@@ -293,12 +333,14 @@ impl VlessProtocol {
 /// settings — shared by inbound user-building (`VlessProtocol`) and custom
 /// **outbounds** (the relay client must mirror the upstream server's cipher).
 ///
-/// `encryption` is the bare `[padding.]<client_key>` the proto expects — NOT
-/// the `mlkem768x25519plus.<xor>.0rtt.` prefixed string (that prefix is only
-/// for the JSON parser / share-links; via direct proto xray would try to
-/// base64-decode "mlkem768x25519plus" as a key and fail "invalid seed
-/// length"). Clients use `Seconds=1` (`0rtt`); legacy `1rtt` is never
-/// surfaced.
+/// `encryption` is the KEY ONLY — no `mlkem768x25519plus.<xor>.0rtt.` prefix
+/// and no inline padding token. xray's direct-proto client loader
+/// (`proxy/vless/outbound/outbound.go`) splits `Encryption` on `.` and decodes
+/// every token as a key, so an inline padding token fails `mlkem: invalid seed
+/// length` exactly like the inbound side. Padding rides in the dedicated
+/// `padding` proto field instead; the prefixed/inline form is only for the JSON
+/// parser / share-links. Clients use `Seconds=1` (`0rtt`); legacy `1rtt` is
+/// never surfaced.
 pub fn vless_client_encryption_fields(
     mode: VlessEncryptionMode,
     xor_mode: Option<VlessXorMode>,
@@ -310,13 +352,8 @@ pub fn vless_client_encryption_fields(
         VlessEncryptionMode::Mlkem768x25519Plus => {
             let xor = xor_mode.unwrap_or_default();
             let pad = padding.unwrap_or_default().to_owned();
-            let key = client_key.unwrap_or_default();
-            let encryption = if pad.is_empty() {
-                key.to_owned()
-            } else {
-                format!("{pad}.{key}")
-            };
-            (encryption, xor.as_proto_u32(), 1, pad)
+            let key = client_key.unwrap_or_default().to_owned();
+            (key, xor.as_proto_u32(), 1, pad)
         }
     }
 }
@@ -324,6 +361,7 @@ pub fn vless_client_encryption_fields(
 impl Protocol for VlessProtocol {
     fn build_proxy_settings(&self, users: Vec<User>) -> anyhow::Result<TypedMessage> {
         self.validate_server_encryption_key()?;
+        self.validate_encryption_padding()?;
         let (decryption, padding, xor_mode, seconds_from, seconds_to) =
             self.server_encryption_fields();
         let decryption = if decryption.is_empty() {
@@ -470,5 +508,68 @@ mod encryption_key_tests {
             ..VlessProtocol::default()
         };
         assert!(plain.build_proxy_settings(vec![]).is_ok());
+    }
+
+    fn mlkem_padded(padding: &str) -> VlessProtocol {
+        VlessProtocol {
+            encryption_mode: VlessEncryptionMode::Mlkem768x25519Plus,
+            encryption_server_key: Some(URL_SAFE_NO_PAD.encode([7u8; 32])),
+            encryption_padding: Some(padding.to_owned()),
+            ..VlessProtocol::default()
+        }
+    }
+
+    #[test]
+    fn decryption_is_key_only_padding_in_its_own_field() {
+        // Regression guard for the live-confirmed mlkem bug: the proto
+        // `decryption` field must be the KEY ALONE. An inline padding token there
+        // decodes to a short byte slice and fails `mlkem: invalid seed length` at
+        // AddInbound (xray splits Decryption on '.' and treats every token as a
+        // key). Padding must ride in the dedicated `padding` field.
+        let key = URL_SAFE_NO_PAD.encode([7u8; 32]);
+        let msg = mlkem_padded("100-111-1111")
+            .build_proxy_settings(vec![])
+            .unwrap();
+        let cfg = XrayVlessInboundConfig::decode(&msg.value[..]).unwrap();
+        assert_eq!(cfg.decryption, key, "decryption must be the key only");
+        assert_eq!(
+            cfg.padding, "100-111-1111",
+            "padding rides in its own field"
+        );
+    }
+
+    #[test]
+    fn valid_padding_builds() {
+        assert!(
+            mlkem_padded("100-111-1111")
+                .build_proxy_settings(vec![])
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn malformed_padding_fails_to_build() {
+        // Fewer than three dash-separated parts.
+        assert!(
+            mlkem_padded("100-200")
+                .build_proxy_settings(vec![])
+                .unwrap_err()
+                .to_string()
+                .contains("padding")
+        );
+        // Non-integer parameter.
+        assert!(
+            mlkem_padded("aa-bb-cc")
+                .build_proxy_settings(vec![])
+                .is_err()
+        );
+        // First token below xray's minimums (100 / 35 / 35).
+        assert!(
+            mlkem_padded("50-35-35")
+                .build_proxy_settings(vec![])
+                .unwrap_err()
+                .to_string()
+                .contains("35")
+        );
     }
 }

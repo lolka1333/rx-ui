@@ -74,7 +74,8 @@ export type OutboundProtocolConfig = { "kind": "vless" } & VlessOutbound | { "ki
 
 export type OutboundTestResult = { 
 /**
- * True when an HTTPS request egressed through the outbound and returned.
+ * True when the request to `xray_test_url` egressed through the outbound
+ * and returned.
  */
 ok: boolean, latency_ms: number | null, 
 /**

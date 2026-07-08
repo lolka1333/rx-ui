@@ -5,9 +5,10 @@
 //! pushes the outbound over gRPC using the SAME proto builder the panel uses
 //! live (`outbound_to_handler_config`) — so the test exercises the exact config
 //! the panel would push, native encryption / Reality / `FinalMask` included — then
-//! makes a real HTTPS request through it and reports whether it egressed, the
-//! round-trip latency, and the exit IP/country, before tearing the temp xray
-//! down. Nothing touches the panel's own running xray.
+//! makes a real HTTP(S) request to the operator-configured `xray_test_url` and
+//! reports whether it egressed, the round-trip latency, and — when that endpoint
+//! echoes them (a trace or bare-IP URL) — the exit IP/country, before tearing
+//! the temp xray down. Nothing touches the panel's own running xray.
 
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -31,7 +32,8 @@ const PING_SAMPLES: usize = 4;
 #[derive(Debug, Serialize, TS)]
 #[ts(export, export_to = "../../frontend/src/api/types/outbound.ts")]
 pub struct OutboundTestResult {
-    /// True when an HTTPS request egressed through the outbound and returned.
+    /// True when the request to `xray_test_url` egressed through the outbound
+    /// and returned.
     pub ok: bool,
     #[ts(type = "number | null")]
     pub latency_ms: Option<u64>,
@@ -78,6 +80,14 @@ async fn run(
     ob: &CustomOutbound,
     test_url: &str,
 ) -> anyhow::Result<OutboundTestResult> {
+    // No URL to probe → bail before writing a secrets config and spawning a
+    // throwaway xray; this precondition is knowable from the argument. `measure`
+    // repeats the check for the direct path (which has no such setup cost).
+    if test_url.trim().is_empty() {
+        return Ok(OutboundTestResult::fail(
+            "no test URL configured — set one in Settings (xray_test_url)",
+        ));
+    }
     // Build the handler up front: a malformed config fails clearly before we
     // spawn anything. The tag must match the routing rule below.
     let mut test_ob = ob.clone();
@@ -158,10 +168,11 @@ async fn probe(
     measure(&http, test_url).await
 }
 
-/// Test a built-in `direct` outbound: a direct HTTPS request with NO proxy,
-/// measuring the server's own egress IP + steady-state latency — the baseline
-/// to compare a relay against. `ipv4_only` binds an IPv4 source to mirror the
-/// `direct-ipv4` outbound (`domainStrategy: UseIPv4`). No xray involved.
+/// Test a built-in `direct` outbound: a direct (no-proxy) request to
+/// `xray_test_url`, measuring the server's own steady-state latency (and exit IP
+/// when the endpoint echoes it) — the baseline to compare a relay against.
+/// `ipv4_only` binds an IPv4 source to mirror the `direct-ipv4` outbound
+/// (`domainStrategy: UseIPv4`). No xray involved.
 pub async fn test_direct(ipv4_only: bool, test_url: &str) -> OutboundTestResult {
     let mut builder = reqwest::Client::builder()
         .timeout(PROBE_TIMEOUT)

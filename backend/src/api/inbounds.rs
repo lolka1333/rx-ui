@@ -512,10 +512,10 @@ async fn create(
     // *before* the INSERT. A config that can't be built — e.g. `security=tls`
     // with no certificate — is a permanent bad-config error, so reject it as
     // a 400 here rather than committing a row that xray will never load. That
-    // matters because the reconcile loop silently skips un-buildable rows, so
-    // a post-commit build failure would leave a phantom enabled inbound in the
-    // list forever. Timestamps are placeholders — the response re-reads the
-    // persisted row for the real values.
+    // matters because the reconcile loop skips un-buildable rows with only a
+    // warn-level log, so a post-commit build failure would leave a phantom
+    // enabled inbound in the list. Timestamps are placeholders — the response
+    // re-reads the persisted row for the real values.
     let inbound = Inbound {
         id: id.clone(),
         tag,
@@ -641,7 +641,13 @@ async fn update(
             created_at: before.created_at.clone(),
             updated_at: before.updated_at.clone(),
         };
-        crate::xray::orchestrator::inbound_to_handler_config(&candidate, &[])
+        // Validate with the SAME enabled clients `sync_inbound_update_to_xray`
+        // builds with, not an empty slice — so the pre-commit build is exact
+        // parity with the post-commit AddInbound. `build_user` returns `Result`;
+        // a future fallible impl must not slip a client-specific failure past
+        // this gate into sync's remove-then-fail-to-re-add window.
+        let clients = crate::api::clients::load_enabled_clients(&state.db, &id).await?;
+        crate::xray::orchestrator::inbound_to_handler_config(&candidate, &clients)
             .map_err(|e| AppError::BadRequest(e.to_string()))?;
     }
 
@@ -1088,9 +1094,9 @@ pub async fn fetch_inbounds_batch(
 
 #[cfg(test)]
 mod validate_layers_tests {
-    //! Truth table for `validate_layers`. The function gates create/edit
-    //! at the API layer so xray never sees an invalid flow×transport×
-    //! security combo.
+    //! Truth table for `validate_layers` (the create/edit gate that keeps xray
+    //! from ever seeing an invalid flow×transport×security combo), plus the
+    //! `preserve_reality_keypair` merge the update path relies on.
     use super::*;
     use crate::protocols::vless::{VlessEncryptionMode, VlessFlow, VlessProtocol};
     use crate::security::NoneSecurity;

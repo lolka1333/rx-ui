@@ -383,9 +383,10 @@ pub fn validate_sniffing(sniffing: &Sniffing) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    //! Verify the orchestrator threads the sniffing `route_only` flag into
-    //! xray's `ReceiverConfig.SniffingConfig` (the field rides in the gRPC
-    //! inbound config, not the share-link, so it needs its own coverage).
+    //! Orchestrator `inbound_to_handler_config` coverage: the sniffing
+    //! `route_only` flag threading into xray's `ReceiverConfig.SniffingConfig`,
+    //! hysteria outbound building, and the TLS-certificate build gate (an
+    //! un-buildable config must fail so create/update reject it pre-commit).
     use super::*;
     use crate::models::{HysteriaOutbound, OutboundMux, Sniffing};
     use crate::protocols::ProtocolConfig;
@@ -636,7 +637,7 @@ mod tests {
         // `inbound_to_handler_config` so the create handler rejects it with a
         // 400 BEFORE the DB insert. Otherwise the committed row survives while
         // xray never loads the inbound — a phantom enabled inbound in the list
-        // (the reconcile loop silently skips un-buildable rows).
+        // (the reconcile loop skips un-buildable rows with only a warn-level log).
         let err = inbound_to_handler_config(&hysteria2_tls_inbound(vec![]), &[])
             .expect_err("TLS with no certificate must not build");
         assert!(

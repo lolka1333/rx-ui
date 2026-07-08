@@ -83,8 +83,10 @@ async fn get_panel(
 
 /// Load the whole `panel_settings` row into `PanelSettings`. Shared by the GET
 /// handler and callers that need one stored value — e.g. the outbound
-/// connectivity test reading `xray_test_url`. The query string is identical to
-/// the GET handler's original inline one, so it reuses the same offline cache.
+/// connectivity test reading `xray_test_url`. Kept as the single whole-row
+/// SELECT (rather than a second narrow single-column query) so no extra sqlx
+/// offline-cache entry is needed — a real constraint in this repo, where
+/// regenerating that cache is fragile.
 pub async fn load_panel_settings(db: &crate::db::DbPool) -> AppResult<PanelSettings> {
     let row = sqlx::query!(
         "SELECT panel_port, panel_base_path,
@@ -546,9 +548,10 @@ fn validate_optional_host(value: &str, field: &str) -> AppResult<String> {
 
 /// Validate an optional `http(s)://` URL field. Empty is allowed; otherwise the
 /// value must contain no control characters, start with `http://` or
-/// `https://`, and be at most 2048 chars. Returns the trimmed value ready to
-/// store. `field` is spliced into the error messages so the sub-service and
-/// xray-test URL validators share one implementation.
+/// `https://`, be at most 2048 chars, and parse as a URL with a non-empty host.
+/// Returns the trimmed value ready to store. `field` is spliced into the error
+/// messages so the sub-service and xray-test URL validators share one
+/// implementation.
 fn validate_optional_http_url(value: &str, field: &str) -> AppResult<String> {
     let url = value.trim();
     if !url.is_empty() {
@@ -566,6 +569,15 @@ fn validate_optional_http_url(value: &str, field: &str) -> AppResult<String> {
             return Err(AppError::BadRequest(format!(
                 "{field} is too long (max 2048 chars)"
             )));
+        }
+        // Full parse, not just the prefix: a value like `http://` (no host) or
+        // `http://a b` (space) passes the checks above but fails reqwest at
+        // request time, where the outbound test would surface it as a
+        // misattributed "no egress". Reject it here as a clear config error.
+        let parsed = reqwest::Url::parse(url)
+            .map_err(|e| AppError::BadRequest(format!("{field} is not a valid URL: {e}")))?;
+        if parsed.host_str().is_none_or(str::is_empty) {
+            return Err(AppError::BadRequest(format!("{field} has no host")));
         }
     }
     Ok(url.to_owned())
