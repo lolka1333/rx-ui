@@ -681,7 +681,15 @@ function RuleModal({
   const isMobile = !screens.md;
   const [form] = Form.useForm<RuleFormValues>();
 
-  const submit = (v: RuleFormValues) => {
+  const submit = () => {
+    // Read the FULL form state, not just the fields antd passes to onFinish.
+    // The "advanced conditions" (source IP/port, inbound tag, user) live in a
+    // lazily-mounted <Section> (an antd Collapse) whose children aren't rendered
+    // until it's first expanded. onFinish only reports mounted fields, so a rule
+    // whose only conditions sit in that still-collapsed section would otherwise
+    // validate as "no condition" and drop those values on save. getFieldsValue
+    // (true) returns every stored value, mounted or not.
+    const v = form.getFieldsValue(true) as RuleFormValues;
     if (!hasCondition(v)) {
       message.warning(t('settings.rulesNeedCondition'));
       return;
@@ -844,7 +852,7 @@ function RuleModal({
                   overflowX: 'auto',
                 }}
               >
-                {JSON.stringify(toXrayRule(form.getFieldsValue()), null, 2)}
+                {JSON.stringify(toXrayRule(form.getFieldsValue(true)), null, 2)}
               </pre>
             )}
           </Form.Item>
