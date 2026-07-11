@@ -328,29 +328,32 @@ fn spawn_pipe_reader<R: AsyncReadSend>(pipe: R, logs: LogBuffer, fallback_level:
 }
 
 /// Convert one xray output line into a `LogEntry`. xray prints lines like:
-///   2026/05/15 07:52:55 [Warning] core: Xray 26.4.25 started
-/// We strip the timestamp (we use our own UTC ISO one) and pull the level
-/// from the `[Tag]` if present.
+///   2026/05/15 07:52:55 [Warning] core: Xray 26.4.25 started            (system)
+///   2026/05/15 07:52:55.123456 from 1.2.3.4:5 accepted tcp:x [in >> out] (access)
+/// Both carry xray's own timestamp; we strip it unconditionally — our
+/// `LogEntry.timestamp` is the authoritative one — so the UI never shows two
+/// (often differently-zoned) clocks per line. The level comes from a leading
+/// `[Level]` tag when present (system lines); access lines have no level tag —
+/// their first `[` is a routing tag (`[inbound >> outbound]`) mid-line, which
+/// must NOT be read as a level — so they fall back to the pipe default.
 fn parse_xray_line(line: &str, fallback_level: &str) -> LogEntry {
+    let body = strip_xray_timestamp(line);
     let mut level = fallback_level.to_string();
-    let mut message = line.to_string();
+    let mut message = body.to_string();
 
-    // Find `[Level]` anywhere in the line (xray puts it after the timestamp).
-    if let Some(start) = line.find('[')
-        && let Some(end_rel) = line[start..].find(']')
+    if let Some(rest) = body.strip_prefix('[')
+        && let Some(end) = rest.find(']')
     {
-        let raw = &line[start + 1..start + end_rel];
-        let lower = raw.to_ascii_lowercase();
-        let normalized = match lower.as_str() {
-            "warning" => Some("warn"),
-            "info" | "warn" | "error" | "debug" => Some(lower.as_str()),
+        let normalized = match rest[..end].to_ascii_lowercase().as_str() {
+            "warning" | "warn" => Some("warn"),
+            "info" => Some("info"),
+            "error" => Some("error"),
+            "debug" => Some("debug"),
             _ => None,
         };
         if let Some(lvl) = normalized {
             level = lvl.to_string();
-            // Trim "<timestamp> [Level]" prefix from the message; what's left
-            // is "core: Xray 26.4.25 started" — already nicely target-prefixed.
-            message = line[start + end_rel + 1..].trim().to_string();
+            message = rest[end + 1..].trim().to_string();
         }
     }
 
@@ -359,5 +362,81 @@ fn parse_xray_line(line: &str, fallback_level: &str) -> LogEntry {
         level,
         target: "xray".to_string(),
         message,
+    }
+}
+
+/// Strip xray's leading `2006/01/02 15:04:05[.000000] ` timestamp, returning
+/// the remainder. Xray stamps every line in its own process timezone while the
+/// panel re-stamps each entry in UTC, so keeping xray's would show two clashing
+/// clocks per line. Lines that don't start with that fixed shape (e.g. the
+/// startup banner) pass through unchanged.
+fn strip_xray_timestamp(line: &str) -> &str {
+    let b = line.as_bytes();
+    // Cheap byte-shape check for "YYYY/MM/DD HH:MM:SS" — avoids a regex dep.
+    let looks_like_ts = b.len() > 19
+        && b[0].is_ascii_digit()
+        && b[4] == b'/'
+        && b[7] == b'/'
+        && b[10] == b' '
+        && b[13] == b':'
+        && b[16] == b':';
+    if !looks_like_ts {
+        return line;
+    }
+    // After "HH:MM:SS" (offset 19) comes either " " or ".<micros> "; the first
+    // space ends the timestamp token.
+    line[19..]
+        .find(' ')
+        .map_or(line, |sp| line[19 + sp + 1..].trim_start())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_xray_line, strip_xray_timestamp};
+
+    #[test]
+    fn strips_access_line_timestamp_and_keeps_routing_tag() {
+        // Access lines have no [Level] tag; the [in >> out] routing tag must not
+        // be read as a level, and xray's own timestamp must be dropped.
+        let line = "2026/07/11 21:18:31.470041 from 1.2.3.4:44232 accepted udp:8.8.8.8:443 [JP-XHTTP >> direct] email: u";
+        let e = parse_xray_line(line, "info");
+        assert_eq!(e.level, "info");
+        assert_eq!(
+            e.message,
+            "from 1.2.3.4:44232 accepted udp:8.8.8.8:443 [JP-XHTTP >> direct] email: u"
+        );
+        assert!(
+            !e.message.contains("2026/07/11"),
+            "xray timestamp not stripped"
+        );
+    }
+
+    #[test]
+    fn parses_system_line_level_and_strips_timestamp() {
+        let line = "2026/07/11 21:14:12 [Warning] core: Xray 26.7.11 started";
+        let e = parse_xray_line(line, "info");
+        assert_eq!(e.level, "warn");
+        assert_eq!(e.message, "core: Xray 26.7.11 started");
+    }
+
+    #[test]
+    fn error_message_with_inner_bracket_survives() {
+        let line = "2026/07/11 21:15:08 [Error] transport/internet/splithttp: accept tcp [::]:443: use of closed network connection";
+        let e = parse_xray_line(line, "info");
+        assert_eq!(e.level, "error");
+        assert_eq!(
+            e.message,
+            "transport/internet/splithttp: accept tcp [::]:443: use of closed network connection"
+        );
+    }
+
+    #[test]
+    fn line_without_timestamp_passes_through() {
+        assert_eq!(
+            strip_xray_timestamp("A unified platform for anti-censorship."),
+            "A unified platform for anti-censorship."
+        );
+        let e = parse_xray_line("A unified platform for anti-censorship.", "info");
+        assert_eq!(e.message, "A unified platform for anti-censorship.");
     }
 }
