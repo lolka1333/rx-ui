@@ -117,6 +117,12 @@ export function XhttpTab() {
 
 function XhttpAdvanced() {
   const { t } = useTranslation();
+  // uplinkHTTPMethod=GET and cookie/header uplink-data placement are packet-up
+  // only (xray rejects them in any other mode — see infra/conf splithttp). Grey
+  // those knobs out unless the mode is packet-up so the operator can't build an
+  // invalid combo, and the adapter drops them from the payload for good measure.
+  const form = Form.useFormInstance();
+  const uplinkPacketUpOnly = Form.useWatch('xhttp_mode', form) !== 'packet-up';
   // The "По умолчанию" entry uses value="" so the backend sees null
   // (orNull strips empties before sending) and xray falls back to its
   // own default for that field. Translated label is the only dynamic
@@ -303,6 +309,7 @@ function XhttpAdvanced() {
                 labelKey="inbounds.xhttpUplinkHttpMethod"
                 tooltipKey="inbounds.xhttpUplinkHttpMethodTip"
                 options={opts.httpMethod}
+                disabled={uplinkPacketUpOnly}
               />
               <SelectField
                 name="xhttp_session_placement"
@@ -351,11 +358,13 @@ function XhttpAdvanced() {
                 labelKey="inbounds.xhttpUplinkDataPlacement"
                 tooltipKey="inbounds.xhttpUplinkDataPlacementTip"
                 options={opts.uplinkDataPlacement}
+                disabled={uplinkPacketUpOnly}
               />
               <InputField
                 name="xhttp_uplink_data_key"
                 labelKey="inbounds.xhttpUplinkDataKey"
                 tooltipKey="inbounds.xhttpUplinkDataKeyTip"
+                disabled={uplinkPacketUpOnly}
               />
               <RangeField
                 name="xhttp_uplink_chunk_size"

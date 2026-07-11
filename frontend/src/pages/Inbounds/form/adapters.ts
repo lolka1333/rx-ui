@@ -424,6 +424,11 @@ export function buildTransport(v: FormValues): TransportConfig {
     }
     case 'xhttp': {
       const headers = collapseHeaders(v.xhttp_headers);
+      // uplinkHTTPMethod=GET and cookie/header uplink placement/key are packet-up
+      // only — xray rejects them in any other mode. Drop them from the payload
+      // when not packet-up so a legacy inbound (or a mode switch that left a
+      // stale GET) saves as a valid config instead of 400-ing on the backend.
+      const packetUp = v.xhttp_mode === 'packet-up';
       const x: XhttpTransport = {
         path: v.xhttp_path || null,
         host: v.xhttp_host || null,
@@ -447,15 +452,15 @@ export function buildTransport(v: FormValues): TransportConfig {
         x_padding_header: orNull(v.xhttp_x_padding_header),
         x_padding_placement: orNull(v.xhttp_x_padding_placement),
         x_padding_method: orNull(v.xhttp_x_padding_method),
-        uplink_http_method: orNull(v.xhttp_uplink_http_method),
+        uplink_http_method: packetUp ? orNull(v.xhttp_uplink_http_method) : null,
         session_id_placement: orNull(v.xhttp_session_placement),
         session_id_key: orNull(v.xhttp_session_key),
         session_id_table: orNull(v.xhttp_session_id_table),
         session_id_length: orNull(v.xhttp_session_id_length),
         seq_placement: orNull(v.xhttp_seq_placement),
         seq_key: orNull(v.xhttp_seq_key),
-        uplink_data_placement: orNull(v.xhttp_uplink_data_placement),
-        uplink_data_key: orNull(v.xhttp_uplink_data_key),
+        uplink_data_placement: packetUp ? orNull(v.xhttp_uplink_data_placement) : null,
+        uplink_data_key: packetUp ? orNull(v.xhttp_uplink_data_key) : null,
         uplink_chunk_size: orNull(v.xhttp_uplink_chunk_size),
         server_max_header_bytes: orNullNum(v.xhttp_server_max_header_bytes),
         quic_params: buildQuicParams(v),

@@ -198,6 +198,8 @@ interface FieldProps {
   tooltipKey?: string;
   last?: boolean;
   rules?: FormItemProps['rules'];
+  /** Grey out the input when the setting doesn't apply in the current mode. */
+  disabled?: boolean;
 }
 
 export function RangeField({ name, labelKey, tooltipKey, last }: FieldProps) {
@@ -218,7 +220,14 @@ interface SelectFieldProps extends FieldProps {
   options: { value: string; label: string }[];
 }
 
-export function SelectField({ name, labelKey, tooltipKey, options, last }: SelectFieldProps) {
+export function SelectField({
+  name,
+  labelKey,
+  tooltipKey,
+  options,
+  last,
+  disabled,
+}: SelectFieldProps) {
   const { t } = useTranslation();
   return (
     <Form.Item
@@ -227,7 +236,7 @@ export function SelectField({ name, labelKey, tooltipKey, options, last }: Selec
       tooltip={tooltipKey ? t(tooltipKey) : undefined}
       style={{ marginBottom: last ? 0 : 12 }}
     >
-      <Select options={options} />
+      <Select options={options} disabled={disabled} />
     </Form.Item>
   );
 }
@@ -246,7 +255,7 @@ export function NumberField({ name, labelKey, tooltipKey, last }: FieldProps) {
   );
 }
 
-export function InputField({ name, labelKey, tooltipKey, last, rules }: FieldProps) {
+export function InputField({ name, labelKey, tooltipKey, last, rules, disabled }: FieldProps) {
   const { t } = useTranslation();
   return (
     <Form.Item
@@ -256,7 +265,7 @@ export function InputField({ name, labelKey, tooltipKey, last, rules }: FieldPro
       rules={rules}
       style={{ marginBottom: last ? 0 : 12 }}
     >
-      <Input />
+      <Input disabled={disabled} />
     </Form.Item>
   );
 }
