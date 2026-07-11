@@ -66,7 +66,10 @@ export function Inbounds() {
     queryKey: ['inbounds'],
     queryFn: async () => (await apiClient.get<Inbound[]>('/inbounds')).data,
   });
-  const inbounds = data ?? [];
+  // Memoised so the `?? []` fallback keeps a stable identity across renders —
+  // `trafficByInbound` (and the client-count map) depend on it, and a fresh
+  // array each render would defeat their memoisation.
+  const inbounds = useMemo(() => data ?? [], [data]);
 
   // Lightweight cross-inbound client count for the "Клиенты" column. One
   // query that returns every client (no filter), grouped in-memory by
