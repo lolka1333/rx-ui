@@ -10,7 +10,14 @@
 // Consumer code should only ever import from this barrel:
 //   import { Inbound, VlessProtocol, TransportConfig } from '@/api/types';
 
-export type { Inbound, InboundCreate, InboundUpdate, Sniffing, SocketOpt } from './inbound';
+export type {
+  Inbound,
+  InboundCreate,
+  InboundTraffic,
+  InboundUpdate,
+  Sniffing,
+  SocketOpt,
+} from './inbound';
 
 export type {
   ProtocolConfig,

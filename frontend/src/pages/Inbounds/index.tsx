@@ -30,7 +30,7 @@ import { apiClient } from '@/api/client';
 import { apiErrorMessage } from '@/api/errors';
 import { useClientsFilter } from '@/stores/clientsFilter';
 import { useNav } from '@/stores/nav';
-import type { Client, Inbound, TrafficSnapshot } from '@/api/types';
+import type { Client, Inbound, InboundTraffic, TrafficSnapshot } from '@/api/types';
 import { TrafficCell } from '@/components/TrafficCell';
 import { fmtBytes } from '@/lib/format';
 import { InboundForm } from './InboundForm';
@@ -40,7 +40,7 @@ import { PROTOCOL_COLOR, TRANSPORT_LABEL, vlessFlow } from './helpers';
 
 type TrafficSnapshotMap = Record<string, TrafficSnapshot>;
 
-interface InboundTraffic {
+interface InboundRowTraffic {
   up: number;
   down: number;
   /** True when ANY client on this inbound is moving bytes right now. */
@@ -82,13 +82,23 @@ export function Inbounds() {
     return m;
   }, [allClients]);
 
-  // Per-inbound traffic totals — derived from each bound client's lifetime
-  // counters in `/clients/stats`. xray's StatsService counts bytes per email,
-  // not per (email, inbound), so a user shared across several inbounds has one
-  // per-email total. Credit it to a single inbound (the first row seen) rather
-  // than every membership — otherwise the same bytes surface under each inbound
-  // and the column reads ~Nx for one connection. Shares the Clients page's
-  // react-query key so polling cost is paid once.
+  // Accurate per-inbound lifetime totals, keyed by inbound tag. With
+  // `statsInbound` on, xray counts bytes per inbound (`inbound>>>{tag}`); the
+  // backend `inbound_traffic` poller persists them across restarts. This is the
+  // real per-inbound split — a client shared across inbounds no longer dumps its
+  // whole per-email total onto a single one (the old front-end approximation).
+  const { data: inboundStats = {} } = useQuery<Record<string, InboundTraffic>>({
+    queryKey: ['inbounds-stats'],
+    queryFn: async () =>
+      (await apiClient.get<Record<string, InboundTraffic>>('/inbounds/stats')).data,
+    refetchInterval: isActive ? 5_000 : false,
+    staleTime: 4_000,
+  });
+  // Per-email live snapshot — used ONLY for the "bytes moving now" overlay, not
+  // for totals. xray reports bps per email, not per inbound, so the live rate
+  // can't be attributed to a specific inbound; credit it once (to the first
+  // inbound the email is on) to avoid lighting up every inbound it belongs to.
+  // Shares the Clients page's react-query key so polling cost is paid once.
   const { data: stats = {} } = useQuery<TrafficSnapshotMap>({
     queryKey: ['clients-stats'],
     queryFn: async () =>
@@ -96,33 +106,37 @@ export function Inbounds() {
     refetchInterval: isActive ? 5_000 : false,
     staleTime: 4_000,
   });
-  // Inbounds don't have quotas of their own — caps live on clients.
-  // The cell shows just the aggregate ↑/↓ that flowed through the
-  // inbound; the rhythm-line bar underneath stays empty (no quota
-  // semantics) and only takes on the live-blue overlay when bytes
-  // are moving through any client on the inbound.
+  // Inbounds don't have quotas of their own — caps live on clients. The cell
+  // shows the aggregate ↑/↓ that flowed through the inbound (xray's per-inbound
+  // counters); the bar underneath stays empty (no quota semantics) and only
+  // takes the live-blue overlay when bytes are moving through the inbound.
   const trafficByInbound = useMemo(() => {
-    const m = new Map<string, InboundTraffic>();
-    // Credit each email's per-email total once (to the first inbound it appears
-    // in), so a user shared across inbounds isn't summed into every one. Keep
-    // `live` WITH the bytes: xray reports bps per email, not per inbound, so
-    // lighting up every member inbound animates the empty 0-byte bars of the
-    // non-credited ones (visible flicker). Show the live overlay only on the
-    // inbound the traffic is credited to.
-    const credited = new Set<string>();
+    const m = new Map<string, InboundRowTraffic>();
+    // Totals: accurate per-inbound counters, mapped tag -> row. Only inbounds
+    // that have moved bytes get a row (the poller inserts on non-zero delta),
+    // so a never-used inbound stays absent here and renders "—".
+    for (const inb of inbounds) {
+      const s = inboundStats[inb.tag];
+      if (s) m.set(inb.id, { up: s.uplink, down: s.downlink, live: false });
+    }
+    // Live overlay: credit each email's live rate to a single inbound that
+    // already has a totals row. Never fabricate a { up: 0, down: 0 } row — that
+    // would render a glowing "0 B" cell for an inbound demonstrably moving bytes.
+    // xray reports bps per email, not per inbound, so this is a best-effort hint;
+    // the glow lands wherever the bytes are actually recorded.
+    const litEmails = new Set<string>();
     for (const c of allClients) {
-      const acc = m.get(c.inbound_id) ?? { up: 0, down: 0, live: false };
       const s = stats[c.email];
-      if (s && !credited.has(c.email)) {
-        credited.add(c.email);
-        acc.up += s.uplink_total;
-        acc.down += s.downlink_total;
-        if (s.uplink_bps > 0 || s.downlink_bps > 0) acc.live = true;
+      if (!s || litEmails.has(c.email) || !(s.uplink_bps > 0 || s.downlink_bps > 0)) {
+        continue;
       }
-      m.set(c.inbound_id, acc);
+      const acc = m.get(c.inbound_id);
+      if (!acc) continue;
+      litEmails.add(c.email);
+      acc.live = true;
     }
     return m;
-  }, [allClients, stats]);
+  }, [inbounds, inboundStats, allClients, stats]);
 
   // Wired to the Clients page navigation when the operator clicks the
   // "N клиентов" badge. Filter store carries the inbound_id across the

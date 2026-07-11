@@ -3,6 +3,7 @@ mod auth;
 mod db;
 mod error;
 mod host;
+mod inbound_traffic;
 mod logs;
 mod models;
 mod outbound_traffic;
@@ -204,6 +205,12 @@ async fn main() -> anyhow::Result<()> {
     // `outbound_traffic` so the Outbounds page totals survive xray restarts
     // (xray's per-outbound counters are session-only).
     outbound_traffic::spawn_outbound_traffic_poller(state.xray_client.clone(), state.db.clone());
+
+    // Per-inbound lifetime traffic — same cadence, persisted into
+    // `inbound_traffic` so the Inbounds page shows an accurate per-inbound
+    // split (xray's per-inbound counters are session-only, and its per-user
+    // counters can't attribute a shared client's bytes to a single inbound).
+    inbound_traffic::spawn_inbound_traffic_poller(state.xray_client.clone(), state.db.clone());
 
     // Reconcile in-memory xray state with the panel DB. xray's
     // HandlerService stores inbounds in memory only — every cold start

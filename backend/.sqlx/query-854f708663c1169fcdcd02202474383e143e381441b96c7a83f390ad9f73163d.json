@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM inbound_traffic WHERE tag = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "854f708663c1169fcdcd02202474383e143e381441b96c7a83f390ad9f73163d"
+}

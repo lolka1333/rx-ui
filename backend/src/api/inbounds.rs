@@ -41,12 +41,55 @@ use uuid::Uuid;
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/", get(list).post(create))
+        .route("/stats", get(stats))
         .route("/{id}", get(get_one).patch(update).delete(delete))
         .route("/{id}/rotate-reality-keypair", post(rotate_reality_keypair))
         .route(
             "/{id}/regenerate-vless-encryption-keypair",
             post(regenerate_vless_encryption_keypair),
         )
+}
+
+/// Per-inbound lifetime traffic (`tag -> {uplink, downlink}`). Cumulative
+/// totals persisted by the [`crate::inbound_traffic`] poller — they survive
+/// xray restarts, unlike the session-only counters xray exposes directly, and
+/// give an accurate per-inbound split even when one client spans several
+/// inbounds (xray's per-user counters can't attribute those bytes per-inbound).
+#[derive(Debug, Default, serde::Serialize, ts_rs::TS)]
+#[ts(export, export_to = "../../frontend/src/api/types/inbound.ts")]
+pub struct InboundTraffic {
+    #[ts(type = "number")]
+    pub uplink: u64,
+    #[ts(type = "number")]
+    pub downlink: u64,
+}
+
+async fn stats(
+    _user: AuthUser,
+    State(state): State<AppState>,
+) -> AppResult<Json<std::collections::HashMap<String, InboundTraffic>>> {
+    let rows = sqlx::query!(
+        r#"SELECT tag            AS "tag!: String",
+                  uplink_total   AS "uplink_total!: i64",
+                  downlink_total AS "downlink_total!: i64"
+           FROM inbound_traffic"#
+    )
+    .fetch_all(&state.db)
+    .await?;
+    #[allow(clippy::cast_sign_loss)]
+    let out = rows
+        .into_iter()
+        .map(|r| {
+            (
+                r.tag,
+                InboundTraffic {
+                    uplink: r.uplink_total.max(0) as u64,
+                    downlink: r.downlink_total.max(0) as u64,
+                },
+            )
+        })
+        .collect();
+    Ok(Json(out))
 }
 
 // =============================================================================
@@ -477,6 +520,21 @@ async fn get_one(
     Ok(Json(row_to_inbound(row)?))
 }
 
+/// Reject inbound tags that collide with reserved internal tags. The only
+/// reserved inbound tag is the gRPC control channel's (`API_TAG`): a user
+/// inbound claiming it fails xray's duplicate-tag check and, worse, a later
+/// remove/re-add tears down the panel's own control inbound. Mirrors the
+/// reserved-tag guard `api::outbounds` runs for outbound tags, and makes the
+/// per-inbound traffic poller's `api`-skip invariant actually hold.
+fn validate_inbound_tag(tag: &str) -> AppResult<()> {
+    if tag == crate::xray::config_gen::API_TAG {
+        return Err(AppError::BadRequest(format!(
+            "inbound tag '{tag}' is reserved for the internal control channel"
+        )));
+    }
+    Ok(())
+}
+
 async fn create(
     _user: AuthUser,
     State(state): State<AppState>,
@@ -493,6 +551,8 @@ async fn create(
         finalmask,
         sockopt,
     } = body;
+
+    validate_inbound_tag(&tag)?;
 
     let finalmask = finalmask.unwrap_or_default();
     let sockopt = sockopt.unwrap_or_default();
@@ -669,6 +729,19 @@ async fn write_inbound_update_tx(
 ) -> AppResult<()> {
     let mut tx = state.db.begin().await?;
     if let Some(tag) = &body.tag {
+        validate_inbound_tag(tag)?;
+        // Current tag, captured before the rename so the persisted per-inbound
+        // traffic total can follow it. `inbound_traffic` is keyed by tag (xray
+        // counts per tag), so without the migration below the total would orphan
+        // under the old tag and a later inbound reusing it would inherit these
+        // bytes — the exact ghost-total misattribution this feature removes.
+        let old_tag: Option<String> = sqlx::query_scalar!(
+            r#"SELECT tag AS "tag!: String" FROM inbounds WHERE id = ?"#,
+            id
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+
         sqlx::query!(
             "UPDATE inbounds SET tag = ?, updated_at = datetime('now') WHERE id = ?",
             tag,
@@ -682,6 +755,24 @@ async fn write_inbound_update_tx(
             }
             e => e.into(),
         })?;
+
+        if let Some(old_tag) = old_tag
+            && old_tag != *tag
+        {
+            // Drop any stale row already under the new tag (left by a previously
+            // deleted inbound) before moving the old total onto it, so the
+            // UPDATE can't collide with the `inbound_traffic` primary key.
+            sqlx::query!("DELETE FROM inbound_traffic WHERE tag = ?", tag)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query!(
+                "UPDATE inbound_traffic SET tag = ? WHERE tag = ?",
+                tag,
+                old_tag
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
     }
     if let Some(enabled) = body.enabled {
         let v = i64::from(enabled);
@@ -910,12 +1001,19 @@ async fn delete(
         let _ = state.xray_client.remove_inbound(&row.tag).await;
     }
 
+    let mut tx = state.db.begin().await?;
     let res = sqlx::query!("DELETE FROM inbounds WHERE id = ?", id)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await?;
     if res.rows_affected() == 0 {
         return Err(AppError::NotFound);
     }
+    // Drop the per-inbound traffic total in the same tx, so the tag leaves no
+    // orphan row that a later inbound reusing it would inherit.
+    sqlx::query!("DELETE FROM inbound_traffic WHERE tag = ?", row.tag)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

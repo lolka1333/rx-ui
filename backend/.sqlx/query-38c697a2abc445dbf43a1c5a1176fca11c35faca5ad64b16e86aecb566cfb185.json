@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT tag AS \"tag!: String\" FROM inbounds WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "tag!: String",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbounds",
+            "name": "tag"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "38c697a2abc445dbf43a1c5a1176fca11c35faca5ad64b16e86aecb566cfb185"
+}

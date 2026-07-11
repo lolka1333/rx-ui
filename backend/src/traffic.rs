@@ -336,6 +336,39 @@ pub fn fold_stats_to_totals(
     totals
 }
 
+/// Per-tag byte deltas between two [`fold_stats_to_totals`] snapshots, with the
+/// xray-restart detection the tag pollers share: a counter that dropped below
+/// its cached previous value means xray reset its session counters, so the
+/// current value is credited whole instead of producing a giant wraparound via
+/// subtraction. `skip` drops tags before diffing (e.g. the internal `api`
+/// inbound). Only tags with a non-zero delta are returned. Extracted so the
+/// per-outbound and per-inbound pollers share one tested implementation instead
+/// of each carrying its own copy of this subtle reset logic.
+pub fn tag_deltas(
+    current: &HashMap<String, (u64, u64)>,
+    prev: &HashMap<String, (u64, u64)>,
+    skip: impl Fn(&str) -> bool,
+) -> Vec<(String, i64, i64)> {
+    let mut pending = Vec::new();
+    for (tag, &(up, down)) in current {
+        if skip(tag) {
+            continue;
+        }
+        let (prev_up, prev_down) = prev.get(tag).copied().unwrap_or((0, 0));
+        let up_delta = if up < prev_up { up } else { up - prev_up };
+        let down_delta = if down < prev_down {
+            down
+        } else {
+            down - prev_down
+        };
+        if up_delta > 0 || down_delta > 0 {
+            #[allow(clippy::cast_possible_wrap)]
+            pending.push((tag.clone(), up_delta as i64, down_delta as i64));
+        }
+    }
+    pending
+}
+
 /// Delta vs previous tick. xray-restart detection: if the current total
 /// dropped below the cached previous one, xray's counters reset —
 /// credit the current value as freshly observed instead of producing a
@@ -724,7 +757,8 @@ fn fold_canonical_metas(
 
 #[cfg(test)]
 mod tests {
-    use super::{ClientMeta, fold_canonical_metas, parse_counter};
+    use super::{ClientMeta, fold_canonical_metas, parse_counter, tag_deltas};
+    use std::collections::HashMap;
 
     fn meta(tag: &str, up: u64, down: u64) -> ClientMeta {
         ClientMeta {
@@ -791,6 +825,39 @@ mod tests {
             parse_counter("user>>>bob@example.com>>>traffic>>>downlink", "user>>>"),
             Some(("bob@example.com", "downlink"))
         );
+    }
+
+    #[test]
+    fn tag_deltas_growth_and_restart() {
+        let prev: HashMap<String, (u64, u64)> =
+            [("a".to_owned(), (100, 200)), ("b".to_owned(), (50, 50))]
+                .into_iter()
+                .collect();
+        let current: HashMap<String, (u64, u64)> =
+            [("a".to_owned(), (170, 200)), ("b".to_owned(), (10, 5))]
+                .into_iter()
+                .collect();
+        let mut out = tag_deltas(&current, &prev, |_| false);
+        out.sort();
+        // `a` grew by (70, 0); `b` dropped below prev (xray counter reset), so
+        // the current value is credited whole rather than a wraparound subtract.
+        assert_eq!(out, vec![("a".to_owned(), 70, 0), ("b".to_owned(), 10, 5)]);
+    }
+
+    #[test]
+    fn tag_deltas_skips_predicate_and_drops_zero() {
+        let prev: HashMap<String, (u64, u64)> = HashMap::new();
+        let current: HashMap<String, (u64, u64)> = [
+            ("api".to_owned(), (999, 999)),
+            ("idle".to_owned(), (0, 0)),
+            ("live".to_owned(), (5, 0)),
+        ]
+        .into_iter()
+        .collect();
+        let out = tag_deltas(&current, &prev, |t| t == "api");
+        // `api` filtered by the skip predicate; `idle` has a zero delta and is
+        // dropped; only `live` (first observation, credited whole) survives.
+        assert_eq!(out, vec![("live".to_owned(), 5, 0)]);
     }
 
     #[test]

@@ -52,6 +52,15 @@ finalmask: FinalMask | null,
 sockopt: SocketOpt | null, };
 
 /**
+ * Per-inbound lifetime traffic (`tag -> {uplink, downlink}`). Cumulative
+ * totals persisted by the [`crate::inbound_traffic`] poller — they survive
+ * xray restarts, unlike the session-only counters xray exposes directly, and
+ * give an accurate per-inbound split even when one client spans several
+ * inbounds (xray's per-user counters can't attribute those bytes per-inbound).
+ */
+export type InboundTraffic = { uplink: number, downlink: number, };
+
+/**
  * Body for `PATCH /api/inbounds/{id}`. Each layer is independently
  * replaceable — sending `transport: { ... }` swaps the whole transport
  * block; omitting it leaves the existing column untouched. There's no

@@ -140,6 +140,12 @@ pub const TAG_BLOCKED: &str = "blocked";
 pub const TAG_DIRECT_IPV4: &str = "direct-ipv4";
 pub const BUILTIN_OUTBOUND_TAGS: &[&str] = &[TAG_DIRECT, TAG_BLOCKED, TAG_DIRECT_IPV4];
 
+/// Tag of the internal gRPC control inbound (the dokodemo-door the panel talks
+/// to xray through). Reserved: user inbounds are rejected from claiming it (see
+/// `api::inbounds`), and the per-inbound traffic poller skips it so the panel's
+/// own control-channel bytes never show up as user traffic.
+pub const API_TAG: &str = "api";
+
 pub fn build_bootstrap_config(s: &BootstrapSettings) -> Value {
     // `direct` + `blocked` are always present. The `direct-ipv4` freedom
     // outbound is added when either the IPv4-force list OR any enabled custom
@@ -226,7 +232,7 @@ pub fn build_bootstrap_config(s: &BootstrapSettings) -> Value {
 
     json!({
         "log": { "loglevel": "warning", "access": "" },
-        "api": { "tag": "api", "services": ["HandlerService", "StatsService"] },
+        "api": { "tag": API_TAG, "services": ["HandlerService", "StatsService"] },
         "stats": {},
         "policy": {
             "levels": {
@@ -236,16 +242,21 @@ pub fn build_bootstrap_config(s: &BootstrapSettings) -> Value {
                     "statsUserOnline": true
                 }
             },
-            // Per-outbound traffic counters (`outbound>>>{tag}>>>traffic>>>*`),
-            // surfaced on the Outbounds page so the operator sees how much flows
-            // through each relay / built-in.
+            // Per-outbound / per-inbound traffic counters
+            // (`{outbound,inbound}>>>{tag}>>>traffic>>>*`), surfaced on the
+            // Outbounds / Inbounds pages so the operator sees how much flows
+            // through each relay / built-in and each inbound. The inbound
+            // counters give an accurate per-inbound split even when one client
+            // (email) spans several inbounds — xray's per-user counters can't.
             "system": {
                 "statsOutboundUplink": true,
-                "statsOutboundDownlink": true
+                "statsOutboundDownlink": true,
+                "statsInboundUplink": true,
+                "statsInboundDownlink": true
             }
         },
         "inbounds": [{
-            "tag": "api",
+            "tag": API_TAG,
             "listen": "127.0.0.1",
             "port": 62789,
             "protocol": "dokodemo-door",

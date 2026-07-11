@@ -283,6 +283,30 @@ impl XrayClient {
         Ok(resp.into_inner())
     }
 
+    /// Pull every `inbound>>>{tag}>>>traffic>>>{uplink|downlink}` counter in one
+    /// RPC — per-inbound traffic for the Inbounds page. Session totals (xray
+    /// resets them on restart). Enabled by `policy.system.statsInbound*` in
+    /// `config_gen`. Lets the panel show a correct per-inbound split that xray's
+    /// per-user (`user>>>`) counters can't provide when a client spans inbounds.
+    pub async fn query_inbound_stats(&self) -> anyhow::Result<QueryStatsResponse> {
+        let channel = self.channel().await?;
+        let mut client = StatsServiceClient::new(channel);
+        let resp = client
+            .query_stats(QueryStatsRequest {
+                pattern: "inbound>>>".to_owned(),
+                reset: false,
+            })
+            .await
+            .map_err(|s| {
+                anyhow::anyhow!(
+                    "xray query_stats (inbound) failed: {} {}",
+                    s.code(),
+                    s.message()
+                )
+            })?;
+        Ok(resp.into_inner())
+    }
+
     /// Email-list of users with at least one active TCP socket right
     /// now. Cheap (one round-trip, just strings) so it can run on
     /// every poll tick alongside `query_user_stats`.

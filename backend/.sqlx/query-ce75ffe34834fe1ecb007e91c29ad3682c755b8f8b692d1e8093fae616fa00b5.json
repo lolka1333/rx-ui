@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE inbound_traffic SET tag = ? WHERE tag = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "ce75ffe34834fe1ecb007e91c29ad3682c755b8f8b692d1e8093fae616fa00b5"
+}
