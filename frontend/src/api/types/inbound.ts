@@ -58,7 +58,16 @@ sockopt: SocketOpt | null, };
  * give an accurate per-inbound split even when one client spans several
  * inbounds (xray's per-user counters can't attribute those bytes per-inbound).
  */
-export type InboundTraffic = { uplink: number, downlink: number, };
+export type InboundTraffic = { uplink: number, downlink: number, 
+/**
+ * True when this inbound moved bytes on the last poll tick (~5 s) — drives
+ * the Inbounds page's live-activity glow. Accurate per inbound (computed
+ * from the poller's per-tag deltas), so it follows a client that hops
+ * between inbounds instead of sticking to the first. xray only reports the
+ * rate per email, which is why the front end used to approximate this and
+ * glued the glow to the first inbound a shared email belonged to.
+ */
+live: boolean, };
 
 /**
  * Body for `PATCH /api/inbounds/{id}`. Each layer is independently

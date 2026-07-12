@@ -13,17 +13,49 @@
 use crate::db::DbPool;
 use crate::traffic::fold_stats_to_totals;
 use crate::xray::XrayClient;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::RwLock;
 use tokio::time::interval;
 
 /// Same cadence as the per-user / per-outbound pollers — one `StatsService`
 /// roundtrip every 5 s.
 const POLL_INTERVAL: Duration = Duration::from_secs(5);
 
+/// Thread-safe set of inbound tags that moved bytes on the LAST poll tick — the
+/// source for the Inbounds page's live-activity glow. Rebuilt wholesale every
+/// tick from the per-tag deltas, which are accurate per inbound (unlike xray's
+/// per-EMAIL rate). That's the whole point: a client that hops from inbound A to
+/// inbound B lights up B and drops A within one tick, instead of the old
+/// front-end approximation that credited an email's rate to its first inbound
+/// and never let go. Cloning is cheap (Arc); `live` is ephemeral (in-memory),
+/// so after a panel restart it's empty until the first non-idle tick — the
+/// persisted totals are unaffected.
+#[derive(Clone, Default)]
+pub struct InboundLiveStore {
+    inner: Arc<RwLock<HashSet<String>>>,
+}
+
+impl InboundLiveStore {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Replace the live set with the tags active this tick.
+    async fn replace(&self, tags: HashSet<String>) {
+        *self.inner.write().await = tags;
+    }
+
+    /// Snapshot the live set — one read lock for a batch of tag lookups.
+    pub async fn snapshot(&self) -> HashSet<String> {
+        self.inner.read().await.clone()
+    }
+}
+
 /// Spawn the polling task. Runs for the process lifetime; xray errors are logged
 /// at warn level and the loop retries on the next tick.
-pub fn spawn_inbound_traffic_poller(client: XrayClient, db: DbPool) {
+pub fn spawn_inbound_traffic_poller(client: XrayClient, db: DbPool, live: InboundLiveStore) {
     tokio::spawn(async move {
         // Per-tag previous-tick session counters, used to compute the delta we
         // persist. Seed the baseline from xray's CURRENT counters before the
@@ -55,7 +87,7 @@ pub fn spawn_inbound_traffic_poller(client: XrayClient, db: DbPool) {
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             tick.tick().await;
-            poll_once(&client, &db, &mut prev, &mut seeded).await;
+            poll_once(&client, &db, &mut prev, &mut seeded, &live).await;
         }
     });
 }
@@ -68,6 +100,7 @@ async fn poll_once(
     db: &DbPool,
     prev: &mut HashMap<String, (u64, u64)>,
     seeded: &mut bool,
+    live: &InboundLiveStore,
 ) {
     let resp = match client.query_inbound_stats().await {
         Ok(r) => r,
@@ -95,6 +128,12 @@ async fn poll_once(
     });
     *prev = current;
     flush_deltas(db, &pending).await;
+    // Refresh the live-activity set AFTER the DB flush, so any tag reported live
+    // already has its totals row persisted (the `/inbounds/stats` handler only
+    // marks tags that have a row). Rebuilt wholesale — a tag that moved no bytes
+    // this tick drops out of the set, so its glow turns off.
+    live.replace(pending.iter().map(|(tag, _, _)| tag.clone()).collect())
+        .await;
 }
 
 /// Flush all per-tag deltas in one transaction — one WAL fsync regardless of how

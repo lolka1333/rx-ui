@@ -46,6 +46,12 @@ pub struct AppState {
     pub host: HostMonitor,
     pub logs: LogBuffer,
     pub traffic: traffic::TrafficStore,
+    /// Inbound tags that moved bytes on the last poll tick — the live-activity
+    /// glow on the Inbounds page. Written by the inbound-traffic poller, read by
+    /// the `/inbounds/stats` handler. Ephemeral (in-memory), unlike the totals:
+    /// it's the accurate per-inbound "moving now" signal, so a client hopping
+    /// between inbounds lights up the one it's actually on.
+    pub inbound_live: inbound_traffic::InboundLiveStore,
     /// URL prefix the panel currently serves under. Read by
     /// `build_router` at router-build time and mounted as a static
     /// `nest`; saving a new prefix rebuilds the router and rebinds the
@@ -178,6 +184,7 @@ async fn main() -> anyhow::Result<()> {
         host: HostMonitor::spawn(),
         logs: log_buffer,
         traffic: traffic::TrafficStore::new(),
+        inbound_live: inbound_traffic::InboundLiveStore::new(),
         base_path: Arc::new(RwLock::new(base_path.clone())),
         current_port: Arc::new(AtomicU16::new(port)),
         listener_shutdown: Arc::new(RwLock::new(None)),
@@ -210,7 +217,11 @@ async fn main() -> anyhow::Result<()> {
     // `inbound_traffic` so the Inbounds page shows an accurate per-inbound
     // split (xray's per-inbound counters are session-only, and its per-user
     // counters can't attribute a shared client's bytes to a single inbound).
-    inbound_traffic::spawn_inbound_traffic_poller(state.xray_client.clone(), state.db.clone());
+    inbound_traffic::spawn_inbound_traffic_poller(
+        state.xray_client.clone(),
+        state.db.clone(),
+        state.inbound_live.clone(),
+    );
 
     // Reconcile in-memory xray state with the panel DB. xray's
     // HandlerService stores inbounds in memory only — every cold start

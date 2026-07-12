@@ -30,15 +30,13 @@ import { apiClient } from '@/api/client';
 import { apiErrorMessage } from '@/api/errors';
 import { useClientsFilter } from '@/stores/clientsFilter';
 import { useNav } from '@/stores/nav';
-import type { Client, Inbound, InboundTraffic, TrafficSnapshot } from '@/api/types';
+import type { Client, Inbound, InboundTraffic } from '@/api/types';
 import { TrafficCell } from '@/components/TrafficCell';
 import { fmtBytes } from '@/lib/format';
 import { InboundForm } from './InboundForm';
 import { formToCreate, formToUpdate } from './form/adapters';
 import type { FormValues } from './form/types';
 import { PROTOCOL_COLOR, TRANSPORT_LABEL, vlessFlow } from './helpers';
-
-type TrafficSnapshotMap = Record<string, TrafficSnapshot>;
 
 interface InboundRowTraffic {
   up: number;
@@ -97,49 +95,24 @@ export function Inbounds() {
     refetchInterval: isActive ? 5_000 : false,
     staleTime: 4_000,
   });
-  // Per-email live snapshot — used ONLY for the "bytes moving now" overlay, not
-  // for totals. xray reports bps per email, not per inbound, so the live rate
-  // can't be attributed to a specific inbound; credit it once (to the first
-  // inbound the email is on) to avoid lighting up every inbound it belongs to.
-  // Shares the Clients page's react-query key so polling cost is paid once.
-  const { data: stats = {} } = useQuery<TrafficSnapshotMap>({
-    queryKey: ['clients-stats'],
-    queryFn: async () =>
-      (await apiClient.get<TrafficSnapshotMap>('/clients/stats')).data,
-    refetchInterval: isActive ? 5_000 : false,
-    staleTime: 4_000,
-  });
   // Inbounds don't have quotas of their own — caps live on clients. The cell
   // shows the aggregate ↑/↓ that flowed through the inbound (xray's per-inbound
   // counters); the bar underneath stays empty (no quota semantics) and only
   // takes the live-blue overlay when bytes are moving through the inbound.
   const trafficByInbound = useMemo(() => {
     const m = new Map<string, InboundRowTraffic>();
-    // Totals: accurate per-inbound counters, mapped tag -> row. Only inbounds
-    // that have moved bytes get a row (the poller inserts on non-zero delta),
-    // so a never-used inbound stays absent here and renders "—".
+    // Accurate per-inbound counters, mapped tag -> row. Only inbounds that have
+    // moved bytes get a row (the poller inserts on non-zero delta), so a
+    // never-used inbound stays absent here and renders "—". `live` rides on the
+    // same per-inbound signal (the poller's last-tick deltas), so the glow lands
+    // on the inbound actually moving bytes — a client that hops between inbounds
+    // lights up the one it's on now, not the first one its email ever joined.
     for (const inb of inbounds) {
       const s = inboundStats[inb.tag];
-      if (s) m.set(inb.id, { up: s.uplink, down: s.downlink, live: false });
-    }
-    // Live overlay: credit each email's live rate to a single inbound that
-    // already has a totals row. Never fabricate a { up: 0, down: 0 } row — that
-    // would render a glowing "0 B" cell for an inbound demonstrably moving bytes.
-    // xray reports bps per email, not per inbound, so this is a best-effort hint;
-    // the glow lands wherever the bytes are actually recorded.
-    const litEmails = new Set<string>();
-    for (const c of allClients) {
-      const s = stats[c.email];
-      if (!s || litEmails.has(c.email) || !(s.uplink_bps > 0 || s.downlink_bps > 0)) {
-        continue;
-      }
-      const acc = m.get(c.inbound_id);
-      if (!acc) continue;
-      litEmails.add(c.email);
-      acc.live = true;
+      if (s) m.set(inb.id, { up: s.uplink, down: s.downlink, live: s.live });
     }
     return m;
-  }, [inbounds, inboundStats, allClients, stats]);
+  }, [inbounds, inboundStats]);
 
   // Wired to the Clients page navigation when the operator clicks the
   // "N клиентов" badge. Filter store carries the inbound_id across the

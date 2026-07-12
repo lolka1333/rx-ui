@@ -62,6 +62,13 @@ pub struct InboundTraffic {
     pub uplink: u64,
     #[ts(type = "number")]
     pub downlink: u64,
+    /// True when this inbound moved bytes on the last poll tick (~5 s) — drives
+    /// the Inbounds page's live-activity glow. Accurate per inbound (computed
+    /// from the poller's per-tag deltas), so it follows a client that hops
+    /// between inbounds instead of sticking to the first. xray only reports the
+    /// rate per email, which is why the front end used to approximate this and
+    /// glued the glow to the first inbound a shared email belonged to.
+    pub live: bool,
 }
 
 async fn stats(
@@ -76,15 +83,20 @@ async fn stats(
     )
     .fetch_all(&state.db)
     .await?;
+    // Live-activity set for this instant (tags that moved bytes last tick). Read
+    // once under a short lock, then looked up per row.
+    let live = state.inbound_live.snapshot().await;
     #[allow(clippy::cast_sign_loss)]
     let out = rows
         .into_iter()
         .map(|r| {
+            let is_live = live.contains(&r.tag);
             (
                 r.tag,
                 InboundTraffic {
                     uplink: r.uplink_total.max(0) as u64,
                     downlink: r.downlink_total.max(0) as u64,
+                    live: is_live,
                 },
             )
         })
