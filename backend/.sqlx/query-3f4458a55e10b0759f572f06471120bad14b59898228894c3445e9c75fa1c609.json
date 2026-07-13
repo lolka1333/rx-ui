@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, inbound_id, email, uuid, auth, flow, enabled, note,\n                  traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at\n           FROM clients\n           WHERE inbound_id = ? AND enabled = 1\n           ORDER BY created_at ASC",
+  "query": "SELECT id, inbound_id, email, uuid, auth, flow, reverse_tag, enabled, note,\n                  traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at,\n                  (uplink_total + downlink_total) AS \"used!: i64\"\n           FROM clients WHERE id = ? AND inbound_id = ?",
   "describe": {
     "columns": [
       {
@@ -70,8 +70,19 @@
         }
       },
       {
-        "name": "enabled",
+        "name": "reverse_tag",
         "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "reverse_tag"
+          }
+        }
+      },
+      {
+        "name": "enabled",
+        "ordinal": 7,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -82,7 +93,7 @@
       },
       {
         "name": "note",
-        "ordinal": 7,
+        "ordinal": 8,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -93,7 +104,7 @@
       },
       {
         "name": "traffic_limit_bytes",
-        "ordinal": 8,
+        "ordinal": 9,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -104,7 +115,7 @@
       },
       {
         "name": "disabled_reason",
-        "ordinal": 9,
+        "ordinal": 10,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -115,7 +126,7 @@
       },
       {
         "name": "expires_at",
-        "ordinal": 10,
+        "ordinal": 11,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -126,7 +137,7 @@
       },
       {
         "name": "sub_token",
-        "ordinal": 11,
+        "ordinal": 12,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -137,7 +148,7 @@
       },
       {
         "name": "created_at",
-        "ordinal": 12,
+        "ordinal": 13,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -148,7 +159,7 @@
       },
       {
         "name": "updated_at",
-        "ordinal": 13,
+        "ordinal": 14,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -156,10 +167,16 @@
             "name": "updated_at"
           }
         }
+      },
+      {
+        "name": "used!: i64",
+        "ordinal": 15,
+        "type_info": "Integer",
+        "origin": "Expression"
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 2
     },
     "nullable": [
       false,
@@ -168,15 +185,17 @@
       false,
       true,
       true,
+      true,
       false,
       true,
       true,
       true,
       true,
+      false,
       false,
       false,
       false
     ]
   },
-  "hash": "b265431d52ec7c1d7cf752cf564b016d38b432d76d1b1df8e897fb5b0e8d5bd3"
+  "hash": "3f4458a55e10b0759f572f06471120bad14b59898228894c3445e9c75fa1c609"
 }

@@ -146,6 +146,27 @@ pub const BUILTIN_OUTBOUND_TAGS: &[&str] = &[TAG_DIRECT, TAG_BLOCKED, TAG_DIRECT
 /// own control-channel bytes never show up as user traffic.
 pub const API_TAG: &str = "api";
 
+/// Validate a tag that will enter xray's outbound-tag namespace — a custom
+/// outbound's `tag`, or a client's `reverse_tag` (which becomes a routable
+/// tunnel outbound once a bridge dials in). Rejects empty, reserved
+/// (built-ins + `api`), and whitespace/control chars. Uniqueness / collision
+/// with the OTHER tags in the namespace is the caller's job (it holds the set).
+pub fn validate_routable_tag(tag: &str) -> Result<(), String> {
+    let tag = tag.trim();
+    if tag.is_empty() {
+        return Err("tag must not be empty".to_owned());
+    }
+    if BUILTIN_OUTBOUND_TAGS.contains(&tag) || tag == API_TAG {
+        return Err(format!("tag '{tag}' is reserved"));
+    }
+    if tag.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err(format!(
+            "tag '{tag}' must not contain spaces or control characters"
+        ));
+    }
+    Ok(())
+}
+
 pub fn build_bootstrap_config(s: &BootstrapSettings) -> Value {
     // `direct` + `blocked` are always present. The `direct-ipv4` freedom
     // outbound is added when either the IPv4-force list OR any enabled custom

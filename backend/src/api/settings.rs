@@ -644,10 +644,30 @@ async fn valid_rule_targets(
         .map(|s| (*s).to_owned())
         .collect();
     for ob in crate::api::outbounds::load_custom_outbounds(db).await? {
-        if ob.enabled {
+        // A reverse BRIDGE outbound (VLESS carrying a reverse_tag) can't be a
+        // routing target: the portal rejects any non-reverse command from that
+        // account, so traffic routed to a bridge's tag dead-ends on every
+        // connection. Its tag is an inbound source, not a destination — skip it.
+        let is_bridge = matches!(
+            &ob.protocol,
+            crate::models::OutboundProtocolConfig::Vless(v) if !v.reverse_tag.trim().is_empty()
+        );
+        if ob.enabled && !is_bridge {
             set.insert(ob.tag);
         }
     }
+    // A client's reverse_tag (VLESS Reverse Proxy portal): when a bridge dials
+    // in as that user, xray registers its tunnel as an outbound under the tag on
+    // THIS server, so a routing rule may legally target it. Bridge-side tags
+    // (custom outbound reverse_tag) are inbound sources, not targets — omitted.
+    let reverse_tags = sqlx::query_scalar!(
+        r#"SELECT DISTINCT reverse_tag AS "reverse_tag!: String"
+           FROM clients
+           WHERE reverse_tag IS NOT NULL AND reverse_tag <> ''"#
+    )
+    .fetch_all(db)
+    .await?;
+    set.extend(reverse_tags);
     Ok(set)
 }
 
@@ -693,6 +713,26 @@ fn validate_custom_routing(
         validate_list_entries("user", &r.user)?;
         check_port_field("port", &r.port)?;
         check_port_field("source_port", &r.source_port)?;
+        // A rule with no matcher (only an outbound_tag) is rejected by xray at
+        // router build ("this rule has no effective fields"), which fails the
+        // config `-test` and bricks the next restart. Reject it here so a
+        // catch-all must carry an explicit matcher (e.g. network tcp+udp).
+        let has_matcher = !r.domain.is_empty()
+            || !r.ip.is_empty()
+            || !r.source_ip.is_empty()
+            || !r.network.is_empty()
+            || !r.protocol.is_empty()
+            || !r.inbound_tag.is_empty()
+            || !r.user.is_empty()
+            || !r.port.trim().is_empty()
+            || !r.source_port.trim().is_empty();
+        if !has_matcher {
+            return Err(AppError::BadRequest(format!(
+                "custom rule '{}' has no match conditions — add at least one \
+                 (e.g. a network or domain); xray rejects a condition-less rule",
+                r.name
+            )));
+        }
     }
 
     if body.xray_rule_order.len() > 1000 {

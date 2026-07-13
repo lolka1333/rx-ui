@@ -12,6 +12,8 @@ export const en: Dict = {
     install: 'Install',
     error: 'Error',
     retry: 'Retry',
+    next: 'Next',
+    back: 'Back',
     errorTimeout: 'Server is not responding (timeout). Check that the backend is alive.',
     errorNoConnection:
       'Could not reach the backend. Make sure it is running and accessible.',
@@ -383,6 +385,10 @@ export const en: Dict = {
     saveError: 'Save failed',
     editTitle: 'Edit: {{tag}}',
     newTitle: 'New outbound',
+    reverseTag: 'Reverse tunnel tag (bridge)',
+    reverseTagHint:
+      'Optional, advanced. A non-empty tag makes this outbound a VLESS reverse-proxy bridge: it dials the portal (the remote server whose VLESS client carries the same tag) and offers itself as a tunnel. Leave empty for a normal relay outbound.',
+    reverseTagPlaceholder: 'empty for a normal relay — e.g. tunnel-home',
   },
   inbounds: {
     addInbound: 'Add inbound',
@@ -885,6 +891,10 @@ export const en: Dict = {
     subRotate: 'Rotate token',
     subRotateConfirm: 'The old subscription URL will stop working immediately. Continue?',
     subRotated: 'Subscription token rotated',
+    reverseTag: 'Reverse tunnel tag',
+    reverseTagHint:
+      'Optional, advanced. A non-empty tag makes this user a VLESS reverse-proxy portal: a bridge dialing in as this user registers a tunnel under the tag, which becomes a routing target. Leave empty for a normal client.',
+    reverseTagPlaceholder: 'empty for a normal client — e.g. tunnel-home',
   },
   server: {
     ipv4: 'IPv4',
@@ -982,5 +992,66 @@ export const en: Dict = {
     v2box_macConnect: 'In V2Box pick a server from the profiles list and tap Connect. The V icon in the menu bar shows the status.',
     hiddifyMacManual: 'Hiddify will open an import confirmation. Confirm — servers appear in the profiles list.',
     hiddifyMacConnect: 'Tap Connect in Hiddify. The connection is established via the best available server.',
+  },
+  reverse: {
+    button: 'Reverse pair',
+    title: 'Reverse pair',
+    stepRole: 'Role',
+    stepSetupPortal: 'Set up portal',
+    stepPasteInvite: 'Paste invite',
+    stepDone: 'Done',
+    rolePortal: 'Portal',
+    rolePortalDesc:
+      'This server is public and reachable from the internet. It accepts the tunnel and clients connect here.',
+    roleBridge: 'Bridge',
+    roleBridgeDesc:
+      'This server is behind NAT. It dials out to the portal and traffic exits through here.',
+    inbound: 'VLESS inbound',
+    inboundHint:
+      'The bridge dials in as a client of this inbound. Create one on the Connections page first if the list is empty.',
+    inboundPlaceholder: 'Select a VLESS inbound',
+    inboundNotFound: 'No VLESS inbound — create one on the Connections page',
+    tag: 'Reverse tunnel tag',
+    tagHint:
+      'Shared secret name for this tunnel. The bridge picks it up automatically from the invite link.',
+    clientLabel: 'Client label (email)',
+    clientLabelHint: "A service account for the bridge — not a normal user. Don't hand it out.",
+    tunnelMode: 'What to send into the tunnel',
+    tunnelAll: 'All traffic',
+    tunnelDomain: 'By domain',
+    tunnelLater: 'Add a rule later',
+    domains: 'Domains',
+    domainsPlaceholder: 'example.com, …',
+    alertAll: 'All portal traffic will exit through the bridge server.',
+    alertNone:
+      'No rule created — the tunnel carries nothing until you add a routing rule targeting this tag on the Settings page.',
+    portalCreated: 'Portal created. Send the invite below to the bridge server.',
+    inviteHint: "Paste this into the bridge server's Reverse pair → Bridge:",
+    copyInvite: 'Copy invite',
+    copied: 'Copied',
+    applyHint: 'Reverse is core config — click Apply so xray picks it up.',
+    apply: 'Apply (restart xray)',
+    createPortal: 'Create portal',
+    inviteLink: 'Invite link from the portal',
+    import: 'Import',
+    portalSummary: 'Portal: {{addr}}',
+    transportSummary: 'Transport: {{transport}} / security: {{security}}',
+    localTag: 'Local tag',
+    localTagHint:
+      "This outbound's name on this server. Can be anything — the two sides' tags are independent.",
+    alertBridgeExit: "Users' traffic will exit to the internet through THIS server.",
+    createBridge: 'Create bridge',
+    bridgeCreated:
+      'Bridge created. It will dial the portal; tunnel traffic exits via the default direct outbound — no extra rule needed here.',
+    ruleName: 'portal → {{tag}}',
+    tunnelTargetLabel: '{{tag}} (reverse tunnel)',
+    linkNoReverse:
+      'This link has no reverse tag — the outbound will be a normal relay, not a bridge.',
+    imported: 'Imported — review and create the bridge.',
+    linkParseError: 'Could not parse this link',
+    restarted: 'xray restarted — the tunnel is applied',
+    restartFailed: 'Restart failed',
+    createPortalFailed: 'Failed to create portal',
+    createBridgeFailed: 'Failed to create bridge',
   },
 };

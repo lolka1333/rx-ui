@@ -21,6 +21,7 @@ import {
   DeleteOutlined,
   EditOutlined,
   PlusOutlined,
+  SwapOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -39,6 +40,7 @@ import { TrafficCell } from '@/components/TrafficCell';
 import { useNav } from '@/stores/nav';
 import { fmtBytes } from '@/lib/format';
 import { OutboundForm } from './OutboundForm';
+import { ReverseWizard } from './ReverseWizard';
 import { formToOutbound, type OutboundFormValues } from './form';
 
 /** Endpoint `address:port` for the table, regardless of protocol variant. */
@@ -85,6 +87,7 @@ export function Outbounds() {
   const screens = Grid.useBreakpoint();
   const isMobile = !screens.md;
   const [editOpen, setEditOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
   const [editing, setEditing] = useState<CustomOutbound | null>(null);
   const [formKey, setFormKey] = useState(0);
   const [testingId, setTestingId] = useState<string | null>(null);
@@ -259,10 +262,17 @@ export function Outbounds() {
           marginBottom: 24,
         }}
       >
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-          {t('outbounds.addOutbound')}
-        </Button>
+        <Space>
+          <Button icon={<SwapOutlined />} onClick={() => setWizardOpen(true)}>
+            {t('reverse.button')}
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+            {t('outbounds.addOutbound')}
+          </Button>
+        </Space>
       </div>
+
+      {wizardOpen && <ReverseWizard onClose={() => setWizardOpen(false)} />}
 
       <Table<Row>
         rowKey={(r) => (r.rowKind === 'system' ? `sys-${r.tag}` : r.ob.id)}

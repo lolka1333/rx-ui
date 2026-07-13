@@ -22,7 +22,13 @@ auth: string | null,
 /**
  * `None` → inherit the inbound's `vless_flow`. Explicit `Some` overrides.
  */
-flow: string | null, enabled: boolean, note: string | null, 
+flow: string | null, 
+/**
+ * VLESS Reverse Proxy tag (xray 26.7.11+). Non-empty makes this client a
+ * reverse PORTAL endpoint: a connecting bridge registers a tunnel under
+ * this tag, which becomes a routing target. `None` / empty ≡ normal client.
+ */
+reverse_tag: string | null, enabled: boolean, note: string | null, 
 /**
  * Hard cap in bytes on the lifetime sum of uplink + downlink. `None` /
  * `NULL` ≡ no quota. When crossed, the stats poller flips `enabled` off
@@ -74,7 +80,13 @@ export type ClientBulkAssign = { email: string,
  * op never deletes the user entirely (use the per-row DELETE for
  * that, which is more explicit about what's being removed).
  */
-inbound_ids: Array<string>, uuid: string | null, auth: string | null, flow: string | null, note: string | null, traffic_limit_bytes: number | null, expires_at: string | null, };
+inbound_ids: Array<string>, uuid: string | null, auth: string | null, flow: string | null, 
+/**
+ * VLESS Reverse Proxy portal tag, shared across every produced row (same
+ * as uuid/flow). `None` / empty ≡ normal client. A bridge dialing in as
+ * this user registers a tunnel outbound under the tag on this server.
+ */
+reverse_tag: string | null, note: string | null, traffic_limit_bytes: number | null, expires_at: string | null, };
 
 /**
  * Result of a `POST /api/clients/bulk-assign`. Three sets so the
@@ -125,7 +137,7 @@ export type ClientCreate = { email: string, uuid: string | null,
  * Hysteria 2 per-user auth string. Server-generated if omitted on a
  * hysteria inbound (random 32-char base64); ignored on a vless inbound.
  */
-auth: string | null, flow: string | null, note: string | null, 
+auth: string | null, flow: string | null, reverse_tag: string | null, note: string | null, 
 /**
  * Optional traffic cap in bytes. `None` ≡ no cap; the field can be
  * added later via PATCH if the operator decides to enforce one.
@@ -158,7 +170,7 @@ export type ClientUpdate = { email: string | null, uuid: string | null,
  * to empty string clears it (rare, but the operator may want to
  * switch a row back to uuid-fallback behaviour).
  */
-auth: string | null, flow: string | null, enabled: boolean | null, note: string | null, 
+auth: string | null, flow: string | null, reverse_tag: string | null, enabled: boolean | null, note: string | null, 
 /**
  * Tri-state PATCH semantics — `Set(n)` writes the cap, `Clear` drops
  * it back to unlimited, `Unchanged` leaves the column alone.

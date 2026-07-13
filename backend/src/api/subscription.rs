@@ -488,6 +488,7 @@ impl SubscriptionRow {
             uuid: self.uuid.clone(),
             auth: self.auth.clone(),
             flow: self.flow.clone(),
+            reverse_tag: None,
             enabled: self.enabled,
             note: self.note.clone(),
             traffic_limit_bytes: self.traffic_limit_bytes,

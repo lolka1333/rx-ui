@@ -371,6 +371,9 @@ async fn commit_bulk_assign_tx(
     let mut tx = state.db.begin().await?;
     let mut applied: Vec<(String, bool)> = Vec::with_capacity(target.len());
     let expires_at = normalize_expiry(body.expires_at.clone())?;
+    // VLESS Reverse Proxy portal tag — normalised + validated (empty → NULL ≡
+    // not a portal). Shared with create/patch so a stored tag is always valid.
+    let reverse_tag = normalize_reverse_tag(state, body.reverse_tag.as_deref()).await?;
     for inbound_id in target {
         // Stamp the shared hysteria auth onto EVERY row of this email,
         // vless included. The auth is per-email identity, so it has to
@@ -389,12 +392,13 @@ async fn commit_bulk_assign_tx(
             // that case; surface it as Conflict for an explicit retry.
             let res = sqlx::query!(
                 r#"UPDATE clients
-                   SET uuid = ?, auth = ?, flow = ?, note = ?, traffic_limit_bytes = ?,
+                   SET uuid = ?, auth = ?, flow = ?, reverse_tag = ?, note = ?, traffic_limit_bytes = ?,
                        expires_at = ?, updated_at = datetime('now')
                    WHERE id = ?"#,
                 creds.uuid,
                 auth,
                 body.flow,
+                reverse_tag,
                 body.note,
                 body.traffic_limit_bytes,
                 expires_at.clone(),
@@ -421,10 +425,10 @@ async fn commit_bulk_assign_tx(
             // removing any one attachment is lossless. `MAX(...)` is NULL for a
             // brand-new email → COALESCE to 0.
             sqlx::query!(
-                r#"INSERT INTO clients (id, inbound_id, email, uuid, auth, flow, enabled,
+                r#"INSERT INTO clients (id, inbound_id, email, uuid, auth, flow, reverse_tag, enabled,
                                         note, traffic_limit_bytes, disabled_reason, expires_at, sub_token,
                                         uplink_total, downlink_total)
-                   VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, NULL, ?, ?,
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, NULL, ?, ?,
                            COALESCE((SELECT MAX(uplink_total) FROM clients WHERE email = ?), 0),
                            COALESCE((SELECT MAX(downlink_total) FROM clients WHERE email = ?), 0))"#,
                 new_id,
@@ -433,6 +437,7 @@ async fn commit_bulk_assign_tx(
                 creds.uuid,
                 auth,
                 body.flow,
+                reverse_tag,
                 body.note,
                 body.traffic_limit_bytes,
                 expires_at.clone(),
@@ -533,7 +538,7 @@ async fn sync_xray_applied(
         return Ok((created, updated, failures));
     }
     let mut qb = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
-        "SELECT id, inbound_id, email, uuid, auth, flow, enabled, note, \
+        "SELECT id, inbound_id, email, uuid, auth, flow, reverse_tag, enabled, note, \
          traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at \
          FROM clients WHERE email = ",
     );
@@ -748,6 +753,7 @@ struct Row {
     uuid: String,
     auth: Option<String>,
     flow: Option<String>,
+    reverse_tag: Option<String>,
     enabled: i64,
     note: Option<String>,
     traffic_limit_bytes: Option<i64>,
@@ -766,6 +772,7 @@ fn row_to_client(r: Row) -> Client {
         uuid: r.uuid,
         auth: r.auth,
         flow: r.flow,
+        reverse_tag: r.reverse_tag,
         enabled: r.enabled != 0,
         note: r.note,
         traffic_limit_bytes: r.traffic_limit_bytes,
@@ -788,7 +795,7 @@ pub async fn load_enabled_clients(
 ) -> AppResult<Vec<Client>> {
     let rows = sqlx::query_as!(
         Row,
-        r#"SELECT id, inbound_id, email, uuid, auth, flow, enabled, note,
+        r#"SELECT id, inbound_id, email, uuid, auth, flow, reverse_tag, enabled, note,
                   traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at
            FROM clients
            WHERE inbound_id = ? AND enabled = 1
@@ -849,7 +856,7 @@ async fn list(
 
     let rows = sqlx::query_as!(
         Row,
-        r#"SELECT id, inbound_id, email, uuid, auth, flow, enabled, note,
+        r#"SELECT id, inbound_id, email, uuid, auth, flow, reverse_tag, enabled, note,
                   traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at
            FROM clients WHERE inbound_id = ?
            ORDER BY created_at"#,
@@ -867,7 +874,7 @@ async fn get_one(
 ) -> AppResult<Json<Client>> {
     let row = sqlx::query_as!(
         Row,
-        r#"SELECT id, inbound_id, email, uuid, auth, flow, enabled, note,
+        r#"SELECT id, inbound_id, email, uuid, auth, flow, reverse_tag, enabled, note,
                   traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at
            FROM clients WHERE id = ? AND inbound_id = ?"#,
         id,
@@ -877,6 +884,33 @@ async fn get_one(
     .await?
     .ok_or(AppError::NotFound)?;
     Ok(Json(row_to_client(row)))
+}
+
+/// Normalise + validate a client's `reverse_tag`. Empty / whitespace → `None`
+/// (a normal, non-portal client). A non-empty tag makes the client a reverse
+/// PORTAL: xray registers a routable tunnel outbound under it when a bridge
+/// dials in, so it must satisfy the SAME rules as a custom outbound tag — not
+/// reserved, no whitespace/control chars, and no collision with an existing
+/// custom outbound tag (a collision makes every bridge dial-in fail at runtime
+/// with "outbound <tag> is not type Reverse"). Shared by every write path so
+/// the stored tag is always trimmed-non-empty-and-valid, or NULL.
+async fn normalize_reverse_tag(state: &AppState, raw: Option<&str>) -> AppResult<Option<String>> {
+    let Some(tag) = raw.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
+    crate::xray::config_gen::validate_routable_tag(tag).map_err(|e| {
+        AppError::BadRequest(format!("reverse {e}"))
+    })?;
+    if crate::api::outbounds::load_custom_outbounds(&state.db)
+        .await?
+        .iter()
+        .any(|o| o.tag == tag)
+    {
+        return Err(AppError::BadRequest(format!(
+            "reverse tag '{tag}' collides with an existing outbound tag"
+        )));
+    }
+    Ok(Some(tag.to_owned()))
 }
 
 async fn create(
@@ -916,6 +950,7 @@ async fn create(
         hysteria_auth: auth,
     } = resolve_email_identity(&existing, caller_uuid, caller_auth, wants_hysteria_auth);
 
+    let reverse_tag = normalize_reverse_tag(&state, body.reverse_tag.as_deref()).await?;
     let id = Uuid::new_v4().to_string();
     // Unique-checked token, matching bulk_assign / rotate_sub_token — a plain
     // random token could (astronomically) collide with the sub_token UNIQUE
@@ -935,10 +970,10 @@ async fn create(
     // for an email whose first hysteria attachment is created through this path.
     let mut tx = state.db.begin().await?;
     sqlx::query!(
-        r#"INSERT INTO clients (id, inbound_id, email, uuid, auth, flow, enabled, note,
+        r#"INSERT INTO clients (id, inbound_id, email, uuid, auth, flow, reverse_tag, enabled, note,
                                 traffic_limit_bytes, disabled_reason, expires_at, sub_token,
                                 uplink_total, downlink_total)
-           VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, NULL, ?, ?,
+           VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, NULL, ?, ?,
                    COALESCE((SELECT MAX(uplink_total) FROM clients WHERE email = ?), 0),
                    COALESCE((SELECT MAX(downlink_total) FROM clients WHERE email = ?), 0))"#,
         id,
@@ -947,6 +982,7 @@ async fn create(
         uuid,
         auth,
         body.flow,
+        reverse_tag,
         body.note,
         body.traffic_limit_bytes,
         expires_at,
@@ -1062,6 +1098,14 @@ async fn write_client_update_tx(state: &AppState, id: &str, body: &ClientUpdate)
         qb.push(", flow = ").push_bind(flow);
         has_change = true;
     }
+    if let Some(raw) = &body.reverse_tag {
+        // Present → set/clear. Empty string clears the tag (back to a normal
+        // VLESS user); a non-empty tag is normalised + validated the same as
+        // the create / bulk-assign paths (reserved / charset / collision).
+        let stored = normalize_reverse_tag(state, Some(raw)).await?;
+        qb.push(", reverse_tag = ").push_bind(stored);
+        has_change = true;
+    }
     if let Some(enabled) = body.enabled {
         let reason: Option<&str> = (!enabled).then_some("manual");
         qb.push(", enabled = ").push_bind(i64::from(enabled));
@@ -1100,7 +1144,7 @@ async fn refetch_with_quota_recheck(
     inbound_id: &str,
 ) -> AppResult<Client> {
     let row = sqlx::query!(
-        r#"SELECT id, inbound_id, email, uuid, auth, flow, enabled, note,
+        r#"SELECT id, inbound_id, email, uuid, auth, flow, reverse_tag, enabled, note,
                   traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at,
                   (uplink_total + downlink_total) AS "used!: i64"
            FROM clients WHERE id = ? AND inbound_id = ?"#,
@@ -1118,6 +1162,7 @@ async fn refetch_with_quota_recheck(
         uuid: row.uuid,
         auth: row.auth,
         flow: row.flow,
+        reverse_tag: row.reverse_tag,
         enabled: row.enabled,
         note: row.note,
         traffic_limit_bytes: row.traffic_limit_bytes,
@@ -1190,7 +1235,13 @@ async fn sync_client_update_to_xray(
     let identity_changed = before.email != after.email
         || before.uuid != after.uuid
         || before.auth != after.auth
-        || before.flow != after.flow;
+        || before.flow != after.flow
+        // reverse_tag is baked into the same VLESS Account proto as flow, so a
+        // reverse-only edit must re-push the user: remove_user drops the old
+        // reverse handler, add_user re-registers with the new tag (or none).
+        // Without this the live account keeps the stale Reverse state until an
+        // unrelated identity edit or a restart.
+        || before.reverse_tag != after.reverse_tag;
     // Reuse one protocol handle across the identity / enabled branches —
     // `build_user` only needs the protocol layer, never the rest.
     let protocol = inbound.protocol.as_protocol();
@@ -1292,7 +1343,7 @@ async fn share_link_endpoint(
 async fn read_row(state: &AppState, inbound_id: &str, id: &str) -> AppResult<Row> {
     sqlx::query_as!(
         Row,
-        r#"SELECT id, inbound_id, email, uuid, auth, flow, enabled, note,
+        r#"SELECT id, inbound_id, email, uuid, auth, flow, reverse_tag, enabled, note,
                   traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at
            FROM clients WHERE id = ? AND inbound_id = ?"#,
         id,
@@ -1343,7 +1394,7 @@ async fn list_global(
     // grow to 100k+, switch to a `QueryBuilder` dynamic SQL build.
     let rows = sqlx::query_as!(
         Row,
-        r#"SELECT id, inbound_id, email, uuid, auth, flow, enabled, note,
+        r#"SELECT id, inbound_id, email, uuid, auth, flow, reverse_tag, enabled, note,
                   traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at
            FROM clients ORDER BY created_at DESC"#
     )
@@ -1403,6 +1454,10 @@ async fn create_global(
             uuid: body.uuid,
             auth: body.auth,
             flow: body.flow,
+            // Global create can't produce a portal: a reverse tag is set on the
+            // per-inbound create/edit form (and the reverse-pair wizard), where
+            // the single-inbound context is what makes the routing rule useful.
+            reverse_tag: None,
             note: body.note,
             traffic_limit_bytes: body.traffic_limit_bytes,
             expires_at: body.expires_at,

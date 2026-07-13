@@ -148,6 +148,13 @@ export function parseOutboundLink(raw: string): Partial<OutboundFormValues> {
   // --- FinalMask (fm) ---
   applyFinalMask(out, get('fm'));
 
+  // --- VLESS Reverse Proxy (reverse=) ---
+  // A portal client's share-link carries its reverse tag; importing it as an
+  // outbound turns this into a reverse bridge that dials that portal. Absent /
+  // empty ≡ a normal relay outbound.
+  const reverse = get('reverse');
+  if (reverse) out.reverse_tag = reverse;
+
   return out;
 }
 

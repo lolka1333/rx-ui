@@ -36,6 +36,10 @@ pub struct Client {
     pub auth: Option<String>,
     /// `None` → inherit the inbound's `vless_flow`. Explicit `Some` overrides.
     pub flow: Option<String>,
+    /// VLESS Reverse Proxy tag (xray 26.7.11+). Non-empty makes this client a
+    /// reverse PORTAL endpoint: a connecting bridge registers a tunnel under
+    /// this tag, which becomes a routing target. `None` / empty ≡ normal client.
+    pub reverse_tag: Option<String>,
     pub enabled: bool,
     pub note: Option<String>,
     /// Hard cap in bytes on the lifetime sum of uplink + downlink. `None` /
@@ -94,6 +98,8 @@ pub struct ClientCreate {
     /// hysteria inbound (random 32-char base64); ignored on a vless inbound.
     pub auth: Option<String>,
     pub flow: Option<String>,
+    #[serde(default)]
+    pub reverse_tag: Option<String>,
     pub note: Option<String>,
     /// Optional traffic cap in bytes. `None` ≡ no cap; the field can be
     /// added later via PATCH if the operator decides to enforce one.
@@ -119,6 +125,8 @@ pub struct ClientUpdate {
     /// switch a row back to uuid-fallback behaviour).
     pub auth: Option<String>,
     pub flow: Option<String>,
+    #[serde(default)]
+    pub reverse_tag: Option<String>,
     pub enabled: Option<bool>,
     pub note: Option<String>,
     /// Tri-state PATCH semantics — `Set(n)` writes the cap, `Clear` drops
@@ -178,6 +186,11 @@ pub struct ClientBulkAssign {
     pub uuid: Option<String>,
     pub auth: Option<String>,
     pub flow: Option<String>,
+    /// VLESS Reverse Proxy portal tag, shared across every produced row (same
+    /// as uuid/flow). `None` / empty ≡ normal client. A bridge dialing in as
+    /// this user registers a tunnel outbound under the tag on this server.
+    #[serde(default)]
+    pub reverse_tag: Option<String>,
     pub note: Option<String>,
     #[serde(default)]
     #[ts(type = "number | null")]

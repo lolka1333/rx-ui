@@ -22,8 +22,8 @@ use crate::xray::proto::xray::common::protocol::{ServerEndpoint, User};
 use crate::xray::proto::xray::common::serial::TypedMessage;
 use crate::xray::proto::xray::core::{InboundHandlerConfig, OutboundHandlerConfig};
 use crate::xray::proto::xray::proxy::hysteria::ClientConfig as HysteriaClientConfig;
-use crate::xray::proto::xray::proxy::vless::Account as VlessAccount;
 use crate::xray::proto::xray::proxy::vless::outbound::Config as VlessOutboundConfig;
+use crate::xray::proto::xray::proxy::vless::{Account as VlessAccount, Reverse as VlessReverse};
 use crate::xray::proto::xray::transport::internet::{ProxyConfig, StreamConfig};
 
 const TYPE_RECEIVER_CONFIG: &str = "xray.app.proxyman.ReceiverConfig";
@@ -153,6 +153,12 @@ pub fn outbound_to_handler_config(ob: &CustomOutbound) -> anyhow::Result<Outboun
                 v.encryption_client_key.as_deref(),
                 v.encryption_padding.as_deref(),
             );
+            // VLESS Reverse Proxy: a non-empty tag makes this outbound a bridge
+            // (dials the portal with the reverse command, offers the tunnel).
+            let reverse = (!v.reverse_tag.trim().is_empty()).then(|| VlessReverse {
+                tag: v.reverse_tag.trim().to_owned(),
+                sniffing: None,
+            });
             let account = VlessAccount {
                 id: v.id.clone(),
                 flow: v.flow.clone(),
@@ -160,6 +166,7 @@ pub fn outbound_to_handler_config(ob: &CustomOutbound) -> anyhow::Result<Outboun
                 xor_mode,
                 seconds,
                 padding,
+                reverse,
                 ..VlessAccount::default()
             };
             let user = User {
@@ -409,6 +416,7 @@ mod tests {
             uuid: "00000000-0000-0000-0000-000000000001".into(),
             auth: None,
             flow: None,
+            reverse_tag: None,
             enabled: true,
             note: None,
             traffic_limit_bytes: None,

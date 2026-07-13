@@ -163,6 +163,11 @@ interface ClientFormValues {
    *  vless clients in the form. */
   auth: string;
   flow: '' | 'inherit' | 'xtls-rprx-vision';
+  /** VLESS Reverse Proxy portal tag. Empty ≡ a normal client. A non-empty
+   *  tag turns this user into a reverse portal endpoint: a bridge dialing in
+   *  as this user registers a tunnel outbound under the tag on this server,
+   *  which then becomes a routing target. */
+  reverse_tag: string;
   note: string;
   /** `null` ≡ no quota. The number is in `traffic_limit_unit` units. */
   traffic_limit_value: number | null;
@@ -258,6 +263,30 @@ function ClientFlowField({ inboundById }: { inboundById: Map<string, Inbound> })
           { value: 'xtls-rprx-vision', label: 'XTLS Vision' },
         ]}
       />
+    </Form.Item>
+  );
+}
+
+/**
+ * Conditional VLESS Reverse Proxy portal field. Same VLESS-only visibility
+ * rule as the flow picker (Hysteria has no reverse mode). A non-empty tag
+ * turns this user into a reverse portal: a bridge — a VLESS outbound elsewhere
+ * carrying the same tag — dials in as this user and registers a tunnel outbound
+ * under the tag on this server, which routing rules can then target.
+ */
+function ClientReverseField({ inboundById }: { inboundById: Map<string, Inbound> }) {
+  const { t } = useTranslation();
+  const form = Form.useFormInstance();
+  const inboundIds = (Form.useWatch<string[] | undefined>('inbound_ids', form)) ?? [];
+  const anyVless = inboundIds.some((id) => inboundById.get(id)?.protocol.kind === 'vless');
+  if (!anyVless) return null;
+  return (
+    <Form.Item
+      name="reverse_tag"
+      label={t('clients.reverseTag')}
+      tooltip={t('clients.reverseTagHint')}
+    >
+      <Input placeholder={t('clients.reverseTagPlaceholder')} allowClear />
     </Form.Item>
   );
 }
@@ -630,6 +659,7 @@ export function Clients() {
         // which surfaced (misleadingly) as "couldn't connect to backend".
         auth: values.auth?.trim() ? values.auth.trim() : null,
         flow,
+        reverse_tag: values.reverse_tag?.trim() ? values.reverse_tag.trim() : null,
         note: values.note || null,
         traffic_limit_bytes: trafficLimitBytes,
         expires_at: values.expires_at ? values.expires_at.toISOString() : null,
@@ -770,6 +800,7 @@ export function Clients() {
             ? 'xtls-rprx-vision'
             : ''
         : 'inherit',
+      reverse_tag: editing?.reverse_tag ?? '',
       note: editing?.note ?? '',
       traffic_limit_value: tl.value,
       traffic_limit_unit: tl.unit,
@@ -1213,6 +1244,7 @@ export function Clients() {
                 in the Select above. */}
             <ClientAuthField inboundById={inboundById} />
             <ClientFlowField inboundById={inboundById} />
+            <ClientReverseField inboundById={inboundById} />
             {/* Single-line Input, not TextArea: notes for VLESS users are
                 typically short labels ("Bob's laptop", "office router") —
                 a 2-row TextArea looks empty and visually heavy. If the

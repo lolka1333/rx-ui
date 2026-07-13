@@ -199,6 +199,19 @@ pub fn build_vless_share_link(
     if let Some(pair) = finalmask_share_link_param(&inbound.finalmask) {
         params.push(pair);
     }
+    // VLESS Reverse Proxy (xray 26.7.11): a portal client's reverse tag rides in
+    // the share-link so pasting it into a bridge outbound's Import wires the
+    // bridge to this exact identity — no manual re-entry of uuid / keys / tag.
+    // Empty ≡ a normal client and the param is simply absent (regular client
+    // apps importing this link ignore the unknown key).
+    if let Some(tag) = client
+        .reverse_tag
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        params.push(("reverse".to_owned(), tag.to_owned()));
+    }
 
     let query = params
         .iter()
@@ -415,6 +428,7 @@ mod tests {
             uuid: "00000000-0000-0000-0000-000000000001".into(),
             auth: None,
             flow: None,
+            reverse_tag: None,
             enabled: true,
             note: None,
             traffic_limit_bytes: None,
@@ -438,6 +452,22 @@ mod tests {
         assert!(link.contains("encryption=none"));
         assert!(link.contains("security=none"));
         assert!(link.ends_with("#test-inbound"));
+        // A normal (non-portal) client contributes no reverse param.
+        assert!(!link.contains("reverse="));
+    }
+
+    #[test]
+    fn reverse_tag_rides_in_link() {
+        // A portal client's reverse tag rides in the link (trimmed) so pasting
+        // it into a bridge outbound's Import wires the bridge to this identity.
+        let inb = inbound(
+            TransportConfig::Tcp(TcpTransport {}),
+            SecurityConfig::None(NoneSecurity {}),
+        );
+        let mut client = base_client();
+        client.reverse_tag = Some("  tunnel-home  ".into());
+        let link = build_vless_share_link(&inb, &client, "1.2.3.4").unwrap();
+        assert!(link.contains("reverse=tunnel-home"));
     }
 
     #[test]

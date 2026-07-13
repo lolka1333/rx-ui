@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT DISTINCT reverse_tag AS \"reverse_tag!: String\"\n           FROM clients\n           WHERE reverse_tag IS NOT NULL AND reverse_tag <> ''",
+  "describe": {
+    "columns": [
+      {
+        "name": "reverse_tag!: String",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "reverse_tag"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "3b80f36df4639c7f7da96f7b2f092d0a5d3b1471320d5d82ec7be84fa412de9e"
+}

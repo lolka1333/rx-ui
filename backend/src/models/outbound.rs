@@ -79,6 +79,12 @@ pub struct VlessOutbound {
     /// XTLS flow: "" or "xtls-rprx-vision".
     #[serde(default)]
     pub flow: String,
+    /// VLESS Reverse Proxy tag (xray 26.7.11+). Non-empty makes this outbound a
+    /// reverse BRIDGE: it dials the portal with the reverse command and offers
+    /// itself as a tunnel under this tag. Empty ≡ a normal relay outbound. The
+    /// portal side is a VLESS inbound whose client carries the same tag.
+    #[serde(default)]
+    pub reverse_tag: String,
     /// Application-layer encryption to MATCH the upstream server. `None` =
     /// plain VLESS (the common case). `mlkem768x25519plus` is the
     /// post-quantum cipher — it needs the server's public `client_key` plus

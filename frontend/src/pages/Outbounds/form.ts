@@ -46,6 +46,11 @@ export interface OutboundFormValues extends FinalMaskFormFields {
   port: number;
   uuid: string;
   flow: string; // '' | 'xtls-rprx-vision'
+  // VLESS Reverse Proxy bridge tag. Non-empty makes this outbound a reverse
+  // bridge: it dials the portal (the remote server whose VLESS client carries
+  // the same tag) with the reverse command and offers itself as a tunnel.
+  // Empty ≡ a normal relay outbound.
+  reverse_tag: string;
   // VLESS application-layer encryption — must MATCH the upstream server.
   encryption_mode: VlessEncryptionMode;
   encryption_xor_mode: VlessXorMode;
@@ -107,6 +112,7 @@ export const OUTBOUND_DEFAULTS: OutboundFormValues = {
   port: 443,
   uuid: '',
   flow: '',
+  reverse_tag: '',
   encryption_mode: 'none',
   encryption_xor_mode: 'native',
   encryption_client_key: '',
@@ -293,6 +299,7 @@ export function formToOutbound(
             port: v.port,
             id: v.uuid.trim(),
             flow: v.flow,
+            reverse_tag: v.reverse_tag.trim(),
             encryption_mode: v.encryption_mode,
             // null out the cipher detail when not using native encryption.
             encryption_xor_mode: v.encryption_mode === 'none' ? null : v.encryption_xor_mode,
@@ -339,6 +346,7 @@ export function outboundToForm(ob: CustomOutbound): OutboundFormValues {
     d.port = p.port;
     d.uuid = p.id;
     d.flow = p.flow;
+    d.reverse_tag = p.reverse_tag;
     d.encryption_mode = p.encryption_mode;
     d.encryption_xor_mode = p.encryption_xor_mode ?? 'native';
     d.encryption_client_key = p.encryption_client_key ?? '';

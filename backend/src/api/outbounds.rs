@@ -250,21 +250,8 @@ fn validate_outbounds(outbounds: &[CustomOutbound]) -> AppResult<()> {
     let mut seen = std::collections::HashSet::new();
     for o in outbounds {
         let tag = o.tag.trim();
-        if tag.is_empty() {
-            return Err(AppError::BadRequest(
-                "outbound tag must not be empty".into(),
-            ));
-        }
-        if crate::xray::config_gen::BUILTIN_OUTBOUND_TAGS.contains(&tag) || tag == "api" {
-            return Err(AppError::BadRequest(format!(
-                "outbound tag '{tag}' is reserved"
-            )));
-        }
-        if tag.chars().any(|c| c.is_whitespace() || c.is_control()) {
-            return Err(AppError::BadRequest(format!(
-                "outbound tag '{tag}' must not contain spaces or control characters"
-            )));
-        }
+        crate::xray::config_gen::validate_routable_tag(tag)
+            .map_err(|e| AppError::BadRequest(format!("outbound {e}")))?;
         if !seen.insert(tag.to_owned()) {
             return Err(AppError::BadRequest(format!(
                 "duplicate outbound tag '{tag}'"

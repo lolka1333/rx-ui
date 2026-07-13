@@ -226,8 +226,6 @@ export function RoutingRulesField({
     () => customOutbounds.filter((o) => o.enabled).map((o) => o.tag),
     [customOutbounds],
   );
-  const colorOf = (tag: string): string =>
-    customTags.includes(tag) ? 'geekblue' : targetColor(tag);
   // Inbound tags + client emails to pre-fill the matcher pickers — the operator
   // usually wants to choose an existing one, not retype it. The Selects stay
   // mode="tags" so free entry (geo / advanced) still works.
@@ -248,6 +246,25 @@ export function RoutingRulesField({
       Array.from(new Set(clients.map((c) => c.email))).map((e) => ({ value: e, label: e })),
     [clients],
   );
+  // VLESS Reverse Proxy portal tags: a client's reverse_tag becomes a routing
+  // target on this (portal) server once a bridge dials in — offer it alongside
+  // the custom outbounds so the operator can route traffic down the tunnel.
+  const reverseTags = useMemo(
+    () =>
+      Array.from(
+        new Set(clients.map((c) => c.reverse_tag?.trim()).filter((t): t is string => !!t)),
+      ),
+    [clients],
+  );
+  // A live reverse-tunnel target (e.g. the wizard's `portal → <tag>` rule) is a
+  // real destination — colour it distinctly so it doesn't read as an orphaned
+  // (gray) tag pointing at a deleted outbound.
+  const colorOf = (tag: string): string =>
+    reverseTags.includes(tag)
+      ? 'purple'
+      : customTags.includes(tag)
+        ? 'geekblue'
+        : targetColor(tag);
   // Read the sibling "Basic connections" fields so the built-in rules they
   // generate can be shown read-only above the custom ones — the list then
   // reflects the real first-match-wins order (api → blocks → ipv4 → custom →
@@ -274,8 +291,9 @@ export function RoutingRulesField({
         label: tg.value,
       })),
       ...customTags.map((tag) => ({ value: tag, label: tag })),
+      ...reverseTags.map((tag) => ({ value: tag, label: t('reverse.tunnelTargetLabel', { tag }) })),
     ],
-    [customTags, needsIpv4],
+    [customTags, reverseTags, needsIpv4, t],
   );
   const [modalOpen, setModalOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);

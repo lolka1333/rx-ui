@@ -237,6 +237,15 @@ export const OutboundForm = memo(function OutboundForm({
             </Form.Item>
           </div>
 
+          <Form.Item
+            name="reverse_tag"
+            label={t('outbounds.reverseTag')}
+            tooltip={t('outbounds.reverseTagHint')}
+            style={{ marginBottom: 12 }}
+          >
+            <Input placeholder={t('outbounds.reverseTagPlaceholder')} allowClear />
+          </Form.Item>
+
           {encryptionMode === 'mlkem768x25519plus' && (
             <>
               <SubHeader>{t('outbounds.encSection')}</SubHeader>

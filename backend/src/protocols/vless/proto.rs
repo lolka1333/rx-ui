@@ -406,6 +406,18 @@ impl Protocol for VlessProtocol {
 
         let (encryption, xor_mode, seconds, padding) = self.client_encryption_fields();
 
+        // VLESS Reverse Proxy: a non-empty tag makes this client a portal
+        // endpoint (a connecting bridge registers a tunnel under the tag).
+        let reverse = client
+            .reverse_tag
+            .as_deref()
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(|tag| crate::xray::proto::xray::proxy::vless::Reverse {
+                tag: tag.to_owned(),
+                sniffing: None,
+            });
+
         let account = XrayVlessAccount {
             id: client.uuid.clone(),
             flow,
@@ -413,7 +425,7 @@ impl Protocol for VlessProtocol {
             xor_mode,
             seconds,
             padding,
-            reverse: None,
+            reverse,
             testpre: 0,
             testseed: Vec::new(),
         };

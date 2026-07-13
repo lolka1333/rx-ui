@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE clients\n                   SET uuid = ?, auth = ?, flow = ?, reverse_tag = ?, note = ?, traffic_limit_bytes = ?,\n                       expires_at = ?, updated_at = datetime('now')\n                   WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 8
+    },
+    "nullable": []
+  },
+  "hash": "5648f595f2a4f8bba333116bbf75b271c84333079092b49d143ec3651dc0dc72"
+}
