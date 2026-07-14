@@ -1842,3 +1842,35 @@ button {
     animation: none;
   }
 }
+
+/* Reverse-pair wizard — grow/shrink the modal body between steps instead of
+   snapping, so moving from the short "Role" step to the tall portal form is
+   smooth. The height is measured and set inline from a ResizeObserver; the
+   transition and the per-step content fade live here. Runs on mobile too — when
+   a step is taller than the viewport the modal body scrolls, so the hidden
+   overflow here doesn't clip anything reachable. */
+.app-reverse-body {
+  overflow: hidden;
+  transition: height 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.app-reverse-step {
+  animation: app-reverse-step-fade 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes app-reverse-step-fade {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-reverse-body {
+    transition: none;
+  }
+  .app-reverse-step {
+    animation: none;
+  }
+}

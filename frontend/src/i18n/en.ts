@@ -1000,6 +1000,12 @@ export const en: Dict = {
     stepSetupPortal: 'Set up portal',
     stepPasteInvite: 'Paste invite',
     stepDone: 'Done',
+    stepCounter: 'Step {{n}} of {{total}}',
+    stepRoleHint: 'Which side is this server — the public portal or the bridge behind NAT?',
+    stepSetupPortalHint: 'Pick a public VLESS inbound and choose what enters the tunnel.',
+    stepPasteInviteHint: 'Paste the invite from the portal — it fills the outbound.',
+    stepDonePortalHint: 'Copy the invite for the bridge, then apply the config.',
+    stepDoneBridgeHint: 'Apply the config to bring the bridge online.',
     rolePortal: 'Portal',
     rolePortalDesc:
       'This server is public and reachable from the internet. It accepts the tunnel and clients connect here.',

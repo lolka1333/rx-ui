@@ -1008,6 +1008,12 @@ export const ru = {
     stepSetupPortal: 'Настройка портала',
     stepPasteInvite: 'Вставить ссылку',
     stepDone: 'Готово',
+    stepCounter: 'Шаг {{n}} из {{total}}',
+    stepRoleHint: 'Какая это сторона — публичный портал или мост за NAT?',
+    stepSetupPortalHint: 'Выберите публичный VLESS-inbound и что пускать в туннель.',
+    stepPasteInviteHint: 'Вставьте приглашение от портала — оно заполнит исходящий.',
+    stepDonePortalHint: 'Скопируйте приглашение для моста и примените конфиг.',
+    stepDoneBridgeHint: 'Примените конфиг, чтобы поднять мост.',
     rolePortal: 'Портал',
     rolePortalDesc:
       'Этот сервер публичный и доступен из интернета. Он принимает туннель, и к нему подключаются клиенты.',

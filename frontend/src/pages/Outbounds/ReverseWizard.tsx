@@ -14,9 +14,9 @@
 //! Mounted only while open (Outbounds renders it conditionally), so every run
 //! starts from fresh state — no reset plumbing.
 
-import { App, Alert, Button, Form, Input, Modal, Radio, Select, Space, Steps, Typography, theme } from 'antd';
+import { App, Alert, Button, Form, Grid, Input, Modal, Radio, Select, Space, Steps, Typography, theme } from 'antd';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/api/client';
 import { apiErrorMessage } from '@/api/errors';
@@ -40,6 +40,7 @@ export function ReverseWizard({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation();
   const { message } = App.useApp();
   const { token } = theme.useToken();
+  const isMobile = !Grid.useBreakpoint().md;
   const qc = useQueryClient();
   const [role, setRole] = useState<Role | null>(null);
   const [step, setStep] = useState(0); // 0 role, 1 setup, 2 result
@@ -66,6 +67,26 @@ export function ReverseWizard({ onClose }: { onClose: () => void }) {
     queryFn: async () => (await apiClient.get<Inbound[]>('/inbounds')).data,
   });
   const vlessInbounds = inbounds.filter((i) => i.protocol.kind === 'vless');
+
+  // Measure the current step's body so the modal animates its height between
+  // steps instead of snapping when a short step gives way to the tall portal
+  // form — see `.app-reverse-body`. Wired via a callback ref, not an effect: the
+  // observer must attach the moment the node actually mounts, and a plain effect
+  // can fire before antd's modal-appear motion has attached the content (leaving
+  // it unmeasured, so the height never animates). The observer then tracks every
+  // height change — switching steps or revealing a field within one. Runs on
+  // mobile too: when a step is taller than the viewport the modal body
+  // (maxHeight + overflowY:auto) scrolls, so the hidden overflow never clips.
+  const [bodyHeight, setBodyHeight] = useState<number>();
+  const observerRef = useRef<ResizeObserver | null>(null);
+  const measureRef = useCallback((node: HTMLDivElement | null) => {
+    observerRef.current?.disconnect();
+    if (!node) return;
+    setBodyHeight(node.offsetHeight);
+    const ro = new ResizeObserver(() => setBodyHeight(node.offsetHeight));
+    ro.observe(node);
+    observerRef.current = ro;
+  }, []);
 
   const createPortal = useMutation({
     mutationFn: async () => {
@@ -178,10 +199,17 @@ export function ReverseWizard({ onClose }: { onClose: () => void }) {
     }
   };
 
+  // `hint` is mobile-only sub-copy (the compact header shows it under the step
+  // title); antd Steps ignores the extra field on desktop.
   const steps = [
-    { title: t('reverse.stepRole') },
-    { title: role === 'bridge' ? t('reverse.stepPasteInvite') : t('reverse.stepSetupPortal') },
-    { title: t('reverse.stepDone') },
+    { title: t('reverse.stepRole'), hint: t('reverse.stepRoleHint') },
+    role === 'bridge'
+      ? { title: t('reverse.stepPasteInvite'), hint: t('reverse.stepPasteInviteHint') }
+      : { title: t('reverse.stepSetupPortal'), hint: t('reverse.stepSetupPortalHint') },
+    {
+      title: t('reverse.stepDone'),
+      hint: role === 'bridge' ? t('reverse.stepDoneBridgeHint') : t('reverse.stepDonePortalHint'),
+    },
   ];
 
   // ---- step bodies ----
@@ -217,7 +245,14 @@ export function ReverseWizard({ onClose }: { onClose: () => void }) {
   };
 
   const roleStep = (
-    <div style={{ display: 'flex', gap: 12, width: '100%' }}>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: isMobile ? 'column' : 'row',
+        gap: 12,
+        width: '100%',
+      }}
+    >
       {roleCard('portal', t('reverse.rolePortal'), t('reverse.rolePortalDesc'))}
       {roleCard('bridge', t('reverse.roleBridge'), t('reverse.roleBridgeDesc'))}
     </div>
@@ -383,9 +418,59 @@ export function ReverseWizard({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <Modal open onCancel={onClose} title={t('reverse.title')} width={720} mask={{ closable: false }} footer={footer}>
-      <Steps current={step} items={steps} size="small" style={{ marginBottom: 20 }} />
-      {body}
+    <Modal
+      open
+      onCancel={onClose}
+      title={t('reverse.title')}
+      width={isMobile ? '100%' : 720}
+      style={isMobile ? { top: 0, maxWidth: '100vw', margin: 0, paddingBottom: 0 } : undefined}
+      styles={{
+        body: isMobile ? { maxHeight: 'calc(100dvh - 180px)', overflowY: 'auto' } : undefined,
+      }}
+      mask={{ closable: false }}
+      footer={footer}
+    >
+      {isMobile ? (
+        // Full vertical Steps eat half the screen on a phone and push the body
+        // out of view. A segment bar shows progress in one line; the step title
+        // and a short hint tell the operator where they are and what to do.
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+            {steps.map((s, i) => (
+              <div
+                key={s.title}
+                style={{
+                  flex: 1,
+                  height: 4,
+                  borderRadius: 4,
+                  background: i <= step ? token.colorPrimary : token.colorFillSecondary,
+                  transition: 'background 0.3s',
+                }}
+              />
+            ))}
+          </div>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {t('reverse.stepCounter', { n: step + 1, total: steps.length })}
+          </Typography.Text>
+          <br />
+          <Typography.Text strong style={{ fontSize: 16 }}>
+            {steps[step].title}
+          </Typography.Text>
+          <br />
+          <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+            {steps[step].hint}
+          </Typography.Text>
+        </div>
+      ) : (
+        <Steps current={step} items={steps} size="small" style={{ marginBottom: 20 }} />
+      )}
+      <div className="app-reverse-body" style={{ height: bodyHeight }}>
+        <div ref={measureRef}>
+          <div key={step} className="app-reverse-step">
+            {body}
+          </div>
+        </div>
+      </div>
     </Modal>
   );
 }
