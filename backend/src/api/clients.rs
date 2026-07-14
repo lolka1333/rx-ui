@@ -898,9 +898,8 @@ async fn normalize_reverse_tag(state: &AppState, raw: Option<&str>) -> AppResult
     let Some(tag) = raw.map(str::trim).filter(|s| !s.is_empty()) else {
         return Ok(None);
     };
-    crate::xray::config_gen::validate_routable_tag(tag).map_err(|e| {
-        AppError::BadRequest(format!("reverse {e}"))
-    })?;
+    crate::xray::config_gen::validate_routable_tag(tag)
+        .map_err(|e| AppError::BadRequest(format!("reverse {e}")))?;
     if crate::api::outbounds::load_custom_outbounds(&state.db)
         .await?
         .iter()
