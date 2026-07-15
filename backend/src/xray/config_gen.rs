@@ -53,6 +53,10 @@ pub struct BootstrapSettings {
     pub blocked_ips: Vec<String>,
     pub blocked_domains: Vec<String>,
     pub ipv4_domains: Vec<String>,
+    /// Whether any enabled custom outbound is a reverse bridge (VLESS with a
+    /// reverse tag). Bridges need `direct` to carry explicit `finalRules` —
+    /// see `PRIVATE_IP_RANGES` and the emit site in `build_bootstrap_config`.
+    pub has_reverse_bridge: bool,
     /// Operator-defined rules, keyed by id; their order comes from `rule_order`.
     pub custom_rules: Vec<RoutingRule>,
     /// Full evaluation order: system tokens + custom rule ids, first-match-wins.
@@ -167,6 +171,56 @@ pub fn validate_routable_tag(tag: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Private / special-use ranges that xray's `freedom` blocks by default for
+/// ordinary inbounds (`geodata::GetPrivateIPMatcher`, mirrored verbatim).
+/// Supplying ANY `finalRules` makes them win over that built-in default for
+/// every inbound (`freedom.go` `matchFinalRule` checks the handler's own rules
+/// first), so once we emit rules we must re-state this protection ourselves or
+/// the panel would open a hole into the server's own network.
+const PRIVATE_IP_RANGES: &[&str] = &[
+    "0.0.0.0/8",
+    "10.0.0.0/8",
+    "100.64.0.0/10",
+    "127.0.0.0/8",
+    "169.254.0.0/16",
+    "172.16.0.0/12",
+    "192.0.0.0/24",
+    "192.0.2.0/24",
+    "192.88.99.0/24",
+    "192.168.0.0/16",
+    "198.18.0.0/15",
+    "198.51.100.0/24",
+    "203.0.113.0/24",
+    "224.0.0.0/3",
+    "::/127",
+    "fc00::/7",
+    "fe80::/10",
+    "ff00::/8",
+];
+
+/// The `direct` (freedom) egress every inbound forwards through by default.
+fn build_direct_outbound(s: &BootstrapSettings) -> Value {
+    let mut direct = json!({
+        "tag": TAG_DIRECT,
+        "protocol": "freedom",
+        "settings": { "domainStrategy": s.freedom_strategy }
+    });
+    if s.has_reverse_bridge {
+        // xray blackholes EVERY connection arriving from a reverse tunnel by
+        // default: the VLESS outbound stamps `Inbound{Name: "vless-reverse"}`,
+        // and freedom's `getDefaultFinalRule` maps that one name to a block-all
+        // rule, so a bridge can't become an open proxy into its own network.
+        // Requests are swallowed and nothing is written back — indistinguishable
+        // from a hung tunnel. Re-allow the traffic explicitly, keeping the
+        // private-range block that ordinary inbounds get for free.
+        direct["settings"]["finalRules"] = json!([
+            { "action": "block", "ip": PRIVATE_IP_RANGES },
+            { "action": "allow", "network": "tcp,udp" },
+        ]);
+    }
+    direct
+}
+
 pub fn build_bootstrap_config(s: &BootstrapSettings) -> Value {
     // `direct` + `blocked` are always present. The `direct-ipv4` freedom
     // outbound is added when either the IPv4-force list OR any enabled custom
@@ -176,11 +230,7 @@ pub fn build_bootstrap_config(s: &BootstrapSettings) -> Value {
             .iter()
             .any(|r| r.enabled && r.outbound_tag == TAG_DIRECT_IPV4);
     let mut outbounds = vec![
-        json!({
-            "tag": TAG_DIRECT,
-            "protocol": "freedom",
-            "settings": { "domainStrategy": s.freedom_strategy }
-        }),
+        build_direct_outbound(s),
         json!({ "tag": TAG_BLOCKED, "protocol": "blackhole" }),
     ];
     if needs_ipv4 {
@@ -373,6 +423,7 @@ mod tests {
             block_bittorrent: true,
             blocked_ips: vec!["10.0.0.0/8".into()],
             blocked_domains: vec![],
+            has_reverse_bridge: false,
             ipv4_domains: vec![],
             custom_rules,
             rule_order: rule_order.into_iter().map(String::from).collect(),
@@ -462,6 +513,42 @@ mod tests {
         assert_eq!(cfg["routing"]["rules"].as_array().unwrap().len(), 6);
     }
 
+    /// Without a bridge `direct` stays on xray's own defaults, which already
+    /// block private ranges for ordinary inbounds. Emitting rules here would
+    /// override that default for every inbound, so we must not.
+    #[test]
+    fn direct_has_no_final_rules_without_a_reverse_bridge() {
+        let cfg = build_bootstrap_config(&base(vec![], vec![]));
+        let direct = &cfg["outbounds"][0];
+        assert_eq!(direct["tag"], "direct");
+        assert!(direct["settings"]["finalRules"].is_null());
+    }
+
+    /// With a bridge, xray would blackhole everything coming out of the tunnel
+    /// (freedom maps inbound name "vless-reverse" to a block-all rule), so
+    /// `direct` must re-allow it — while restating the private-range block that
+    /// supplying any `finalRules` would otherwise disable.
+    #[test]
+    fn reverse_bridge_makes_direct_allow_tunnelled_traffic() {
+        let mut s = base(vec![], vec![]);
+        s.has_reverse_bridge = true;
+        let cfg = build_bootstrap_config(&s);
+        let rules = cfg["outbounds"][0]["settings"]["finalRules"]
+            .as_array()
+            .expect("bridge present => finalRules emitted")
+            .clone();
+        assert_eq!(rules.len(), 2);
+        // Private ranges stay blocked, and that rule must come first — the
+        // allow below matches everything, so a later block would be dead.
+        assert_eq!(rules[0]["action"], "block");
+        let blocked = rules[0]["ip"].as_array().unwrap();
+        for cidr in ["10.0.0.0/8", "127.0.0.0/8", "192.168.0.0/16", "fc00::/7"] {
+            assert!(blocked.iter().any(|v| v == cidr), "{cidr} must be blocked");
+        }
+        assert_eq!(rules[1]["action"], "allow");
+        assert_eq!(rules[1]["network"], "tcp,udp");
+    }
+
     #[test]
     fn unknown_and_stale_tokens_are_reconciled() {
         // Order references a deleted custom id ("gone") and omits an active
@@ -522,6 +609,7 @@ mod tests {
             blocked_ips: vec!["geoip:cn".into(), "192.168.0.0/16".into()],
             blocked_domains: vec!["geosite:category-ads-all".into(), "ads.example.com".into()],
             ipv4_domains: vec!["geosite:netflix".into()],
+            has_reverse_bridge: false,
             custom_rules: vec![r1, r2, r3, rule("r4", false, "blocked")],
             rule_order: vec![],
         };

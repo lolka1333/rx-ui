@@ -75,6 +75,18 @@ pub async fn write_bootstrap_config(state: &AppState) -> anyhow::Result<()> {
     let parse = |s: &str| serde_json::from_str::<Vec<String>>(s).unwrap_or_default();
     let custom_rules: Vec<crate::models::RoutingRule> =
         serde_json::from_str(&row.xray_custom_rules).unwrap_or_default();
+    // A reverse bridge makes `direct` need explicit `finalRules` — xray blocks
+    // tunnelled traffic by default. Read from the same source the orchestrator
+    // pushes from, so the bootstrap matches what actually gets added.
+    let has_reverse_bridge = crate::api::outbounds::load_custom_outbounds(&state.db)
+        .await
+        .unwrap_or_default()
+        .iter()
+        .any(|ob| {
+            ob.enabled
+                && matches!(&ob.protocol, crate::models::OutboundProtocolConfig::Vless(v)
+                    if !v.reverse_tag.trim().is_empty())
+        });
     let settings = config_gen::BootstrapSettings {
         freedom_strategy: row.xray_freedom_strategy,
         routing_strategy: row.xray_routing_strategy,
@@ -82,6 +94,7 @@ pub async fn write_bootstrap_config(state: &AppState) -> anyhow::Result<()> {
         blocked_ips: parse(&row.xray_blocked_ips),
         blocked_domains: parse(&row.xray_blocked_domains),
         ipv4_domains: parse(&row.xray_ipv4_domains),
+        has_reverse_bridge,
         custom_rules,
         rule_order: parse(&row.xray_rule_order),
     };
