@@ -15,7 +15,8 @@ use crate::xray::proto::xray::app::proxyman::{
     MultiplexingConfig, ReceiverConfig, SenderConfig, SniffingConfig,
 };
 use crate::xray::proto::xray::common::geodata::{
-    Cidr, CidrRule, Domain, DomainRule, IpRule, domain::Type as DomainType, domain_rule, ip_rule,
+    Cidr, CidrRule, Domain, DomainRule, GeoIpRule, GeoSiteRule, IpRule, domain::Type as DomainType,
+    domain_rule, ip_rule,
 };
 use crate::xray::proto::xray::common::net::{IpOrDomain, PortList, PortRange, ip_or_domain};
 use crate::xray::proto::xray::common::protocol::{ServerEndpoint, User};
@@ -90,8 +91,8 @@ pub fn inbound_to_handler_config(
         sniffing_settings: Some(SniffingConfig {
             enabled: inb.sniffing.enabled,
             destination_override: inb.sniffing.dest_override.clone(),
-            domains_excluded: build_domain_rules(&inb.sniffing.domains_excluded)?,
-            ips_excluded: build_ip_rules(&inb.sniffing.ips_excluded)?,
+            domains_excluded: build_domain_rules(&inb.sniffing.domains_excluded, false)?,
+            ips_excluded: build_ip_rules(&inb.sniffing.ips_excluded, false)?,
             metadata_only: inb.sniffing.metadata_only,
             route_only: inb.sniffing.route_only,
         }),
@@ -276,22 +277,50 @@ fn parse_listen_address(s: &str) -> IpOrDomain {
     }
 }
 
-/// Convert operator-entered sniffing domain-exclusion strings into xray
-/// `DomainRule`s, mirroring xray's conf parser (`parseCustomDomainRule`,
-/// default type = Substr). Recognises the `full:` / `domain:` / `regexp:` /
-/// `keyword:` / `dotless:` prefixes; a bare value is a substring match.
-/// `geosite:` / `ext:` external rules are rejected — validating them needs
-/// geosite.dat loaded, which the panel doesn't do for sniffing exclusions.
-fn build_domain_rules(domains: &[String]) -> anyhow::Result<Vec<DomainRule>> {
-    domains.iter().map(|d| build_one_domain_rule(d)).collect()
+/// Default geodata file names xray resolves `geosite:` / `geoip:` against
+/// (`common/geodata/rule_parser.go`). We emit these as references; xray loads
+/// the .dat at match time, so the panel never parses the files itself.
+pub(super) const DEFAULT_GEOSITE_DAT: &str = "geosite.dat";
+pub(super) const DEFAULT_GEOIP_DAT: &str = "geoip.dat";
+
+/// Convert operator-entered domain strings into xray `DomainRule`s, mirroring
+/// xray's conf parser (`parseCustomDomainRule`, default type = Substr).
+/// Recognises the `full:` / `domain:` / `regexp:` / `keyword:` / `dotless:`
+/// prefixes; a bare value is a substring match. When `allow_geo` is set,
+/// `geosite:CODE[@attr]` becomes a `GeoSiteRule` reference (routing rules);
+/// otherwise geosite/ext are rejected — sniffing exclusions have no .dat.
+pub(super) fn build_domain_rules(
+    domains: &[String],
+    allow_geo: bool,
+) -> anyhow::Result<Vec<DomainRule>> {
+    domains
+        .iter()
+        .map(|d| build_one_domain_rule(d, allow_geo))
+        .collect()
 }
 
-fn build_one_domain_rule(raw: &str) -> anyhow::Result<DomainRule> {
+pub(super) fn build_one_domain_rule(raw: &str, allow_geo: bool) -> anyhow::Result<DomainRule> {
     let r = raw.trim();
-    anyhow::ensure!(!r.is_empty(), "empty domain exclusion");
+    anyhow::ensure!(!r.is_empty(), "empty domain rule");
+    if let Some(spec) = r.strip_prefix("geosite:") {
+        anyhow::ensure!(
+            allow_geo,
+            "geosite/ext domain rules aren't supported here: {r}"
+        );
+        // `CODE` or `CODE@attr`; xray upper-cases the code, lower-cases attrs.
+        let (code, attrs) = spec.split_once('@').unwrap_or((spec, ""));
+        anyhow::ensure!(!code.is_empty(), "empty geosite code: {r}");
+        return Ok(DomainRule {
+            value: Some(domain_rule::Value::Geosite(GeoSiteRule {
+                file: DEFAULT_GEOSITE_DAT.to_owned(),
+                code: code.to_uppercase(),
+                attrs: attrs.to_lowercase(),
+            })),
+        });
+    }
     anyhow::ensure!(
-        !(r.starts_with("geosite:") || r.starts_with("ext:") || r.starts_with("ext-domain:")),
-        "geosite/ext domain rules aren't supported in sniffing exclusions: {r}"
+        !(r.starts_with("ext:") || r.starts_with("ext-domain:") || r.starts_with("ext-site:")),
+        "ext domain rules aren't supported: {r}"
     );
     let (ty, value) = if let Some(v) = r.strip_prefix("regexp:") {
         (DomainType::Regex, v.to_owned())
@@ -322,26 +351,44 @@ fn build_one_domain_rule(raw: &str) -> anyhow::Result<DomainRule> {
     })
 }
 
-/// Convert operator-entered sniffing IP-exclusion strings into xray `IpRule`s,
-/// mirroring `parseCustomIPRule`: a CIDR (or bare IP, treated as /32 or /128)
-/// with an optional leading `!` toggling reverse-match. `geoip:` / `ext:`
-/// external rules are rejected (same reason as domains).
-fn build_ip_rules(ips: &[String]) -> anyhow::Result<Vec<IpRule>> {
-    ips.iter().map(|s| build_one_ip_rule(s)).collect()
+/// Convert operator-entered IP strings into xray `IpRule`s, mirroring
+/// `parseCustomIPRule`: a CIDR (or bare IP, treated as /32 or /128) with an
+/// optional leading `!` toggling reverse-match. When `allow_geo` is set,
+/// `geoip:CODE` becomes a `GeoIpRule` reference (routing rules); otherwise
+/// geoip/ext are rejected (sniffing exclusions have no .dat).
+pub(super) fn build_ip_rules(ips: &[String], allow_geo: bool) -> anyhow::Result<Vec<IpRule>> {
+    ips.iter()
+        .map(|s| build_one_ip_rule(s, allow_geo))
+        .collect()
 }
 
-fn build_one_ip_rule(raw: &str) -> anyhow::Result<IpRule> {
+pub(super) fn build_one_ip_rule(raw: &str, allow_geo: bool) -> anyhow::Result<IpRule> {
     let mut s = raw.trim();
-    anyhow::ensure!(!s.is_empty(), "empty ip exclusion");
+    anyhow::ensure!(!s.is_empty(), "empty ip rule");
     // Leading `!`(s) toggle reverse-match — xray's `cutReversePrefix`.
     let mut reverse = false;
     while let Some(rest) = s.strip_prefix('!') {
         reverse = !reverse;
         s = rest;
     }
+    if let Some(code) = s.strip_prefix("geoip:") {
+        anyhow::ensure!(allow_geo, "geoip/ext ip rules aren't supported here: {raw}");
+        // A `!` may also sit inside the code (`geoip:!cn`) — xray's second
+        // cutReversePrefix — so re-strip and toggle again.
+        let (code, inner_rev) = code.strip_prefix('!').map_or((code, false), |c| (c, true));
+        reverse ^= inner_rev;
+        anyhow::ensure!(!code.is_empty(), "empty geoip code: {raw}");
+        return Ok(IpRule {
+            value: Some(ip_rule::Value::Geoip(GeoIpRule {
+                file: DEFAULT_GEOIP_DAT.to_owned(),
+                code: code.to_uppercase(),
+                reverse_match: reverse,
+            })),
+        });
+    }
     anyhow::ensure!(
-        !(s.starts_with("geoip:") || s.starts_with("ext:") || s.starts_with("ext-ip:")),
-        "geoip/ext ip rules aren't supported in sniffing exclusions: {raw}"
+        !(s.starts_with("ext:") || s.starts_with("ext-ip:")),
+        "ext ip rules aren't supported: {raw}"
     );
     Ok(IpRule {
         value: Some(ip_rule::Value::Custom(CidrRule {
@@ -351,7 +398,7 @@ fn build_one_ip_rule(raw: &str) -> anyhow::Result<IpRule> {
     })
 }
 
-fn parse_cidr(s: &str) -> anyhow::Result<Cidr> {
+pub(super) fn parse_cidr(s: &str) -> anyhow::Result<Cidr> {
     let (ip_str, prefix_str) = s.split_once('/').map_or((s, None), |(i, p)| (i, Some(p)));
     let ip: std::net::IpAddr = ip_str
         .parse()
@@ -383,8 +430,8 @@ fn parse_cidr(s: &str) -> anyhow::Result<Cidr> {
 /// leave a half-created inbound in the DB that breaks every reconcile. Runs
 /// exactly the same conversion `inbound_to_handler_config` does.
 pub fn validate_sniffing(sniffing: &Sniffing) -> anyhow::Result<()> {
-    build_domain_rules(&sniffing.domains_excluded)?;
-    build_ip_rules(&sniffing.ips_excluded)?;
+    build_domain_rules(&sniffing.domains_excluded, false)?;
+    build_ip_rules(&sniffing.ips_excluded, false)?;
     Ok(())
 }
 
@@ -506,7 +553,7 @@ mod tests {
             ("plain.example", DomainType::Substr, "plain.example"),
         ];
         for (input, want_ty, want_val) in cases {
-            let rule = build_one_domain_rule(input).unwrap();
+            let rule = build_one_domain_rule(input, false).unwrap();
             let Some(domain_rule::Value::Custom(d)) = rule.value else {
                 panic!("expected custom rule for {input}");
             };
@@ -514,9 +561,9 @@ mod tests {
             assert_eq!(d.value, want_val, "value for {input}");
         }
         // geosite/ext are rejected; dotless without a dot becomes a regex.
-        assert!(build_one_domain_rule("geosite:google").is_err());
+        assert!(build_one_domain_rule("geosite:google", false).is_err());
         let Some(domain_rule::Value::Custom(d)) =
-            build_one_domain_rule("dotless:cn").unwrap().value
+            build_one_domain_rule("dotless:cn", false).unwrap().value
         else {
             panic!("expected custom dotless rule");
         };
@@ -527,23 +574,25 @@ mod tests {
     #[test]
     fn ip_rule_parses_cidr_and_reverse() {
         // IPv6 /64.
-        let Some(ip_rule::Value::Custom(c)) = build_one_ip_rule("2001:db8::/64").unwrap().value
+        let Some(ip_rule::Value::Custom(c)) =
+            build_one_ip_rule("2001:db8::/64", false).unwrap().value
         else {
             panic!("expected custom ipv6 rule");
         };
         assert_eq!(c.cidr.as_ref().unwrap().prefix, 64);
         assert_eq!(c.cidr.as_ref().unwrap().ip.len(), 16);
         // Leading `!` flips reverse-match; bare IP defaults to /32.
-        let Some(ip_rule::Value::Custom(c)) = build_one_ip_rule("!192.168.1.1").unwrap().value
+        let Some(ip_rule::Value::Custom(c)) =
+            build_one_ip_rule("!192.168.1.1", false).unwrap().value
         else {
             panic!("expected custom reverse rule");
         };
         assert!(c.reverse_match);
         assert_eq!(c.cidr.as_ref().unwrap().prefix, 32);
         // Garbage and geoip are rejected.
-        assert!(build_one_ip_rule("not-an-ip").is_err());
-        assert!(build_one_ip_rule("10.0.0.0/40").is_err());
-        assert!(build_one_ip_rule("geoip:cn").is_err());
+        assert!(build_one_ip_rule("not-an-ip", false).is_err());
+        assert!(build_one_ip_rule("10.0.0.0/40", false).is_err());
+        assert!(build_one_ip_rule("geoip:cn", false).is_err());
     }
 
     #[test]

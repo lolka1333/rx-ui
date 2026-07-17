@@ -30,6 +30,10 @@ use crate::xray::proto::xray::app::proxyman::command::{
     RemoveInboundRequest, RemoveOutboundRequest, RemoveUserOperation,
     handler_service_client::HandlerServiceClient,
 };
+use crate::xray::proto::xray::app::router::Config as RouterConfig;
+use crate::xray::proto::xray::app::router::command::{
+    AddRuleRequest, RemoveRuleRequest, routing_service_client::RoutingServiceClient,
+};
 use crate::xray::proto::xray::app::stats::command::{
     GetAllOnlineUsersRequest, GetAllOnlineUsersResponse, QueryStatsRequest, QueryStatsResponse,
     stats_service_client::StatsServiceClient,
@@ -43,6 +47,7 @@ use crate::xray::proto::xray::core::{InboundHandlerConfig, OutboundHandlerConfig
 /// it carries its own type registry instead of leaning on Any URLs).
 const TYPE_ADD_USER_OPERATION: &str = "xray.app.proxyman.command.AddUserOperation";
 const TYPE_REMOVE_USER_OPERATION: &str = "xray.app.proxyman.command.RemoveUserOperation";
+const TYPE_ROUTER_CONFIG: &str = "xray.app.router.Config";
 
 /// Default endpoint matching the API inbound in `build_bootstrap_config`.
 pub const DEFAULT_ENDPOINT: &str = "http://127.0.0.1:62789";
@@ -230,6 +235,47 @@ impl XrayClient {
             .map_err(|s| {
                 anyhow::anyhow!(
                     "xray remove_outbound({tag}) failed: {} {}",
+                    s.code(),
+                    s.message()
+                )
+            })?;
+        Ok(())
+    }
+
+    /// Atomically replace the live routing-rule set via `RoutingService.AddRule`
+    /// with `shouldAppend=false` — the router swaps the whole slice under its
+    /// lock, so a rule change applies with NO xray restart and live connections
+    /// survive. `config` MUST be the complete ordered set (api pin + system +
+    /// custom), since a full-replace wipes whatever was there — a partial set
+    /// would sever the control channel or dangle referenced outbounds.
+    pub async fn replace_routing_rules(&self, config: RouterConfig) -> anyhow::Result<()> {
+        let channel = self.channel().await?;
+        let mut client = RoutingServiceClient::new(channel);
+        client
+            .add_rule(AddRuleRequest {
+                config: Some(TypedMessage {
+                    r#type: TYPE_ROUTER_CONFIG.to_owned(),
+                    value: config.encode_to_vec(),
+                }),
+                should_append: false,
+            })
+            .await
+            .map_err(|s| anyhow::anyhow!("xray add_rule failed: {} {}", s.code(), s.message()))?;
+        Ok(())
+    }
+
+    /// Remove a single routing rule by its `rule_tag` (the panel rule id).
+    pub async fn remove_routing_rule(&self, rule_tag: &str) -> anyhow::Result<()> {
+        let channel = self.channel().await?;
+        let mut client = RoutingServiceClient::new(channel);
+        client
+            .remove_rule(RemoveRuleRequest {
+                rule_tag: rule_tag.to_owned(),
+            })
+            .await
+            .map_err(|s| {
+                anyhow::anyhow!(
+                    "xray remove_rule({rule_tag}) failed: {} {}",
                     s.code(),
                     s.message()
                 )

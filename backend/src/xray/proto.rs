@@ -43,6 +43,12 @@ pub mod xray {
                 tonic::include_proto!("xray.app.stats.command");
             }
         }
+        pub mod router {
+            tonic::include_proto!("xray.app.router");
+            pub mod command {
+                tonic::include_proto!("xray.app.router.command");
+            }
+        }
     }
     pub mod common {
         pub mod geodata {

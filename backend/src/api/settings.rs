@@ -230,38 +230,46 @@ async fn update_panel(
     .execute(&state.db)
     .await?;
 
-    // Rebind the sub listener first — it's independent of the panel listener, so
-    // a panel-swap failure below must not skip applying an already-persisted
-    // sub-TLS / sub-port change (the next save would see no delta and never
-    // apply it).
+    apply_listener_changes(&state, &body, new_port, &normalised, sub_tls_changed).await?;
+
+    // Hot-apply the just-persisted routing rules (no restart); see docs there.
+    crate::xray::reload::hot_apply_routing(&state).await;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Rebind the sub + panel listeners after a settings write. The sub listener
+/// goes first — it's independent of the panel listener, so a panel-swap failure
+/// must not skip an already-persisted sub-TLS / sub-port change (the next save
+/// would see no delta and never apply it).
+async fn apply_listener_changes(
+    state: &AppState,
+    body: &PanelSettingsUpdate,
+    new_port: u16,
+    normalised: &str,
+    sub_tls_changed: bool,
+) -> AppResult<()> {
     let current_sub_port = state.current_sub_port.load(Ordering::Relaxed);
     let new_sub_port = u16::try_from(body.sub_port).unwrap_or(0);
-    swap_sub_listener(&state, new_sub_port, current_sub_port, sub_tls_changed).await?;
+    swap_sub_listener(state, new_sub_port, current_sub_port, sub_tls_changed).await?;
 
-    // Snapshot the previous prefix BEFORE we install the new one —
-    // the rebind-on-path-change branch below needs to know whether
-    // the path actually moved, and once we've updated the RwLock
-    // we'd be comparing the new value against itself.
+    // Snapshot the previous prefix BEFORE installing the new one — the
+    // rebind-on-path-change branch needs to know whether the path actually
+    // moved, and once the RwLock is updated we'd compare the value with itself.
     let previous_prefix = {
         let mut guard = state.base_path.write().await;
-        let old = guard.clone();
-        (*guard).clone_from(&normalised);
-        old
+        std::mem::replace(&mut *guard, normalised.to_owned())
     };
-
     let current_port = state.current_port.load(Ordering::Relaxed);
     let prefix_changed = previous_prefix != normalised;
     swap_panel_listener(
-        &state,
+        state,
         new_port,
         current_port,
         prefix_changed,
         &previous_prefix,
-        &normalised,
+        normalised,
     )
-    .await?;
-
-    Ok(StatusCode::NO_CONTENT)
+    .await
 }
 
 /// Resolve + validate the panel TLS fields for a settings write. An empty

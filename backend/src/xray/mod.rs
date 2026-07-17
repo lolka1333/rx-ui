@@ -7,6 +7,7 @@ pub mod orchestrator;
 pub mod outbound_test;
 pub mod proto;
 pub mod reload;
+pub mod router_rules;
 pub mod share_link;
 
 pub use control::XrayController;

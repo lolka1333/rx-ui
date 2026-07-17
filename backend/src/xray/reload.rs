@@ -62,6 +62,17 @@ pub async fn bootstrap(state: &AppState) -> anyhow::Result<()> {
 /// validated. Called at boot and before every xray restart, so a change
 /// to those settings is picked up the next time xray loads its config.
 pub async fn write_bootstrap_config(state: &AppState) -> anyhow::Result<()> {
+    let settings = load_bootstrap_settings(state).await?;
+    let value = config_gen::build_bootstrap_config(&settings);
+    config_gen::write_config_validated(&state.xray.binary, &state.xray.config_path, &value).await
+}
+
+/// Read the operator's current xray-affecting settings from the DB into a
+/// `BootstrapSettings`. Shared by the bootstrap writer (restart path) and the
+/// live hot-apply path (`RoutingService.AddRule`), so both see the same state.
+pub async fn load_bootstrap_settings(
+    state: &AppState,
+) -> anyhow::Result<config_gen::BootstrapSettings> {
     let row = sqlx::query!(
         "SELECT xray_freedom_strategy, xray_routing_strategy, xray_block_bittorrent,
                 xray_blocked_ips, xray_blocked_domains, xray_ipv4_domains,
@@ -87,7 +98,7 @@ pub async fn write_bootstrap_config(state: &AppState) -> anyhow::Result<()> {
                 && matches!(&ob.protocol, crate::models::OutboundProtocolConfig::Vless(v)
                     if !v.reverse_tag.trim().is_empty())
         });
-    let settings = config_gen::BootstrapSettings {
+    Ok(config_gen::BootstrapSettings {
         freedom_strategy: row.xray_freedom_strategy,
         routing_strategy: row.xray_routing_strategy,
         block_bittorrent: row.xray_block_bittorrent != 0,
@@ -97,7 +108,58 @@ pub async fn write_bootstrap_config(state: &AppState) -> anyhow::Result<()> {
         has_reverse_bridge,
         custom_rules,
         rule_order: parse(&row.xray_rule_order),
+    })
+}
+
+/// Apply the current routing rules to a LIVE xray via `RoutingService.AddRule`
+/// (no restart). No-op when xray isn't running (the next start picks them up
+/// from bootstrap).
+///
+/// CRITICAL failure handling: `AddRule(shouldAppend=false)` is a full-replace,
+/// and xray WIPES the entire rule set if any rule in the pushed config fails to
+/// build (e.g. a bad geosite code, or geosite.dat missing) — which also drops
+/// the api-pin rule and severs the panel↔xray control channel. So if the hot
+/// push fails, we don't leave xray half-configured: we restart it, which
+/// reloads a validated bootstrap config (or the last-good config.json if the
+/// new one fails `xray -test`), restoring the api pin. Rules are already
+/// persisted, so nothing is lost.
+pub async fn hot_apply_routing(state: &AppState) {
+    if !state.xray.status().await.running {
+        return;
+    }
+    if push_routing_rules(state).await {
+        return; // applied cleanly on the live process — no restart, no drops
+    }
+    tracing::warn!("hot routing apply failed; restarting xray to restore a consistent rule set");
+    let _ = write_bootstrap_config(state).await;
+    if let Err(e) = state.xray.restart().await {
+        tracing::error!("recovery restart after failed hot routing apply failed: {e}");
+    }
+    crate::resync_xray_state(state).await;
+}
+
+/// Build the full ordered rule set and push it via `AddRule`. Returns whether
+/// the live push succeeded; the caller handles recovery on `false`.
+async fn push_routing_rules(state: &AppState) -> bool {
+    let settings = match load_bootstrap_settings(state).await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!("hot routing: load settings failed: {e}");
+            return false;
+        }
     };
-    let value = config_gen::build_bootstrap_config(&settings);
-    config_gen::write_config_validated(&state.xray.binary, &state.xray.config_path, &value).await
+    let config = match crate::xray::router_rules::build_router_config(&settings) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("hot routing: build config failed: {e}");
+            return false;
+        }
+    };
+    match state.xray_client.replace_routing_rules(config).await {
+        Ok(()) => true,
+        Err(e) => {
+            tracing::warn!("hot routing: AddRule failed: {e}");
+            false
+        }
+    }
 }

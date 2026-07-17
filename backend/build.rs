@@ -74,6 +74,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "proto/transport/internet/finalmask/fragment/config.proto",
         "proto/transport/internet/finalmask/noise/config.proto",
         "proto/transport/internet/finalmask/salamander/config.proto",
+        // RoutingService — live routing-rule mutation (AddRule/RemoveRule)
+        // so rule changes apply without an xray restart. `config.proto`
+        // carries the RoutingRule / router Config shapes we build and push;
+        // `command.proto` is the service. Needs `common/net/network.proto`.
+        "proto/app/router/config.proto",
+        "proto/app/router/command/command.proto",
     ];
 
     for p in &protos {

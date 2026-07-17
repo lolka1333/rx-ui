@@ -66,7 +66,7 @@ pub struct BootstrapSettings {
 /// System rule tokens, in their natural default order. MUST stay in sync with
 /// the frontend `SYS_KEYS` (frontend/src/components/RoutingRulesField.tsx) —
 /// both run the same reconcile-then-emit over the saved `rule_order`.
-const SYSTEM_TOKENS: &[&str] = &[
+pub const SYSTEM_TOKENS: &[&str] = &[
     "api",
     "bittorrent",
     "blocked_domains",
@@ -221,31 +221,13 @@ fn build_direct_outbound(s: &BootstrapSettings) -> Value {
     direct
 }
 
-pub fn build_bootstrap_config(s: &BootstrapSettings) -> Value {
-    // `direct` + `blocked` are always present. The `direct-ipv4` freedom
-    // outbound is added when either the IPv4-force list OR any enabled custom
-    // rule targets it — otherwise a rule's `outboundTag` would dangle.
-    let needs_ipv4 = !s.ipv4_domains.is_empty()
-        || s.custom_rules
-            .iter()
-            .any(|r| r.enabled && r.outbound_tag == TAG_DIRECT_IPV4);
-    let mut outbounds = vec![
-        build_direct_outbound(s),
-        json!({ "tag": TAG_BLOCKED, "protocol": "blackhole" }),
-    ];
-    if needs_ipv4 {
-        outbounds.push(json!({
-            "tag": TAG_DIRECT_IPV4,
-            "protocol": "freedom",
-            "settings": { "domainStrategy": "UseIPv4" }
-        }));
-    }
-
-    // Build the evaluation order: honour `rule_order`, dropping tokens that no
-    // longer exist, then slot in any active system tokens / custom ids not yet
-    // listed (mirrors the frontend reconciliation). First-match-wins.
-    let custom_by_id: HashMap<&str, &RoutingRule> =
-        s.custom_rules.iter().map(|r| (r.id.as_str(), r)).collect();
+/// Reconcile `rule_order` into the final first-match-wins evaluation order:
+/// drop tokens that no longer exist, slot any active system tokens back into
+/// the system group, then append newly-added custom ids. Shared by the JSON
+/// bootstrap emitter and the proto hot-apply builder (`router_rules`) so both
+/// produce an identical rule sequence.
+pub fn ordered_rule_tokens(s: &BootstrapSettings) -> Vec<String> {
+    let custom_ids: HashSet<&str> = s.custom_rules.iter().map(|r| r.id.as_str()).collect();
     let active_sys: Vec<&str> = SYSTEM_TOKENS
         .iter()
         .copied()
@@ -254,7 +236,7 @@ pub fn build_bootstrap_config(s: &BootstrapSettings) -> Value {
     let valid: HashSet<&str> = active_sys
         .iter()
         .copied()
-        .chain(custom_by_id.keys().copied())
+        .chain(custom_ids.iter().copied())
         .collect();
 
     let mut order: Vec<String> = s
@@ -285,6 +267,34 @@ pub fn build_bootstrap_config(s: &BootstrapSettings) -> Value {
             order.push(r.id.clone());
         }
     }
+    order
+}
+
+pub fn build_bootstrap_config(s: &BootstrapSettings) -> Value {
+    // `direct` + `blocked` are always present. The `direct-ipv4` freedom
+    // outbound is added when either the IPv4-force list OR any enabled custom
+    // rule targets it — otherwise a rule's `outboundTag` would dangle.
+    let needs_ipv4 = !s.ipv4_domains.is_empty()
+        || s.custom_rules
+            .iter()
+            .any(|r| r.enabled && r.outbound_tag == TAG_DIRECT_IPV4);
+    let mut outbounds = vec![
+        build_direct_outbound(s),
+        json!({ "tag": TAG_BLOCKED, "protocol": "blackhole" }),
+    ];
+    if needs_ipv4 {
+        outbounds.push(json!({
+            "tag": TAG_DIRECT_IPV4,
+            "protocol": "freedom",
+            "settings": { "domainStrategy": "UseIPv4" }
+        }));
+    }
+
+    // First-match-wins evaluation order (shared with the proto hot-apply path
+    // in `router_rules`, so a live `AddRule` reproduces the bootstrap order).
+    let custom_by_id: HashMap<&str, &RoutingRule> =
+        s.custom_rules.iter().map(|r| (r.id.as_str(), r)).collect();
+    let order = ordered_rule_tokens(s);
 
     // Emit rules in that order; disabled custom rules are skipped. Unmatched
     // traffic falls through to the first outbound (`direct`).
@@ -303,7 +313,10 @@ pub fn build_bootstrap_config(s: &BootstrapSettings) -> Value {
 
     json!({
         "log": { "loglevel": "warning", "access": "" },
-        "api": { "tag": API_TAG, "services": ["HandlerService", "StatsService"] },
+        // RoutingService lets the panel push routing-rule changes to the live
+        // xray via AddRule (no restart). HandlerService = inbound/user/outbound
+        // CRUD; StatsService = traffic counters.
+        "api": { "tag": API_TAG, "services": ["HandlerService", "StatsService", "RoutingService"] },
         "stats": {},
         "policy": {
             "levels": {
