@@ -30,6 +30,8 @@ import type {
   ShareLinkResponse,
 } from '@/api/types';
 import { mergePanelSettings } from '@/lib/panelSettings';
+import { reportRouting } from '@/lib/routingReport';
+import type { RoutingApplyResult } from '@/lib/routingReport';
 import { LinkParseError, parseOutboundLink } from './parseLink';
 import { OUTBOUND_DEFAULTS, formToOutbound, type OutboundFormValues } from './form';
 
@@ -133,13 +135,20 @@ export function ReverseWizard({ onClose }: { onClose: () => void }) {
           user: [],
           outbound_tag: tag,
         };
-        await apiClient.put(
+        // This PUT always changes routing fields, so it always drives a live
+        // push. Report the outcome, but keep going either way: the invite link
+        // is about the client and stays valid, and the step this leads to is the
+        // "Apply (restart xray)" button — which regenerates the config from the
+        // database and is exactly the remedy for a rule the live router didn't
+        // take. Stopping here would hide the link and leave no path forward.
+        const res = await apiClient.put<RoutingApplyResult>(
           '/settings/panel',
           mergePanelSettings(cur, {
             xray_custom_rules: [...cur.xray_custom_rules, rule],
             xray_rule_order: [...cur.xray_rule_order, rule.id],
           }),
         );
+        reportRouting(res.data ?? {}, message, t);
         ruleDoneRef.current = true;
       }
       // 3) invite = the client's share-link, which now carries reverse=<tag>.

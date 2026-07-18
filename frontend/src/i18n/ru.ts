@@ -84,6 +84,10 @@ export const ru = {
     xrayRestartLater: 'Позже',
     xrayRestarted: 'Xray перезапущен, настройки применены',
     xrayRestartError: 'Не удалось перезапустить Xray',
+    xrayRoutingApplied: 'Правила маршрутизации применены, перезапуск не нужен',
+    xrayRoutingAppliedRestart: 'Правила маршрутизации применены — Xray перезапущен',
+    xrayRoutingNotLive:
+      'Сохранено, но к Xray не применено — {{detail}}',
     xrayGroupRouting: 'Базовые соединения',
     xrayBlockBittorrent: 'Заблокировать BitTorrent',
     xrayBlockBittorrentHint:
@@ -153,7 +157,7 @@ export const ru = {
     // Panel access section
     panelSection: 'Основные настройки',
     panelSettingsHotHint:
-      'Изменения применяются мгновенно. После смены порта или префикса панель сама перенаправит вас на новый адрес.',
+      'Изменения применяются мгновенно. После смены порта или префикса панель переезжает на новый адрес и сама туда переводит — если только не нужно сначала показать предупреждение, тогда она просто даёт адрес.',
     panelPort: 'Порт',
     panelPortHint:
       'TCP-порт, на котором панель слушает входящие подключения. Значение 1–65535.',
@@ -166,6 +170,8 @@ export const ru = {
     panelSaved: 'Настройки сохранены',
     panelSavedHotRedirect:
       'Настройки применены. Переходим на {{url}}…',
+    panelSavedMoved:
+      'Настройки применены. Панель переехала на {{url}} — открой этот адрес.',
     panelSaveError: 'Не удалось сохранить настройки панели',
     // Active session row (lives under "Пароль и безопасность")
     sectionSession: 'Текущая сессия',

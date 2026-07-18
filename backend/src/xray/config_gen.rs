@@ -77,20 +77,24 @@ pub const SYSTEM_TOKENS: &[&str] = &[
 /// The xray rule JSON for a system token, or `None` when that token is inactive
 /// for the current settings (so it contributes no rule).
 fn system_rule(token: &str, s: &BootstrapSettings) -> Option<Value> {
+    // Tags come from the shared constants so this stays in lockstep with its
+    // proto twin (`router_rules::system_rule_proto`), which uses the same ones.
     match token {
-        "api" => Some(json!({ "type": "field", "inboundTag": ["api"], "outboundTag": "api" })),
+        API_TAG => {
+            Some(json!({ "type": "field", "inboundTag": [API_TAG], "outboundTag": API_TAG }))
+        }
         "bittorrent" if s.block_bittorrent => {
-            Some(json!({ "type": "field", "protocol": ["bittorrent"], "outboundTag": "blocked" }))
+            Some(json!({ "type": "field", "protocol": ["bittorrent"], "outboundTag": TAG_BLOCKED }))
         }
-        "blocked_domains" if !s.blocked_domains.is_empty() => {
-            Some(json!({ "type": "field", "domain": s.blocked_domains, "outboundTag": "blocked" }))
-        }
+        "blocked_domains" if !s.blocked_domains.is_empty() => Some(
+            json!({ "type": "field", "domain": s.blocked_domains, "outboundTag": TAG_BLOCKED }),
+        ),
         "blocked_ips" if !s.blocked_ips.is_empty() => {
-            Some(json!({ "type": "field", "ip": s.blocked_ips, "outboundTag": "blocked" }))
+            Some(json!({ "type": "field", "ip": s.blocked_ips, "outboundTag": TAG_BLOCKED }))
         }
-        "ipv4" if !s.ipv4_domains.is_empty() => {
-            Some(json!({ "type": "field", "domain": s.ipv4_domains, "outboundTag": "direct-ipv4" }))
-        }
+        "ipv4" if !s.ipv4_domains.is_empty() => Some(
+            json!({ "type": "field", "domain": s.ipv4_domains, "outboundTag": TAG_DIRECT_IPV4 }),
+        ),
         _ => None,
     }
 }
@@ -239,10 +243,14 @@ pub fn ordered_rule_tokens(s: &BootstrapSettings) -> Vec<String> {
         .chain(custom_ids.iter().copied())
         .collect();
 
+    // Keep the first occurrence only: a duplicated token would emit the same
+    // rule twice, and on the hot path two rules with the same `rule_tag` make
+    // xray reject the whole set ("duplicate ruleTag").
+    let mut seen: HashSet<&str> = HashSet::new();
     let mut order: Vec<String> = s
         .rule_order
         .iter()
-        .filter(|t| valid.contains(t.as_str()))
+        .filter(|t| valid.contains(t.as_str()) && seen.insert(t.as_str()))
         .cloned()
         .collect();
     // Insert missing active system tokens just after the last system token
@@ -267,17 +275,34 @@ pub fn ordered_rule_tokens(s: &BootstrapSettings) -> Vec<String> {
             order.push(r.id.clone());
         }
     }
+    // LAST, so it also catches a pin that the step above just re-inserted in the
+    // middle of the system group. The api pin leads whatever the saved order
+    // says: it routes the panel's own control inbound, and any rule above it can
+    // capture that traffic and sever the channel needed to undo the mistake.
+    if let Some(pos) = order.iter().position(|t| t == API_TAG)
+        && pos != 0
+    {
+        let pin = order.remove(pos);
+        order.insert(0, pin);
+    }
     order
 }
 
-pub fn build_bootstrap_config(s: &BootstrapSettings) -> Value {
-    // `direct` + `blocked` are always present. The `direct-ipv4` freedom
-    // outbound is added when either the IPv4-force list OR any enabled custom
-    // rule targets it — otherwise a rule's `outboundTag` would dangle.
-    let needs_ipv4 = !s.ipv4_domains.is_empty()
+/// Whether the config needs the `direct-ipv4` freedom outbound: the IPv4-force
+/// list is non-empty, or an enabled custom rule targets it. The hot-apply path
+/// checks this too — that outbound only gets created here (at restart), so a
+/// rule targeting it can't be pushed to a live process that lacks it.
+pub fn needs_ipv4_outbound(s: &BootstrapSettings) -> bool {
+    !s.ipv4_domains.is_empty()
         || s.custom_rules
             .iter()
-            .any(|r| r.enabled && r.outbound_tag == TAG_DIRECT_IPV4);
+            .any(|r| r.enabled && r.outbound_tag == TAG_DIRECT_IPV4)
+}
+
+pub fn build_bootstrap_config(s: &BootstrapSettings) -> Value {
+    // `direct` + `blocked` are always present. `direct-ipv4` is added when the
+    // config needs it — otherwise a rule's `outboundTag` would dangle.
+    let needs_ipv4 = needs_ipv4_outbound(s);
     let mut outbounds = vec![
         build_direct_outbound(s),
         json!({ "tag": TAG_BLOCKED, "protocol": "blackhole" }),
@@ -351,6 +376,22 @@ pub fn build_bootstrap_config(s: &BootstrapSettings) -> Value {
     })
 }
 
+/// Write the pending config to its temp file. Split out so the caller cleans up
+/// after any step without repeating the removal three times.
+async fn write_tmp(tmp: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+    use anyhow::Context as _;
+    let mut f = fs::File::create(tmp)
+        .await
+        .with_context(|| format!("could not create {}", tmp.display()))?;
+    f.write_all(bytes)
+        .await
+        .with_context(|| format!("could not write {}", tmp.display()))?;
+    f.sync_all()
+        .await
+        .with_context(|| format!("could not flush {}", tmp.display()))?;
+    Ok(())
+}
+
 /// Atomically write `value` to `path` after validating it via `xray run -test`.
 /// If validation fails the tmp file is removed and the existing `path` is left
 /// untouched, so the panel never overwrites a working config with a broken one.
@@ -359,17 +400,30 @@ pub async fn write_config_validated(
     path: &Path,
     value: &Value,
 ) -> anyhow::Result<()> {
-    let tmp = path.with_extension("json.tmp");
+    // Unique per call: two writers sharing one temp path would interleave their
+    // bytes, and each failure path removes the file — deleting the other's
+    // in-flight write. The rename onto `path` is still the atomic publish.
+    static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = TMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = path.with_extension(format!("json.tmp{seq}"));
     let bytes = serde_json::to_vec_pretty(value)?;
-    {
-        let mut f = fs::File::create(&tmp).await?;
-        f.write_all(&bytes).await?;
-        f.sync_all().await?;
+    // Clean up on ANY failure: a bare `?` here would leave a `config.json.tmpN`
+    // sibling behind on every full disk or permission error, and nothing sweeps
+    // them (the sequence number means each attempt leaks a fresh one). The
+    // errors carry context because they reach the operator, where a naked
+    // "Access is denied. (os error 5)" says nothing about what the panel was
+    // doing.
+    if let Err(e) = write_tmp(&tmp, &bytes).await {
+        let _ = fs::remove_file(&tmp).await;
+        return Err(e);
     }
 
     // -format json: xray normally infers from extension (.json/.yaml/.toml)
-    // but we hand it a .tmp file, so be explicit.
+    // but we hand it a .tmp file, so be explicit. kill_on_drop because this
+    // future gets dropped when a client disconnects mid-save — without it the
+    // validator outlives the request that asked for it.
     let output = Command::new(binary)
+        .kill_on_drop(true)
         .arg("run")
         .arg("-test")
         .arg("-format")
@@ -391,25 +445,149 @@ pub async fn write_config_validated(
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
         let _ = fs::remove_file(&tmp).await;
-        anyhow::bail!(
-            "xray rejected config: {}",
-            // xray prints the failure to stderr; some builds use stdout.
-            if stderr.trim().is_empty() {
-                stdout.trim().to_string()
-            } else {
-                stderr.trim().to_string()
-            }
+        // xray prints the failure to stderr; some builds use stdout.
+        let raw = if stderr.trim().is_empty() {
+            &stdout
+        } else {
+            &stderr
+        };
+        // Full output to the log (the chain head names the failing stage, which
+        // is worth having when debugging), condensed for the operator, who gets
+        // this in a toast and needs the actionable tail to survive.
+        tracing::warn!(
+            "xray rejected config:
+{}",
+            raw.trim()
         );
+        anyhow::bail!("xray rejected config: {}", condense_xray_error(raw));
     }
 
-    fs::rename(&tmp, path).await?;
+    if let Err(e) = fs::rename(&tmp, path).await {
+        let _ = fs::remove_file(&tmp).await;
+        return Err(anyhow::Error::new(e).context(format!(
+            "could not replace {} with the new config",
+            path.display()
+        )));
+    }
     tracing::info!("xray config validated and written: {}", path.display());
     Ok(())
+}
+
+/// Reduce `xray -test` output to the part that tells an operator what to fix.
+///
+/// The raw output leads with a version banner and a line naming our temp file,
+/// then an error chain whose head is more of the same path. This is handed
+/// straight to the UI, where the useful tail ("illegal domain rule: geosite:…")
+/// would otherwise be pushed off the end by noise the operator can't act on.
+fn condense_xray_error(raw: &str) -> String {
+    let failure = raw
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .rfind(|l| l.starts_with("Failed to start:"))
+        .unwrap_or_else(|| raw.trim());
+    // Drop everything up to and including the config path xray echoes back.
+    match failure.split_once("] > ") {
+        Some((_, rest)) => rest.trim().to_string(),
+        None => failure.to_string(),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Why every consumer of these errors formats with `{e:#}`.
+    ///
+    /// This pins the PROPERTY, not the consumers: `anyhow`'s plain `{e}` shows
+    /// only the outermost context, so adding `.context()` here without switching
+    /// the format specifier would REPLACE the OS cause instead of framing it —
+    /// the operator would learn the panel couldn't write a file, but not why.
+    /// A consumer that regresses to `{e}` won't fail this test; it will simply
+    /// print the first line and drop the answer.
+    #[tokio::test]
+    async fn io_failures_keep_both_the_context_and_the_os_cause() {
+        // A directory that does not exist: File::create fails with a real OS error.
+        let missing = std::path::Path::new("no-such-dir-for-tests/config.json.tmp0");
+        let err = write_tmp(missing, b"{}").await.unwrap_err();
+        let framed = format!("{err:#}");
+        assert!(framed.contains("could not create"), "{framed}");
+        // The cause survives alongside it — that is what `{e:#}` buys.
+        assert!(
+            framed.len() > "could not create ".len() + missing.display().to_string().len(),
+            "the OS cause was dropped: {framed}"
+        );
+        // And the bare form really does hide it, which is why consumers use {e:#}.
+        assert!(!format!("{err}").contains("os error"), "{err}");
+    }
+
+    /// The api pin routes the panel's own control inbound. A saved order that
+    /// puts a custom rule above it would let that rule capture the control
+    /// traffic and cut the channel the operator needs to undo the mistake, so
+    /// the emitter hoists the pin no matter what order was stored.
+    #[test]
+    fn api_pin_leads_even_when_the_saved_order_says_otherwise() {
+        let mut s = BootstrapSettings {
+            freedom_strategy: "AsIs".into(),
+            routing_strategy: "AsIs".into(),
+            block_bittorrent: true,
+            blocked_ips: vec![],
+            blocked_domains: vec![],
+            ipv4_domains: vec![],
+            has_reverse_bridge: false,
+            custom_rules: vec![RoutingRule {
+                id: "r1".into(),
+                enabled: true,
+                name: String::new(),
+                domain: vec!["example.com".into()],
+                ip: vec![],
+                source_ip: vec![],
+                port: String::new(),
+                source_port: String::new(),
+                network: vec![],
+                protocol: vec![],
+                inbound_tag: vec![],
+                user: vec![],
+                outbound_tag: TAG_DIRECT.into(),
+            }],
+            // Operator (or a hand-edited DB) dragged a custom rule above the pin.
+            rule_order: vec!["r1".into(), "api".into(), "bittorrent".into()],
+        };
+        let order = ordered_rule_tokens(&s);
+        assert_eq!(order.first().map(String::as_str), Some("api"), "{order:?}");
+        // Everything else keeps the saved order.
+        assert_eq!(order, vec!["api", "r1", "bittorrent"]);
+
+        // And when the pin is missing from the saved order entirely: the
+        // reconcile re-inserts it with the other system tokens, which lands it
+        // mid-list — the hoist has to run after that, not before.
+        s.rule_order = vec!["bittorrent".into(), "r1".into()];
+        s.blocked_ips = vec!["10.0.0.0/8".into()];
+        let order = ordered_rule_tokens(&s);
+        // The whole sequence, not just the head: asserting only `first()` would
+        // still pass if the reconcile inserted the other system tokens in the
+        // wrong place.
+        assert_eq!(order, vec!["api", "bittorrent", "blocked_ips", "r1"]);
+    }
+
+    /// The operator-facing half of a rejected config. The raw output leads with
+    /// a banner and our temp-file path; the part that says which rule is broken
+    /// is at the very end, so an untrimmed message buries it.
+    #[test]
+    fn xray_rejection_keeps_the_actionable_tail() {
+        let raw = "Xray 26.7.11 (Xray, Penetrates Everything.) 50231ea
+                   A unified platform for anti-censorship.
+                   2026/07/18 19:31:32 [Info] infra/conf/serial: Reading config: &{Name:/tmp/config.json.tmp1}
+                   Failed to start: main: failed to load config files: [/tmp/config.json.tmp1] > infra/conf:                    invalid field rule > common/geodata: illegal domain rule: geosite:nope > EOF";
+        let condensed = condense_xray_error(raw);
+        assert!(condensed.starts_with("infra/conf:"), "{condensed}");
+        assert!(condensed.contains("geosite:nope"), "{condensed}");
+        assert!(!condensed.contains("Penetrates Everything"), "{condensed}");
+        assert!(!condensed.contains("tmp1"), "{condensed}");
+
+        // Nothing recognisable: keep everything rather than lose the message.
+        assert_eq!(condense_xray_error("  boom  "), "boom");
+    }
 
     fn rule(id: &str, enabled: bool, target: &str) -> RoutingRule {
         RoutingRule {

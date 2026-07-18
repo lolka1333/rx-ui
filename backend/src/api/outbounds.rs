@@ -212,6 +212,12 @@ async fn replace(
 /// boot and after an xray restart, right after the inbound reconcile. Failures
 /// are logged, never fatal — a single bad outbound must not abort the rest.
 pub async fn reconcile_outbounds_with_xray(state: &AppState) -> anyhow::Result<()> {
+    // Same guard as the inbound reconcile: no live process means every push
+    // burns a 5s dial for nothing, while the caller holds `xray_apply`.
+    if !state.xray.status().await.running {
+        tracing::info!("xray not running, skipping outbound reconcile until it starts");
+        return Ok(());
+    }
     let enabled: Vec<CustomOutbound> = load_custom_outbounds(&state.db)
         .await
         .map_err(|e| anyhow::anyhow!("load custom outbounds: {e:?}"))?

@@ -307,10 +307,12 @@ export function RoutingRulesField({
   // ---- ordering model ----
   // System rows are derived live from "Basic connections"; custom rows live in
   // `value`. The full evaluation order is a list of tokens (system keys +
-  // custom ids) on `xray_rule_order`. Everything is reorderable — moving the
-  // api/block rows is allowed at the operator's own risk. SYS_KEYS MUST stay in
-  // sync with the backend `SYSTEM_TOKENS` (xray/config_gen.rs) — the same
-  // reconcile-then-emit runs there over the saved order.
+  // custom ids) on `xray_rule_order`. The block rows are reorderable; the api
+  // row is not, and the backend hoists it to the front regardless of what gets
+  // saved (`ordered_rule_tokens`) — a rule above it could capture the panel's
+  // own control traffic and cut the channel needed to undo that. SYS_KEYS MUST
+  // stay in sync with the backend `SYSTEM_TOKENS` (xray/config_gen.rs) — the
+  // same reconcile-then-emit runs there over the saved order.
   const SYS_KEYS = ['api', 'bittorrent', 'blocked_domains', 'blocked_ips', 'ipv4'];
   const sysInfo: Record<string, { label: string; target: string }> = {
     api: { label: t('settings.rulesSysApi'), target: 'api' },
@@ -337,7 +339,15 @@ export function RoutingRulesField({
   // Reconcile the saved order against what currently exists: keep known tokens
   // in place, slot new system rows into the system block, append new custom
   // rows at the end.
-  const order = ruleOrder.filter((tok) => valid.has(tok));
+  // First occurrence wins, mirroring the backend reconcile: a repeated token
+  // would render a phantom duplicate row here while the emitter collapses it,
+  // so the list would stop matching what xray evaluates.
+  const seenTok = new Set<string>();
+  const order = ruleOrder.filter((tok) => {
+    if (!valid.has(tok) || seenTok.has(tok)) return false;
+    seenTok.add(tok);
+    return true;
+  });
   let insertAt = 0;
   order.forEach((tok, idx) => {
     if (SYS_KEYS.includes(tok)) insertAt = idx + 1;
@@ -346,6 +356,12 @@ export function RoutingRulesField({
   rules.forEach((r) => {
     if (!order.includes(r.id)) order.push(r.id);
   });
+  // Mirror the backend's final step (`ordered_rule_tokens`): the api pin leads
+  // whatever was saved. With the dedup above, this list is now the emitted list
+  // for every input the backend accepts — including orders stored before the
+  // pin became fixed.
+  const apiAt = order.indexOf('api');
+  if (apiAt > 0) order.unshift(...order.splice(apiAt, 1));
 
   // Persist the custom-rule set + the full order, marking the form dirty
   // (setFieldsValue alone won't fire onValuesChange, so bounce the bound value
@@ -473,10 +489,17 @@ export function RoutingRulesField({
           // but reorderable like any other.
           if (SYS_KEYS.includes(tok)) {
             const info = sysInfo[tok];
+            // The api pin is pinned: no drag handle, and the backend puts it
+            // first anyway, so offering the gesture would only mislead.
+            const pinned = tok === 'api';
             return (
-              <div key={tok} {...rowDnd(i)} style={{ ...rowStyle, opacity: dragging ? 0.4 : 0.6 }}>
+              <div
+                key={tok}
+                {...(pinned ? {} : rowDnd(i))}
+                style={{ ...rowStyle, opacity: dragging && !pinned ? 0.4 : 0.6 }}
+              >
                 <HolderOutlined
-                  style={iconGrabStyle}
+                  style={pinned ? { ...iconGrabStyle, cursor: 'default', opacity: 0.35 } : iconGrabStyle}
                 />
                 <LockOutlined style={{ color: token.colorTextQuaternary, fontSize: 12 }} />
                 <span
@@ -507,7 +530,14 @@ export function RoutingRulesField({
           const rest = conds.length - shown.length;
           const menu: MenuProps['items'] = [
             { key: 'edit', icon: <EditOutlined />, label: t('settings.rulesEdit') },
-            { key: 'up', icon: <ArrowUpOutlined />, label: t('settings.rulesMoveUp'), disabled: i === 0 },
+            {
+              key: 'up',
+              icon: <ArrowUpOutlined />,
+              label: t('settings.rulesMoveUp'),
+              // Not across the api pin: the backend hoists it back to the front,
+              // so the move would only desync this list from what xray evaluates.
+              disabled: i === 0 || order[i - 1] === 'api',
+            },
             {
               key: 'down',
               icon: <ArrowDownOutlined />,

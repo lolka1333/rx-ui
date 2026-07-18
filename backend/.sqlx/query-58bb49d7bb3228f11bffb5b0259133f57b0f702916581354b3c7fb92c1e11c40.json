@@ -1,0 +1,86 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT xray_custom_rules AS \"xray_custom_rules!: String\",\n                  xray_rule_order AS \"xray_rule_order!: String\",\n                  xray_blocked_ips AS \"xray_blocked_ips!: String\",\n                  xray_blocked_domains AS \"xray_blocked_domains!: String\",\n                  xray_ipv4_domains AS \"xray_ipv4_domains!: String\",\n                  xray_block_bittorrent\n             FROM panel_settings WHERE id = 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "xray_custom_rules!: String",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_custom_rules"
+          }
+        }
+      },
+      {
+        "name": "xray_rule_order!: String",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_rule_order"
+          }
+        }
+      },
+      {
+        "name": "xray_blocked_ips!: String",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_blocked_ips"
+          }
+        }
+      },
+      {
+        "name": "xray_blocked_domains!: String",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_blocked_domains"
+          }
+        }
+      },
+      {
+        "name": "xray_ipv4_domains!: String",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_ipv4_domains"
+          }
+        }
+      },
+      {
+        "name": "xray_block_bittorrent",
+        "ordinal": 5,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_block_bittorrent"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "58bb49d7bb3228f11bffb5b0259133f57b0f702916581354b3c7fb92c1e11c40"
+}

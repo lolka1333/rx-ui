@@ -32,7 +32,7 @@ use crate::xray::proto::xray::app::proxyman::command::{
 };
 use crate::xray::proto::xray::app::router::Config as RouterConfig;
 use crate::xray::proto::xray::app::router::command::{
-    AddRuleRequest, RemoveRuleRequest, routing_service_client::RoutingServiceClient,
+    AddRuleRequest, routing_service_client::RoutingServiceClient,
 };
 use crate::xray::proto::xray::app::stats::command::{
     GetAllOnlineUsersRequest, GetAllOnlineUsersResponse, QueryStatsRequest, QueryStatsResponse,
@@ -51,6 +51,79 @@ const TYPE_ROUTER_CONFIG: &str = "xray.app.router.Config";
 
 /// Default endpoint matching the API inbound in `build_bootstrap_config`.
 pub const DEFAULT_ENDPOINT: &str = "http://127.0.0.1:62789";
+
+/// Why a live routing push failed — the cases need opposite handling.
+pub enum RoutingPushError {
+    /// The RPC never reached xray (no channel). The live rule set is untouched,
+    /// so there is nothing to recover from — restarting would be pure downtime.
+    Undelivered(anyhow::Error),
+    /// The running xray has no `RoutingService`: it was started from a config
+    /// written before the panel began declaring that service. Its rules are
+    /// intact, but no push can ever land — retrying is pointless, and only a
+    /// restart on a regenerated config makes hot-apply work again.
+    Unsupported(anyhow::Error),
+    /// xray received the request and refused it. `AddRule(shouldAppend=false)`
+    /// clears the rule set BEFORE building the new one, so the live router is
+    /// now empty — including the api pin — and needs a restart to recover.
+    Rejected(anyhow::Error),
+}
+
+impl std::fmt::Display for RoutingPushError {
+    /// Every variant carries the same shape of detail — xray's status code and
+    /// message — and the caller logs it and hands it to the operator verbatim,
+    /// so the variant name would only get in the way.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Undelivered(e) | Self::Unsupported(e) | Self::Rejected(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl RoutingPushError {
+    /// What this failure means for the live process, as a pure decision so the
+    /// table can be tested without an xray. `None` = the live rules are intact,
+    /// leave the process alone. `Some((rules_wiped, cause))` = restart, where
+    /// `rules_wiped` says whether xray already cleared its rule set (which is
+    /// what forces a restart even when the config regen fails) and `cause` is
+    /// the operator-facing half.
+    ///
+    /// Both halves come out of one match so a future variant can't get a
+    /// recovery without a reason, or a reason that contradicts its recovery.
+    /// Both directions are expensive to get wrong, and both fail silently:
+    /// restarting on an undelivered push is downtime for a request that never
+    /// left the panel, while NOT restarting after a refusal leaves a router
+    /// with no rules at all — api pin included, so the control channel is gone.
+    pub const fn recovery(&self) -> Option<(bool, &'static str)> {
+        match self {
+            Self::Undelivered(_) => None,
+            Self::Unsupported(_) => Some((false, "the live xray has no RoutingService")),
+            Self::Rejected(_) => {
+                Some((true, "xray rejected the rule set, its router is now empty"))
+            }
+        }
+    }
+}
+
+/// Which `RoutingPushError` a gRPC status code maps to. Pure, and split from the
+/// RPC itself so the classification is testable — an xray that predates
+/// `RoutingService` and an xray that is simply unreachable both fail the call,
+/// but only one of them can be fixed by retrying.
+fn classify_push_code(code: tonic::Code) -> fn(anyhow::Error) -> RoutingPushError {
+    match code {
+        // The connection itself failed, so the call never reached a handler
+        // and the live rules are untouched — restarting would be downtime for
+        // nothing.
+        tonic::Code::Unavailable => RoutingPushError::Undelivered,
+        // xray's commander registers only the services its config lists, so
+        // this means the running process was started before we began declaring
+        // RoutingService. No retry can help; only a restart on a fresh config.
+        tonic::Code::Unimplemented => RoutingPushError::Unsupported,
+        // Anything else is ambiguous or an outright refusal, and xray clears
+        // the rule set BEFORE building the new one — so assume the router is
+        // empty and let the caller restart.
+        _ => RoutingPushError::Rejected,
+    }
+}
 
 /// gRPC client for `HandlerService`.
 ///
@@ -248,10 +321,16 @@ impl XrayClient {
     /// survive. `config` MUST be the complete ordered set (api pin + system +
     /// custom), since a full-replace wipes whatever was there — a partial set
     /// would sever the control channel or dangle referenced outbounds.
-    pub async fn replace_routing_rules(&self, config: RouterConfig) -> anyhow::Result<()> {
-        let channel = self.channel().await?;
+    pub async fn replace_routing_rules(
+        &self,
+        config: RouterConfig,
+    ) -> Result<(), RoutingPushError> {
+        let channel = self
+            .channel()
+            .await
+            .map_err(RoutingPushError::Undelivered)?;
         let mut client = RoutingServiceClient::new(channel);
-        client
+        let sent = client
             .add_rule(AddRuleRequest {
                 config: Some(TypedMessage {
                     r#type: TYPE_ROUTER_CONFIG.to_owned(),
@@ -259,28 +338,23 @@ impl XrayClient {
                 }),
                 should_append: false,
             })
-            .await
-            .map_err(|s| anyhow::anyhow!("xray add_rule failed: {} {}", s.code(), s.message()))?;
-        Ok(())
-    }
-
-    /// Remove a single routing rule by its `rule_tag` (the panel rule id).
-    pub async fn remove_routing_rule(&self, rule_tag: &str) -> anyhow::Result<()> {
-        let channel = self.channel().await?;
-        let mut client = RoutingServiceClient::new(channel);
-        client
-            .remove_rule(RemoveRuleRequest {
-                rule_tag: rule_tag.to_owned(),
-            })
-            .await
-            .map_err(|s| {
-                anyhow::anyhow!(
-                    "xray remove_rule({rule_tag}) failed: {} {}",
-                    s.code(),
-                    s.message()
-                )
-            })?;
-        Ok(())
+            .await;
+        let Err(status) = sent else {
+            return Ok(());
+        };
+        let detail = anyhow::anyhow!(
+            "xray add_rule failed: {} {}",
+            status.code(),
+            status.message()
+        );
+        let err = classify_push_code(status.code())(detail);
+        // Only a dead connection is worth redialling; on the other two the
+        // channel is healthy and dropping it would just cost the next call a
+        // 5s reconnect.
+        if matches!(err, RoutingPushError::Undelivered(_)) {
+            self.invalidate().await;
+        }
+        Err(err)
     }
 
     /// Pull every `user>>>*` counter in one RPC. xray's `GetUsersStats`
@@ -399,4 +473,64 @@ async fn connect_with_retry(endpoint: &str, total_timeout: Duration) -> anyhow::
         total_timeout,
         last_err
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn kind(code: tonic::Code) -> RoutingPushError {
+        classify_push_code(code)(anyhow::anyhow!("test"))
+    }
+
+    /// The two codes that mean something specific. Everything else has to fall
+    /// to `Rejected`: xray clears its rule set before it builds the new one, so
+    /// an unrecognised failure has to be assumed to have emptied the router.
+    #[test]
+    fn push_codes_map_to_their_recovery() {
+        assert!(matches!(
+            kind(tonic::Code::Unavailable),
+            RoutingPushError::Undelivered(_)
+        ));
+        assert!(matches!(
+            kind(tonic::Code::Unimplemented),
+            RoutingPushError::Unsupported(_)
+        ));
+        for code in [
+            tonic::Code::Unknown,
+            tonic::Code::Internal,
+            tonic::Code::InvalidArgument,
+            tonic::Code::Cancelled,
+            tonic::Code::DeadlineExceeded,
+            tonic::Code::PermissionDenied,
+        ] {
+            assert!(
+                matches!(kind(code), RoutingPushError::Rejected(_)),
+                "{code:?} must fail safe to Rejected"
+            );
+        }
+    }
+
+    /// The half that decides whether xray gets restarted. `Rejected` MUST carry
+    /// `rules_wiped = true`: that is what makes the recovery restart happen even
+    /// when the config regen fails, and without it the panel would keep a live
+    /// process whose router has no rules at all — api pin included, so the
+    /// control channel would be gone for good. The cause travels with the flag,
+    /// so a restart can't end up logged with the wrong explanation.
+    #[test]
+    fn recovery_matches_what_xray_did_to_the_rules() {
+        let e = || anyhow::anyhow!("test");
+        assert_eq!(RoutingPushError::Undelivered(e()).recovery(), None);
+
+        let (wiped, cause) = RoutingPushError::Unsupported(e()).recovery().unwrap();
+        assert!(
+            !wiped,
+            "nothing was wiped, so a failed regen must not restart"
+        );
+        assert!(cause.contains("RoutingService"), "{cause}");
+
+        let (wiped, cause) = RoutingPushError::Rejected(e()).recovery().unwrap();
+        assert!(wiped, "a refusal leaves the router empty and MUST restart");
+        assert!(cause.contains("rejected"), "{cause}");
+    }
 }

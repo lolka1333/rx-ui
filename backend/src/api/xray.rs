@@ -81,6 +81,7 @@ async fn install(
         .find(|r| r.tag == req.tag)
         .ok_or_else(|| AppError::BadRequest(format!("unknown release tag: {}", req.tag)))?;
 
+    let _apply = state.xray_apply.lock().await;
     let install_dir = state
         .xray
         .binary
@@ -103,12 +104,33 @@ async fn install(
         .map_err(AppError::Internal)?;
 
     if was_running {
-        // Bring xray back up with the new binary using the existing on-disk
-        // config. The panel no longer regenerates the config here — under the
-        // gRPC-based design the bootstrap config is static (just the API
-        // inbound + globals), and any user-facing inbounds get pushed to xray
-        // dynamically via HandlerService.AddInbound after start.
+        // Bring xray back up with the new binary. Regenerate the config first:
+        // it carries the routing rules, so starting on a stale file would
+        // revert whatever was applied since it was last written. A regen
+        // failure must not block the upgrade — start on the last-good config.
+        let mut regen_failure = None;
+        let has_ipv4 = match crate::xray::reload::write_bootstrap_config(&state).await {
+            Ok(v) => Some(v),
+            Err(e) => {
+                tracing::warn!("config regen before binary restart failed: {e:#}");
+                regen_failure = Some(format!("{e:#}"));
+                None
+            }
+        };
         state.xray.start().await.map_err(AppError::Internal)?;
+        let live_ipv4 = match has_ipv4 {
+            Some(v) => v,
+            None => crate::xray::reload::config_on_disk_has_ipv4(&state.xray.config_path).await,
+        };
+        crate::xray::reload::note_live_ipv4(&state, live_ipv4);
+        // Only when the config was actually regenerated: on a regen failure the
+        // process came up on the LAST-GOOD file, so the saved rules still aren't
+        // live and clearing the markers would hide that.
+        if let Some(cause) = regen_failure {
+            crate::xray::reload::note_routing_left_behind(&state, &cause).await;
+        } else {
+            crate::xray::reload::note_routing_in_sync(&state).await;
+        }
         // The new process starts with empty in-memory handlers and the
         // cached gRPC channel points at the old one — drop the channel and
         // re-push every enabled inbound so clients keep working without a
@@ -126,7 +148,44 @@ async fn start(
     _user: AuthUser,
     State(state): State<AppState>,
 ) -> AppResult<Json<serde_json::Value>> {
+    let _apply = state.xray_apply.lock().await;
+    // Regenerate the bootstrap config first: routing/Freedom settings saved
+    // while xray was stopped only reach the process through this file (the
+    // hot-apply path no-ops when it isn't running), so starting without it
+    // would come up on a stale config. A regen failure must NOT block the
+    // start though — `write_config_validated` leaves the last-good config.json
+    // in place, and refusing to start would strand the operator with a stopped
+    // xray they can't bring back up.
+    let mut regen_failure = None;
+    let has_ipv4 = match crate::xray::reload::write_bootstrap_config(&state).await {
+        Ok(v) => Some(v),
+        Err(e) => {
+            tracing::warn!("config regen before start failed; starting on last-good config: {e:#}");
+            regen_failure = Some(format!("{e:#}"));
+            None
+        }
+    };
     state.xray.start().await.map_err(AppError::Internal)?;
+    // Record what the process actually came up on: the config we just wrote,
+    // or — if the regen failed — whatever config.json it loaded instead.
+    let live_ipv4 = match has_ipv4 {
+        Some(v) => v,
+        None => crate::xray::reload::config_on_disk_has_ipv4(&state.xray.config_path).await,
+    };
+    crate::xray::reload::note_live_ipv4(&state, live_ipv4);
+    // The process just loaded the rules from the DB-generated config, so a save
+    // made while it was stopped is now live — drop the retry/stale markers. Not
+    // when the regen failed, though: then it came up on the last-good config and
+    // those rules are still only in the database.
+    if let Some(cause) = regen_failure {
+        // Skipping the clear isn't enough: if the markers happened to be clear
+        // (fresh panel process, or a hot apply that succeeded while config.json
+        // stayed behind by design) nothing would ever say the live process is
+        // running older rules, and every later save would read as a clean one.
+        crate::xray::reload::note_routing_left_behind(&state, &cause).await;
+    } else {
+        crate::xray::reload::note_routing_in_sync(&state).await;
+    }
     crate::resync_xray_state(&state).await;
     Ok(Json(serde_json::json!({ "started": true })))
 }
@@ -135,6 +194,11 @@ async fn stop(
     _user: AuthUser,
     State(state): State<AppState>,
 ) -> AppResult<Json<serde_json::Value>> {
+    // Same lock as start/restart/install: the kill runs outside the controller's
+    // write lock for up to 3s, and `start` gates only on the already-cleared
+    // child/pid — so an apply landing in that window would spawn a second xray
+    // on the still-held API port.
+    let _apply = state.xray_apply.lock().await;
     state.xray.stop().await.map_err(AppError::Internal)?;
     Ok(Json(serde_json::json!({ "stopped": true })))
 }
@@ -143,13 +207,20 @@ async fn restart(
     _user: AuthUser,
     State(state): State<AppState>,
 ) -> AppResult<Json<serde_json::Value>> {
+    let _apply = state.xray_apply.lock().await;
     // Regenerate the bootstrap config from current xray settings first, so a
     // Freedom/routing strategy change saved via /api/settings applies on this
     // restart (the live process reloads its config.json on start).
-    crate::xray::reload::write_bootstrap_config(&state)
+    // A regen failure is almost always the operator's own config — a geosite
+    // code with a typo, a rule xray won't build — so hand back what xray
+    // actually said. `AppError::Internal` renders as the bare word "internal",
+    // which leaves them with no way to find the broken rule.
+    let has_ipv4 = crate::xray::reload::write_bootstrap_config(&state)
         .await
-        .map_err(AppError::Internal)?;
+        .map_err(|e| AppError::BadRequest(format!("{e:#}")))?;
     state.xray.restart().await.map_err(AppError::Internal)?;
+    crate::xray::reload::note_live_ipv4(&state, has_ipv4);
+    crate::xray::reload::note_routing_in_sync(&state).await;
     crate::resync_xray_state(&state).await;
     Ok(Json(serde_json::json!({ "restarted": true })))
 }

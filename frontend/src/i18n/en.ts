@@ -84,6 +84,10 @@ export const en: Dict = {
     xrayRestartLater: 'Later',
     xrayRestarted: 'Xray restarted, settings applied',
     xrayRestartError: 'Failed to restart Xray',
+    xrayRoutingApplied: 'Routing rules applied, no restart needed',
+    xrayRoutingAppliedRestart: 'Routing rules applied — Xray was restarted',
+    xrayRoutingNotLive:
+      'Saved, but not applied to Xray — {{detail}}',
     xrayGroupRouting: 'Basic connections',
     xrayBlockBittorrent: 'Block BitTorrent',
     xrayBlockBittorrentHint:
@@ -153,7 +157,7 @@ export const en: Dict = {
     // Panel access section
     panelSection: 'Panel settings',
     panelSettingsHotHint:
-      'Changes apply instantly. After a port or prefix change the panel will redirect you to the new address.',
+      'Changes apply instantly. After a port or prefix change the panel moves to the new address and sends you there — unless there is a warning to read first, in which case it shows you the address.',
     panelPort: 'Port',
     panelPortHint:
       'TCP port the panel listens on. Must be 1–65535.',
@@ -166,6 +170,8 @@ export const en: Dict = {
     panelSaved: 'Settings saved',
     panelSavedHotRedirect:
       'Settings applied. Redirecting to {{url}}…',
+    panelSavedMoved:
+      'Settings applied. The panel has moved to {{url}} — open it to continue.',
     panelSaveError: 'Failed to save panel settings',
     // Active session row (lives under "Password & security")
     sectionSession: 'Current session',

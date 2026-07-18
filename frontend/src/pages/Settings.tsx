@@ -39,7 +39,7 @@ import {
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/api/client';
 import { apiErrorMessage } from '@/api/errors';
@@ -48,6 +48,8 @@ import { setLocaleAndReload, useLocale } from '@/stores/locale';
 import { LOCALES } from '@/i18n';
 import type { PanelSettings, RoutingRule } from '@/api/types';
 import { mergePanelSettings } from '@/lib/panelSettings';
+import { reportRouting } from '@/lib/routingReport';
+import type { RoutingApplyResult } from '@/lib/routingReport';
 import { RoutingRulesField } from '@/components/RoutingRulesField';
 
 type SectionKey = 'account' | 'access' | 'subscription' | 'xray' | 'tls';
@@ -90,7 +92,9 @@ interface SubscriptionFormValues {
 
 interface DirtyHandle {
   saving: boolean;
-  onSave: () => void;
+  /** Resolves when the save (and the settings refetch it triggers) is done,
+   *  so `saveAll` can sequence sections instead of racing them. */
+  onSave: () => Promise<void>;
   onDiscard: () => void;
 }
 
@@ -156,9 +160,30 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
     [],
   );
   const dirtyCount = Object.keys(dirtyHandles).length;
-  const anySaving = Object.values(dirtyHandles).some((h) => h?.saving);
-  const saveAll = useCallback(() => {
-    for (const h of Object.values(dirtyHandles)) h?.onSave();
+  const [savingAll, setSavingAll] = useState(false);
+  // Ref as well as state: two clicks in the same tick would both read the
+  // pre-render `savingAll === false`.
+  const savingAllRef = useRef(false);
+  // The per-section flag drops between sections (each clears its own dirty
+  // state as its request resolves), so on its own it would let a second click
+  // land mid-sequence and start a concurrent pass — the exact interleaving the
+  // sequential loop exists to prevent. `savingAll` spans the whole run.
+  const anySaving = savingAll || Object.values(dirtyHandles).some((h) => h?.saving);
+  const saveAll = useCallback(async () => {
+    if (savingAllRef.current) return;
+    savingAllRef.current = true;
+    setSavingAll(true);
+    try {
+      // Sequential, not concurrent: every section PUTs the WHOLE settings row,
+      // merging the fields it doesn't own from the cached copy. Fired together,
+      // the second save would build its payload from a pre-first-save snapshot
+      // and silently revert the first section's changes — including routing
+      // rules, which would then be pushed to the live router.
+      for (const h of Object.values(dirtyHandles)) await h?.onSave();
+    } finally {
+      savingAllRef.current = false;
+      setSavingAll(false);
+    }
   }, [dirtyHandles]);
   const discardAll = useCallback(() => {
     for (const h of Object.values(dirtyHandles)) h?.onDiscard();
@@ -605,17 +630,22 @@ function AccessSection({
       // PUT replaces the whole row; mergePanelSettings forwards every field
       // this section doesn't own (sub_* / xray_*) from the cache so saving the
       // port doesn't reset them.
-      const current = settingsQuery.data;
-      await apiClient.put(
+      // Read the cache at SEND time, not from the render closure: with two
+      // sections dirty, the second save would otherwise merge a snapshot
+      // taken before the first one landed and revert its fields.
+      const current =
+        qc.getQueryData<PanelSettings>(['panel-settings']) ?? settingsQuery.data;
+      const res = await apiClient.put<RoutingApplyResult>(
         '/settings/panel',
         mergePanelSettings(current, {
           panel_port: values.panel_port,
           panel_base_path: values.panel_base_path,
         }),
       );
-      return values;
+      return { values, routing: res.data ?? {} };
     },
-    onSuccess: (values) => {
+    onSuccess: ({ values, routing }) => {
+      const report = reportRouting(routing, message, t);
       // Compare against the panel's real old port (from the backend), not the
       // browser's — under a proxy/tunnel they differ, and using the browser
       // port made an unchanged save look like a port change.
@@ -631,14 +661,29 @@ function AccessSection({
         // is served at the no-slash form and the injected <base href> handles
         // relative resolution. Root collapses to `/`.
         const newUrl = `${window.location.protocol}//${window.location.hostname}:${values.panel_port}${normalisedPath || '/'}`;
+        // Don't auto-navigate on top of a routing warning: the reload takes it
+        // off screen after 2.5s and the operator never learns their rules aren't
+        // live. But then the copy has to change too — the listener has ALREADY
+        // moved, so promising a redirect that isn't coming would leave them
+        // waiting on a page whose address no longer serves the panel.
         message.success({
-          content: t('settings.panelSavedHotRedirect', { url: newUrl }),
-          duration: 6,
+          // antd message notices have no close affordance of their own, so the
+          // never-expiring variant gets a click handler — otherwise it sits over
+          // the page until a reload.
+          key: 'panel-moved',
+          onClick: () => message.destroy('panel-moved'),
+          content:
+            report === 'clean'
+              ? t('settings.panelSavedHotRedirect', { url: newUrl })
+              : t('settings.panelSavedMoved', { url: newUrl }),
+          duration: report === 'clean' ? 6 : 0,
         });
-        window.setTimeout(() => {
-          window.location.href = newUrl;
-        }, 2500);
-      } else {
+        if (report === 'clean') {
+          window.setTimeout(() => {
+            window.location.href = newUrl;
+          }, 2500);
+        }
+      } else if (report === 'clean') {
         message.success(t('settings.panelSaved'));
       }
     },
@@ -646,12 +691,32 @@ function AccessSection({
       message.error(apiErrorMessage(err) ?? t('settings.panelSaveError')),
   });
 
+  // A ref, not a dep: `mutation` is a fresh object every render, so capturing
+  // it in the publish effect below would republish the handle on every render
+  // — which feeds back through onDirtyChange into another render. (`qc` is
+  // stable, so that one can just be a dep.)
+  const saveRef = useRef(mutation.mutateAsync);
+  useEffect(() => {
+    saveRef.current = mutation.mutateAsync;
+  });
+
   useEffect(() => {
     onDirtyChange(
       dirty
         ? {
             saving: mutation.isPending,
-            onSave: () => form.submit(),
+            // Awaitable so `saveAll` can run sections one at a time. Same path
+            // `onFinish` takes (validate, then the section's own mutation) —
+            // the invalidated query is awaited too, so the next section's
+            // payload merges post-save data. Errors are already surfaced by
+            // the field validation and the mutation's onError.
+            onSave: () =>
+              form
+                .validateFields()
+                .then((v) => saveRef.current(v))
+                .then(() => qc.invalidateQueries({ queryKey: ['panel-settings'] }))
+                .then(() => undefined)
+                .catch(() => undefined),
             onDiscard: () => {
               form.resetFields();
               setDirty(false);
@@ -659,7 +724,7 @@ function AccessSection({
           }
         : null,
     );
-  }, [dirty, mutation.isPending, form, onDirtyChange]);
+  }, [dirty, mutation.isPending, form, onDirtyChange, qc]);
 
   // `settingsQuery.data` lands a moment after the /api/settings/panel
   // response. Skip the form entirely until then — no skeleton, no
@@ -762,8 +827,12 @@ function TlsSection({
       // PUT replaces the whole row; mergePanelSettings forwards every field this
       // section doesn't own. The key is sent only when the operator pasted one
       // (empty ≡ the backend keeps the stored key).
-      const current = settingsQuery.data;
-      await apiClient.put(
+      // Read the cache at SEND time, not from the render closure: with two
+      // sections dirty, the second save would otherwise merge a snapshot
+      // taken before the first one landed and revert its fields.
+      const current =
+        qc.getQueryData<PanelSettings>(['panel-settings']) ?? settingsQuery.data;
+      const res = await apiClient.put<RoutingApplyResult>(
         '/settings/panel',
         mergePanelSettings(current, {
           panel_tls_enabled: values.panel_tls_enabled,
@@ -771,9 +840,10 @@ function TlsSection({
           panel_tls_key: values.panel_tls_key?.trim() ?? '',
         }),
       );
-      return values;
+      return { values, routing: res.data ?? {} };
     },
-    onSuccess: (values) => {
+    onSuccess: ({ values, routing }) => {
+      const report = reportRouting(routing, message, t);
       // Only offer the restart when something TLS-relevant actually moved —
       // toggling HTTPS, swapping the cert, or pasting a new key.
       const old = settingsQuery.data;
@@ -788,7 +858,7 @@ function TlsSection({
       // it isn't re-sent or left on screen.
       form.setFieldValue('panel_tls_key', '');
       if (!tlsChanged || old == null) {
-        message.success(t('settings.panelSaved'));
+        if (report === 'clean') message.success(t('settings.panelSaved'));
         return;
       }
       // TLS binds at process start, so the change lands only after a restart.
@@ -818,12 +888,32 @@ function TlsSection({
       message.error(apiErrorMessage(err) ?? t('settings.panelSaveError')),
   });
 
+  // A ref, not a dep: `mutation` is a fresh object every render, so capturing
+  // it in the publish effect below would republish the handle on every render
+  // — which feeds back through onDirtyChange into another render. (`qc` is
+  // stable, so that one can just be a dep.)
+  const saveRef = useRef(mutation.mutateAsync);
+  useEffect(() => {
+    saveRef.current = mutation.mutateAsync;
+  });
+
   useEffect(() => {
     onDirtyChange(
       dirty
         ? {
             saving: mutation.isPending,
-            onSave: () => form.submit(),
+            // Awaitable so `saveAll` can run sections one at a time. Same path
+            // `onFinish` takes (validate, then the section's own mutation) —
+            // the invalidated query is awaited too, so the next section's
+            // payload merges post-save data. Errors are already surfaced by
+            // the field validation and the mutation's onError.
+            onSave: () =>
+              form
+                .validateFields()
+                .then((v) => saveRef.current(v))
+                .then(() => qc.invalidateQueries({ queryKey: ['panel-settings'] }))
+                .then(() => undefined)
+                .catch(() => undefined),
             onDiscard: () => {
               form.resetFields();
               setDirty(false);
@@ -831,7 +921,7 @@ function TlsSection({
           }
         : null,
     );
-  }, [dirty, mutation.isPending, form, onDirtyChange]);
+  }, [dirty, mutation.isPending, form, onDirtyChange, qc]);
 
   const data = settingsQuery.data;
   return (
@@ -980,8 +1070,12 @@ function SubscriptionSection({
     mutationFn: async (values: SubscriptionFormValues) => {
       // PUT replaces the whole row; mergePanelSettings forwards the panel /
       // xray fields from the cache so a subscription save doesn't clobber them.
-      const current = settingsQuery.data;
-      await apiClient.put(
+      // Read the cache at SEND time, not from the render closure: with two
+      // sections dirty, the second save would otherwise merge a snapshot
+      // taken before the first one landed and revert its fields.
+      const current =
+        qc.getQueryData<PanelSettings>(['panel-settings']) ?? settingsQuery.data;
+      const res = await apiClient.put<RoutingApplyResult>(
         '/settings/panel',
         mergePanelSettings(current, {
           sub_enabled: values.sub_enabled,
@@ -1000,8 +1094,10 @@ function SubscriptionSection({
           sub_key_pem: values.sub_key_pem?.trim() ?? '',
         }),
       );
+      return res.data ?? {};
     },
-    onSuccess: () => {
+    onSuccess: (routing) => {
+      const report = reportRouting(routing, message, t);
       // Clear the key input after save (like TlsSection): the key is now stored,
       // and the form only re-inits when sub_key_set flips — replacing an
       // already-stored key wouldn't otherwise reset the textarea, leaving the
@@ -1009,10 +1105,19 @@ function SubscriptionSection({
       form.setFieldValue('sub_key_pem', '');
       qc.invalidateQueries({ queryKey: ['panel-settings'] });
       setDirty(false);
-      message.success(t('settings.subscriptionSaved'));
+      if (report === 'clean') message.success(t('settings.subscriptionSaved'));
     },
     onError: (err: unknown) =>
       message.error(apiErrorMessage(err) ?? t('settings.subscriptionSaveError')),
+  });
+
+  // A ref, not a dep: `mutation` is a fresh object every render, so capturing
+  // it in the publish effect below would republish the handle on every render
+  // — which feeds back through onDirtyChange into another render. (`qc` is
+  // stable, so that one can just be a dep.)
+  const saveRef = useRef(mutation.mutateAsync);
+  useEffect(() => {
+    saveRef.current = mutation.mutateAsync;
   });
 
   useEffect(() => {
@@ -1020,7 +1125,18 @@ function SubscriptionSection({
       dirty
         ? {
             saving: mutation.isPending,
-            onSave: () => form.submit(),
+            // Awaitable so `saveAll` can run sections one at a time. Same path
+            // `onFinish` takes (validate, then the section's own mutation) —
+            // the invalidated query is awaited too, so the next section's
+            // payload merges post-save data. Errors are already surfaced by
+            // the field validation and the mutation's onError.
+            onSave: () =>
+              form
+                .validateFields()
+                .then((v) => saveRef.current(v))
+                .then(() => qc.invalidateQueries({ queryKey: ['panel-settings'] }))
+                .then(() => undefined)
+                .catch(() => undefined),
             onDiscard: () => {
               form.resetFields();
               setDirty(false);
@@ -1028,7 +1144,7 @@ function SubscriptionSection({
           }
         : null,
     );
-  }, [dirty, mutation.isPending, form, onDirtyChange]);
+  }, [dirty, mutation.isPending, form, onDirtyChange, qc]);
 
   const data = settingsQuery.data;
   return (
@@ -1440,8 +1556,15 @@ function XraySection({
     mutationFn: async (values: XrayFormValues) => {
       // PUT replaces the whole row; mergePanelSettings forwards the panel /
       // subscription fields from the cache so saving xray doesn't reset them.
-      const current = settingsQuery.data;
-      await apiClient.put(
+      // Read the cache at SEND time, not from the render closure: with two
+      // sections dirty, the second save would otherwise merge a snapshot
+      // taken before the first one landed and revert its fields.
+      const current =
+        qc.getQueryData<PanelSettings>(['panel-settings']) ?? settingsQuery.data;
+      // The response says whether the LIVE router actually took the rules —
+      // the row is saved either way, so a save that didn't reach xray still
+      // succeeds at the HTTP level and would otherwise look like it worked.
+      const res = await apiClient.put<RoutingApplyResult>(
         '/settings/panel',
         mergePanelSettings(current, {
           xray_freedom_strategy: values.xray_freedom_strategy,
@@ -1455,20 +1578,25 @@ function XraySection({
           xray_rule_order: values.xray_rule_order,
         }),
       );
-      return values;
+      return { values, routing: res.data ?? {} };
     },
-    onSuccess: (values) => {
-      // Strategies + routing rules live in the xray config and need a restart
-      // to apply; the test URL is store-only. Offer the restart only when a
-      // config-affecting field actually moved.
+    onSuccess: ({ values, routing }) => {
+      // Two different kinds of xray-affecting field, and they must not share a
+      // prompt. The rule fields are pushed into the LIVE router by the save
+      // itself (the backend's `routing_fields_changed` gate covers exactly the
+      // six below), so asking for a restart there would drop every connection
+      // to apply what is already applied. The strategies live in the config
+      // file and genuinely only take effect on the next load.
       const old = settingsQuery.data;
       const sameList = (a: string[], b: string[] | undefined) =>
         JSON.stringify(a) === JSON.stringify(b ?? []);
-      const xrayConfigChanged =
+      const restartNeeded =
         old != null &&
         (values.xray_freedom_strategy !== old.xray_freedom_strategy ||
-          values.xray_routing_strategy !== old.xray_routing_strategy ||
-          values.xray_block_bittorrent !== old.xray_block_bittorrent ||
+          values.xray_routing_strategy !== old.xray_routing_strategy);
+      const appliedLive =
+        old != null &&
+        (values.xray_block_bittorrent !== old.xray_block_bittorrent ||
           !sameList(values.xray_blocked_ips, old.xray_blocked_ips) ||
           !sameList(values.xray_blocked_domains, old.xray_blocked_domains) ||
           !sameList(values.xray_ipv4_domains, old.xray_ipv4_domains) ||
@@ -1478,7 +1606,15 @@ function XraySection({
             JSON.stringify(old.xray_rule_order ?? []));
       qc.invalidateQueries({ queryKey: ['panel-settings'] });
       setDirty(false);
-      if (xrayConfigChanged) {
+      // First and unconditionally: strategy fields and rule fields share this
+      // form and this button, so a save can both need a restart and have failed
+      // to reach the live router. Reporting only one would drop the message the
+      // operator can actually act on.
+      const report = reportRouting(routing, message, t);
+      // Don't prompt when the backend already bounced xray: it regenerated the
+      // config from the DB, so the strategy change came up with it and a second
+      // outage would buy nothing.
+      if (restartNeeded && !routing.routing_restarted) {
         modal.confirm({
           title: t('settings.xrayRestartTitle'),
           content: t('settings.xrayRestartBody'),
@@ -1494,12 +1630,25 @@ function XraySection({
             }
           },
         });
-      } else {
-        message.success(t('settings.panelSaved'));
+      } else if (report === 'clean') {
+        // Only claim success when the reporter didn't already say otherwise —
+        // it owns both the not-live warning and the restart notice.
+        message.success(
+          appliedLive ? t('settings.xrayRoutingApplied') : t('settings.panelSaved'),
+        );
       }
     },
     onError: (err: unknown) =>
       message.error(apiErrorMessage(err) ?? t('settings.panelSaveError')),
+  });
+
+  // A ref, not a dep: `mutation` is a fresh object every render, so capturing
+  // it in the publish effect below would republish the handle on every render
+  // — which feeds back through onDirtyChange into another render. (`qc` is
+  // stable, so that one can just be a dep.)
+  const saveRef = useRef(mutation.mutateAsync);
+  useEffect(() => {
+    saveRef.current = mutation.mutateAsync;
   });
 
   useEffect(() => {
@@ -1507,7 +1656,18 @@ function XraySection({
       dirty
         ? {
             saving: mutation.isPending,
-            onSave: () => form.submit(),
+            // Awaitable so `saveAll` can run sections one at a time. Same path
+            // `onFinish` takes (validate, then the section's own mutation) —
+            // the invalidated query is awaited too, so the next section's
+            // payload merges post-save data. Errors are already surfaced by
+            // the field validation and the mutation's onError.
+            onSave: () =>
+              form
+                .validateFields()
+                .then((v) => saveRef.current(v))
+                .then(() => qc.invalidateQueries({ queryKey: ['panel-settings'] }))
+                .then(() => undefined)
+                .catch(() => undefined),
             onDiscard: () => {
               form.resetFields();
               setDirty(false);
@@ -1515,7 +1675,7 @@ function XraySection({
           }
         : null,
     );
-  }, [dirty, mutation.isPending, form, onDirtyChange]);
+  }, [dirty, mutation.isPending, form, onDirtyChange, qc]);
 
   // "Test outbound": the server fetches the current URL field value through
   // its own egress (the same path xray's freedom outbound uses) and reports

@@ -30,7 +30,7 @@ use std::{
     str::FromStr,
     sync::{
         Arc,
-        atomic::{AtomicU16, Ordering},
+        atomic::{AtomicBool, AtomicU16, Ordering},
     },
 };
 use tokio::sync::{RwLock, oneshot};
@@ -73,6 +73,33 @@ pub struct AppState {
     /// Shutdown handle for the sub-only listener task. `None` when
     /// `current_sub_port == 0`; populated after a successful spawn.
     pub sub_listener_shutdown: Arc<RwLock<Option<oneshot::Sender<()>>>>,
+    /// Serialises everything that applies config to xray or (re)starts the
+    /// process: the hot routing path, its recovery restart, and the /xray
+    /// start|restart|install handlers. Without it two callers can interleave a
+    /// stop with a start (spawning a second process on the still-held API port)
+    /// or race each other's config writes.
+    pub xray_apply: Arc<tokio::sync::Mutex<()>>,
+    /// Whether the config xray was last (re)started with carried the
+    /// `direct-ipv4` outbound. Only the bootstrap config creates it, so the
+    /// hot routing path uses this to tell "the live process already has it"
+    /// (push a rule targeting it) from "it doesn't yet" (restart instead of
+    /// pushing a rule with no outbound behind it). Set by
+    /// `reload::write_bootstrap_config`, which runs before every start.
+    pub live_ipv4_outbound: Arc<AtomicBool>,
+    /// Set when a routing push failed for a reason that may clear up on its own
+    /// (xray down, unreachable, a DB blip). The settings handler pushes again on
+    /// the next save even if nothing routing-related changed, so the operator's
+    /// obvious recovery — hit Save again — isn't a silent no-op. Deliberately
+    /// NOT set for a rule set xray refuses to build: re-pushing that costs a
+    /// recovery restart every time, so it waits for the operator to edit it.
+    pub routing_out_of_sync: Arc<AtomicBool>,
+    /// Why the live router is out of step with the DB, or `None` when it is in
+    /// step. Separate from the flag above because the two answer different
+    /// questions: that one is "push again?", this one is "is the router stale?".
+    /// A rule xray refuses answers no to the first and yes to the second, and
+    /// collapsing them into one bool is how a stale router goes back to being
+    /// reported as a clean save.
+    pub routing_stale: Arc<RwLock<Option<String>>>,
 }
 
 impl FromRef<AppState> for DbPool {
@@ -189,6 +216,10 @@ async fn main() -> anyhow::Result<()> {
         current_port: Arc::new(AtomicU16::new(port)),
         listener_shutdown: Arc::new(RwLock::new(None)),
         current_sub_port: Arc::new(AtomicU16::new(0)),
+        live_ipv4_outbound: Arc::new(AtomicBool::new(false)),
+        routing_out_of_sync: Arc::new(AtomicBool::new(false)),
+        routing_stale: Arc::new(RwLock::new(None)),
+        xray_apply: Arc::new(tokio::sync::Mutex::new(())),
         sub_listener_shutdown: Arc::new(RwLock::new(None)),
     };
 
@@ -196,7 +227,11 @@ async fn main() -> anyhow::Result<()> {
     // one. Failure here is logged but does not abort the panel — login still
     // works and the operator can diagnose via `/api/logs` and `/api/xray/*`.
     if let Err(e) = xray::reload::bootstrap(&state).await {
-        tracing::warn!("xray bootstrap skipped: {e}");
+        // `{e:#}` walks the chain: the config writer frames its IO errors with
+        // what it was doing, and the plain form would print only that framing —
+        // on the boot path, where xray never came up, the OS cause is the whole
+        // answer.
+        tracing::warn!("xray bootstrap skipped: {e:#}");
     }
 
     // Start the per-user traffic + online poll. Runs every 5 s,
@@ -230,6 +265,14 @@ async fn main() -> anyhow::Result<()> {
     // doesn't delay the HTTP listener coming up.
     let reconcile_state = state.clone();
     tokio::spawn(async move {
+        // Same gate the /xray handlers and the hot routing push take: on the
+        // attach path `bootstrap` spawns a routing apply that can end in a
+        // restart, and pushing inbounds into a process being killed would lose
+        // them. Holding it here makes the two boot tasks take turns — whichever
+        // runs second sees a settled process. (`rebuild_and_restart` ends with
+        // its own `resync_xray_state`, so a restart that wins the race still
+        // leaves the inbounds pushed.)
+        let _apply = reconcile_state.xray_apply.lock().await;
         if let Err(e) = reconcile_inbounds_with_xray(&reconcile_state).await {
             tracing::error!("xray reconciliation failed: {e}");
         }
@@ -495,6 +538,16 @@ fn resolve_or_generate_jwt_secret(data_dir: &std::path::Path) -> anyhow::Result<
 /// the other inbounds from coming up. The operator sees the error in
 /// `/api/logs` and can fix or delete the bad row.
 pub(crate) async fn reconcile_inbounds_with_xray(state: &AppState) -> anyhow::Result<()> {
+    // Pushing handlers into a process that isn't there is not just useless, it's
+    // slow in the worst way: a failed dial is never cached, so every RPC pays
+    // the full 5s `connect_with_retry` budget — two per row. On a panel with a
+    // dozen inbounds that's minutes, and callers hold `xray_apply` across this,
+    // which would leave the operator's Start button queued behind it exactly
+    // when xray is down. Skip; whatever brings xray up next re-runs the push.
+    if !state.xray.status().await.running {
+        tracing::info!("xray not running, skipping inbound reconcile until it starts");
+        return Ok(());
+    }
     let rows = sqlx::query!(
         r#"SELECT id, tag, enabled, listen, port,
                   protocol_config, transport_config, security_config, sniffing_config,

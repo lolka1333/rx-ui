@@ -90,8 +90,8 @@ fn system_rule_proto(token: &str, s: &BootstrapSettings) -> anyhow::Result<Optio
 }
 
 /// One operator rule as an xray routing rule — mirrors `config_gen::custom_rule`
-/// (empty matchers omitted). `rule_tag` carries the panel id so a future
-/// single-rule `RemoveRule` can target it.
+/// (empty matchers omitted). `rule_tag` carries the panel id (shows up in
+/// `ListRule`, aids debugging).
 fn custom_rule_proto(r: &RoutingRule) -> anyhow::Result<PbRule> {
     Ok(PbRule {
         rule_tag: r.id.clone(),
@@ -110,8 +110,10 @@ fn custom_rule_proto(r: &RoutingRule) -> anyhow::Result<PbRule> {
 }
 
 /// Parse an xray port spec (`"443"`, `"1000-2000"`, `"80,443,8080-8090"`) into
-/// a `PortList`. `None` for an empty spec so the matcher is omitted.
-fn parse_port_list(spec: &str) -> anyhow::Result<Option<PortList>> {
+/// a `PortList`. `None` for an empty spec so the matcher is omitted. Also used
+/// by the settings validator so a bad spec is a 400 at save time rather than a
+/// hot-push failure that falls back to a restart.
+pub fn parse_port_list(spec: &str) -> anyhow::Result<Option<PortList>> {
     let mut ranges = Vec::new();
     for part in spec.split(',') {
         let part = part.trim();
@@ -124,7 +126,9 @@ fn parse_port_list(spec: &str) -> anyhow::Result<Option<PortList>> {
             let p = parse_port(part)?;
             (p, p)
         };
-        anyhow::ensure!(from <= to, "invalid port range (from > to): {part}");
+        // No from<=to check: xray tolerates a reversed range (harmless
+        // never-match), and rejecting here would disagree with the bootstrap
+        // JSON path and force a needless restart.
         ranges.push(PortRange { from, to });
     }
     Ok((!ranges.is_empty()).then_some(PortList { range: ranges }))
@@ -135,7 +139,8 @@ fn parse_port(s: &str) -> anyhow::Result<u32> {
         .trim()
         .parse()
         .map_err(|_| anyhow::anyhow!("invalid port: {s}"))?;
-    anyhow::ensure!((1..=65535).contains(&p), "port out of range: {p}");
+    // xray allows 0 (only rejects >65535); match it so hot and bootstrap agree.
+    anyhow::ensure!(p <= 65535, "port out of range: {p}");
     Ok(p)
 }
 
@@ -244,6 +249,48 @@ mod tests {
         assert_eq!(cr.user_email, vec!["a@b"]);
         assert_eq!(cr.inbound_tag, vec!["RU-XHTTP"]);
         assert_eq!(cr.target_tag, Some(TargetTag::Tag("de-out".to_owned())));
+    }
+
+    /// The JSON bootstrap emitter (restart path) and this proto emitter (hot
+    /// path) are hand-kept mirrors, and a rule must behave identically either
+    /// way. Guard that invariant: same rule count, same targets, same order.
+    #[test]
+    fn proto_and_json_emit_the_same_rule_sequence() {
+        let mut r1 = rule("r1", "blocked");
+        r1.domain = vec!["geosite:category-ads-all".to_owned()];
+        let mut r2 = rule("r2", "direct");
+        r2.ip = vec!["geoip:ru".to_owned()];
+        r2.port = "443".to_owned();
+        let mut s = settings(vec![r1, r2], &["api", "bittorrent", "r1", "r2"]);
+        s.block_bittorrent = true;
+        s.blocked_domains = vec!["ads.example.com".to_owned()];
+        s.blocked_ips = vec!["10.0.0.0/8".to_owned()];
+
+        let proto = build_router_config(&s).unwrap();
+        let json = crate::xray::config_gen::build_bootstrap_config(&s);
+        let json_rules = json["routing"]["rules"].as_array().unwrap();
+
+        assert_eq!(
+            proto.rule.len(),
+            json_rules.len(),
+            "hot and restart paths must emit the same number of rules"
+        );
+        let proto_targets: Vec<&str> = proto
+            .rule
+            .iter()
+            .map(|r| match &r.target_tag {
+                Some(TargetTag::Tag(t)) => t.as_str(),
+                _ => "",
+            })
+            .collect();
+        let json_targets: Vec<&str> = json_rules
+            .iter()
+            .map(|r| r["outboundTag"].as_str().unwrap_or(""))
+            .collect();
+        assert_eq!(
+            proto_targets, json_targets,
+            "rule order/targets must match (first-match-wins depends on it)"
+        );
     }
 
     #[test]

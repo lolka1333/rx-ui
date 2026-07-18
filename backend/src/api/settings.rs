@@ -14,7 +14,8 @@
 //!   old listener down, wait a short beat for the OS to release the socket
 //!   (Windows otherwise returns EADDRINUSE on the immediate re-bind), then
 //!   bind a freshly-built router on the same port. A ~100ms unbound
-//!   window; the UI's redirect-after-save reconnects.
+//!   window; the UI reconnects — by redirecting after the save, or, when it has
+//!   a routing warning to show first, by handing the operator the new address.
 
 use crate::{
     AppState,
@@ -140,7 +141,7 @@ async fn update_panel(
     _user: AuthUser,
     State(state): State<AppState>,
     Json(body): Json<PanelSettingsUpdate>,
-) -> AppResult<StatusCode> {
+) -> AppResult<Json<serde_json::Value>> {
     let NormalizedPanel {
         new_port,
         base_path: normalised,
@@ -171,6 +172,20 @@ async fn update_panel(
     // incoming one is blank — same convention as the panel cert above.
     let (sub_tls_mode, sub_cert, sub_key, sub_tls_changed) =
         resolve_sub_tls(&state.db, &body).await?;
+
+    // Snapshot routing-relevant fields BEFORE the UPDATE, so we only hot-apply
+    // routing when it actually changed. An unrelated save (brand / TLS / sub
+    // port) must not touch the live router or risk a recovery restart.
+    let routing_changed = routing_fields_changed(
+        &state.db,
+        &custom_rules_json,
+        &rule_order_json,
+        &xray_blocked_ips,
+        &xray_blocked_domains,
+        &xray_ipv4_domains,
+        xray_block_bittorrent,
+    )
+    .await?;
 
     let sub_enabled_i = i64::from(body.sub_enabled);
     let xray_bittorrent_i = i64::from(xray_block_bittorrent);
@@ -230,11 +245,87 @@ async fn update_panel(
     .execute(&state.db)
     .await?;
 
-    apply_listener_changes(&state, &body, new_port, &normalised, sub_tls_changed).await?;
+    // Hot-apply the just-persisted routing rules (no restart) — only when they
+    // actually changed; see docs on hot_apply_routing. Done BEFORE the listener
+    // rebind: the UPDATE has already committed and routing doesn't depend on
+    // listener state, so a rebind failure must not strand the rule change (the
+    // change-gate would see no delta on the operator's retry).
+    // Re-push when a previous attempt left the router out of step, even if this
+    // save changes nothing routing-related: without it the operator's retry is
+    // silently a no-op.
+    let routing_changed = routing_changed || state.routing_out_of_sync.load(Ordering::Relaxed);
+    let routing = if routing_changed {
+        Some(crate::xray::reload::hot_apply_routing(&state).await)
+    } else {
+        None
+    };
 
-    // Hot-apply the just-persisted routing rules (no restart); see docs there.
-    crate::xray::reload::hot_apply_routing(&state).await;
-    Ok(StatusCode::NO_CONTENT)
+    apply_listener_changes(&state, &body, new_port, &normalised, sub_tls_changed).await?;
+    // When this save didn't push, the router can still be stale from an earlier
+    // one that failed in a way not worth retrying — report that rather than let
+    // the save read as clean.
+    let lingering = state.routing_stale.read().await.clone();
+    Ok(Json(routing_body(routing, lingering)))
+}
+
+/// Report what happened to the live router. The row is committed either way, so
+/// this is never an error status — but it must not read as "done" when the
+/// running xray never took the rules, which is all the UI has to go on.
+fn routing_body(
+    routing: Option<crate::xray::reload::RoutingApply>,
+    lingering: Option<String>,
+) -> serde_json::Value {
+    // Nothing pushed this time: still say so if a previous attempt left the
+    // router behind the DB. Silence here is what makes a stale router look like
+    // a clean save on every subsequent edit.
+    let Some(applied) = routing else {
+        return lingering.map_or_else(
+            || serde_json::json!({}),
+            |detail| serde_json::json!({ "routing_live": false, "routing_detail": detail }),
+        );
+    };
+    applied.detail().map_or_else(
+        // Live — but say whether it cost a restart, so the UI can't tell an
+        // operator "no restart needed" right after their tunnels dropped.
+        || {
+            serde_json::json!({
+                "routing_live": true,
+                "routing_restarted": applied.dropped_connections(),
+            })
+        },
+        |detail| serde_json::json!({ "routing_live": false, "routing_detail": detail }),
+    )
+}
+
+/// Whether a settings update touches anything the router cares about (rules,
+/// order, block/ipv4 lists, bittorrent), compared against the currently-stored
+/// values. Lets the caller skip the live-router push on unrelated saves.
+async fn routing_fields_changed(
+    db: &crate::db::DbPool,
+    custom_rules_json: &str,
+    rule_order_json: &str,
+    blocked_ips: &str,
+    blocked_domains: &str,
+    ipv4_domains: &str,
+    block_bittorrent: bool,
+) -> AppResult<bool> {
+    let old = sqlx::query!(
+        r#"SELECT xray_custom_rules AS "xray_custom_rules!: String",
+                  xray_rule_order AS "xray_rule_order!: String",
+                  xray_blocked_ips AS "xray_blocked_ips!: String",
+                  xray_blocked_domains AS "xray_blocked_domains!: String",
+                  xray_ipv4_domains AS "xray_ipv4_domains!: String",
+                  xray_block_bittorrent
+             FROM panel_settings WHERE id = 1"#
+    )
+    .fetch_one(db)
+    .await?;
+    Ok(old.xray_custom_rules != custom_rules_json
+        || old.xray_rule_order != rule_order_json
+        || old.xray_blocked_ips != blocked_ips
+        || old.xray_blocked_domains != blocked_domains
+        || old.xray_ipv4_domains != ipv4_domains
+        || (old.xray_block_bittorrent != 0) != block_bittorrent)
 }
 
 /// Rebind the sub + panel listeners after a settings write. The sub listener
@@ -601,7 +692,8 @@ const MAX_ENTRY_LEN: usize = 256;
 /// reject control chars / internal whitespace — matcher tokens (domains,
 /// CIDRs, `geoip:`/`geosite:` labels, ports) never contain spaces. Blank
 /// entries are tolerated (callers drop them). The real syntax check is the
-/// `xray run -test` run before the config is swapped in.
+/// router-config builder on the hot-apply path, or `xray run -test` on the
+/// restart path.
 fn validate_list_entries(field: &str, list: &[String]) -> AppResult<()> {
     if list.len() > MAX_LIST_ENTRIES {
         return Err(AppError::BadRequest(format!(
@@ -679,10 +771,162 @@ async fn valid_rule_targets(
     Ok(set)
 }
 
+/// Trim entries and drop blanks from a matcher list. Both rule emitters must
+/// see identical tokens: a blank entry is a match-everything `Substr("")` to
+/// xray's JSON parser but a hard error to the proto builder.
+fn clean_entries(v: &[String]) -> Vec<String> {
+    v.iter()
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// Parse a port spec and return it CANONICALISED ("443", "1024-65535", joined by
+/// commas) plus whether it yields any range at all. Storing the canonical form
+/// keeps the JSON bootstrap and proto hot-apply paths byte-identical: xray's own
+/// JSON parser does not trim around a range dash, so "1024 - 65535" would parse
+/// here and be rejected by xray, silently blocking every later config write.
+fn canonical_port_spec(field: &str, spec: &str, rule_name: &str) -> AppResult<(String, bool)> {
+    let list = crate::xray::router_rules::parse_port_list(spec).map_err(|e| {
+        AppError::BadRequest(format!(
+            "custom rule '{rule_name}': invalid {field} '{spec}' ({e})"
+        ))
+    })?;
+    let Some(list) = list else {
+        return Ok((String::new(), false));
+    };
+    let text = list
+        .range
+        .iter()
+        .map(|r| {
+            if r.from == r.to {
+                r.from.to_string()
+            } else {
+                format!("{}-{}", r.from, r.to)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    Ok((text, true))
+}
+
+/// Validate one operator rule and return it normalised (entries trimmed, blanks
+/// dropped, ports canonicalised) — the form both emitters serialise and read, so
+/// the JSON bootstrap and proto hot-apply paths always see identical tokens.
+fn validate_and_clean_rule(
+    r: &RoutingRule,
+    valid_targets: &std::collections::HashSet<String>,
+) -> AppResult<RoutingRule> {
+    let id = r.id.trim();
+    if id.is_empty() {
+        return Err(AppError::BadRequest(
+            "custom rule id must not be empty".to_owned(),
+        ));
+    }
+    // Rule ids share the `rule_order` namespace with the system tokens, and
+    // both emitters match the system arm first — an id like "ipv4" would make
+    // the operator's rule silently vanish. Same size/control guard the order
+    // tokens get; the id also ships as the proto rule_tag.
+    if crate::xray::config_gen::SYSTEM_TOKENS.contains(&id) {
+        return Err(AppError::BadRequest(format!(
+            "custom rule id '{id}' is reserved"
+        )));
+    }
+    if id.len() > 128 || id.chars().any(char::is_control) {
+        return Err(AppError::BadRequest(format!(
+            "invalid custom rule id '{id}'"
+        )));
+    }
+    if !valid_targets.contains(&r.outbound_tag) {
+        let mut known: Vec<&str> = valid_targets.iter().map(String::as_str).collect();
+        known.sort_unstable();
+        return Err(AppError::BadRequest(format!(
+            "custom rule target '{}' is not a known outbound (valid: {})",
+            r.outbound_tag,
+            known.join(", ")
+        )));
+    }
+    if r.name.chars().count() > 80 {
+        return Err(AppError::BadRequest(
+            "custom rule name too long (max 80 chars)".to_owned(),
+        ));
+    }
+    validate_list_entries("domain", &r.domain)?;
+    validate_list_entries("ip", &r.ip)?;
+    validate_list_entries("source_ip", &r.source_ip)?;
+    validate_list_entries("network", &r.network)?;
+    validate_list_entries("protocol", &r.protocol)?;
+    validate_list_entries("inbound_tag", &r.inbound_tag)?;
+    validate_list_entries("user", &r.user)?;
+    check_port_field("port", &r.port)?;
+    check_port_field("source_port", &r.source_port)?;
+    // Normalise matcher lists (trim, drop blanks) before anything else sees
+    // them: a blank entry means "match everything" to xray's JSON parser but
+    // is a hard error to the proto builder, so leaving it in would make the
+    // restart and hot-apply paths behave differently.
+    // Ports are stored CANONICALISED (rebuilt from the parse result), not as
+    // typed. The two emitters disagree on whitespace: parse_port_list trims
+    // both sides of a range, xray's JSON parser trims only around commas and
+    // hands " 65535" straight to ParseUint, which rejects it. Storing the
+    // canonical form makes both serialise the identical, xray-parsable spec.
+    let (port, port_has_range) = canonical_port_spec("port", &r.port, &r.name)?;
+    let (source_port, source_port_has_range) =
+        canonical_port_spec("source_port", &r.source_port, &r.name)?;
+    let has_port_matcher = port_has_range || source_port_has_range;
+    let cleaned_rule = crate::models::RoutingRule {
+        id: r.id.clone(),
+        enabled: r.enabled,
+        name: r.name.clone(),
+        domain: clean_entries(&r.domain),
+        ip: clean_entries(&r.ip),
+        source_ip: clean_entries(&r.source_ip),
+        port,
+        source_port,
+        network: clean_entries(&r.network),
+        protocol: clean_entries(&r.protocol),
+        inbound_tag: clean_entries(&r.inbound_tag),
+        user: clean_entries(&r.user),
+        outbound_tag: r.outbound_tag.clone(),
+    };
+    // Only tcp/udp (what the UI offers) may reach the router. Anything else
+    // means different things on the two paths — the JSON emitter passes it
+    // through as an inert matcher (rule never fires) while the proto builder
+    // drops it (rule fires on everything) — so reject it outright.
+    for n in &cleaned_rule.network {
+        if !matches!(n.to_ascii_lowercase().as_str(), "tcp" | "udp") {
+            return Err(AppError::BadRequest(format!(
+                "custom rule '{}': unsupported network '{n}' (use tcp or udp)",
+                cleaned_rule.name
+            )));
+        }
+    }
+    // A rule with no matcher (only an outbound_tag) is rejected by xray at
+    // router build ("this rule has no effective fields"), which fails the
+    // config `-test` and bricks the next restart. Checked on the CLEANED
+    // rule so a matcher that was only blank entries counts as absent.
+    let has_matcher = !cleaned_rule.domain.is_empty()
+        || !cleaned_rule.ip.is_empty()
+        || !cleaned_rule.source_ip.is_empty()
+        || !cleaned_rule.network.is_empty()
+        || !cleaned_rule.protocol.is_empty()
+        || !cleaned_rule.inbound_tag.is_empty()
+        || !cleaned_rule.user.is_empty()
+        || has_port_matcher;
+    if !has_matcher {
+        return Err(AppError::BadRequest(format!(
+            "custom rule '{}' has no match conditions — add at least one \
+             (e.g. a network or domain); xray rejects a condition-less rule",
+            cleaned_rule.name
+        )));
+    }
+    Ok(cleaned_rule)
+}
+
 /// Validate the operator's custom routing rules + order tokens, returning the
-/// pair of JSON strings ready to bind into the UPDATE. Light validation only —
-/// `xray run -test` (on the next restart) is the real syntax check; this stops
-/// obviously-broken input (bad target, control chars, runaway sizes).
+/// pair of JSON strings ready to bind into the UPDATE (rules normalised via
+/// `validate_and_clean_rule`). Light validation only — the router-config builder
+/// (hot-apply) or `xray run -test` (restart) is the real syntax check; this
+/// stops obviously-broken input (bad target, control chars, runaway sizes).
 fn validate_custom_routing(
     body: &PanelSettingsUpdate,
     valid_targets: &std::collections::HashSet<String>,
@@ -692,53 +936,19 @@ fn validate_custom_routing(
             "too many custom rules (max 200)".to_owned(),
         ));
     }
+    let mut cleaned: Vec<crate::models::RoutingRule> =
+        Vec::with_capacity(body.xray_custom_rules.len());
     for r in &body.xray_custom_rules {
-        if r.id.trim().is_empty() {
-            return Err(AppError::BadRequest(
-                "custom rule id must not be empty".to_owned(),
-            ));
-        }
-        if !valid_targets.contains(&r.outbound_tag) {
-            let mut known: Vec<&str> = valid_targets.iter().map(String::as_str).collect();
-            known.sort_unstable();
+        cleaned.push(validate_and_clean_rule(r, valid_targets)?);
+    }
+    // Ids key the evaluation order, and that order is de-duplicated — a repeated
+    // id would silently drop one of the rules instead of applying both.
+    let mut ids = std::collections::HashSet::with_capacity(cleaned.len());
+    for r in &cleaned {
+        if !ids.insert(r.id.as_str()) {
             return Err(AppError::BadRequest(format!(
-                "custom rule target '{}' is not a known outbound (valid: {})",
-                r.outbound_tag,
-                known.join(", ")
-            )));
-        }
-        if r.name.chars().count() > 80 {
-            return Err(AppError::BadRequest(
-                "custom rule name too long (max 80 chars)".to_owned(),
-            ));
-        }
-        validate_list_entries("domain", &r.domain)?;
-        validate_list_entries("ip", &r.ip)?;
-        validate_list_entries("source_ip", &r.source_ip)?;
-        validate_list_entries("network", &r.network)?;
-        validate_list_entries("protocol", &r.protocol)?;
-        validate_list_entries("inbound_tag", &r.inbound_tag)?;
-        validate_list_entries("user", &r.user)?;
-        check_port_field("port", &r.port)?;
-        check_port_field("source_port", &r.source_port)?;
-        // A rule with no matcher (only an outbound_tag) is rejected by xray at
-        // router build ("this rule has no effective fields"), which fails the
-        // config `-test` and bricks the next restart. Reject it here so a
-        // catch-all must carry an explicit matcher (e.g. network tcp+udp).
-        let has_matcher = !r.domain.is_empty()
-            || !r.ip.is_empty()
-            || !r.source_ip.is_empty()
-            || !r.network.is_empty()
-            || !r.protocol.is_empty()
-            || !r.inbound_tag.is_empty()
-            || !r.user.is_empty()
-            || !r.port.trim().is_empty()
-            || !r.source_port.trim().is_empty();
-        if !has_matcher {
-            return Err(AppError::BadRequest(format!(
-                "custom rule '{}' has no match conditions — add at least one \
-                 (e.g. a network or domain); xray rejects a condition-less rule",
-                r.name
+                "duplicate custom rule id '{}'",
+                r.id
             )));
         }
     }
@@ -752,15 +962,17 @@ fn validate_custom_routing(
         }
     }
 
-    let custom = serde_json::to_string(&body.xray_custom_rules)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+    let custom =
+        serde_json::to_string(&cleaned).map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
     let order = serde_json::to_string(&body.xray_rule_order)
         .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
     Ok((custom, order))
 }
 
-/// A port / sourcePort field: free-form ("443", "1024-65535", "80,443"), but no
-/// spaces or control characters. Empty means "any port".
+/// A port / sourcePort field: free-form ("443", "1024-65535", "80, 443") — a
+/// size + control-char guard only. `canonical_port_spec` is the syntax
+/// authority and rewrites the value into its canonical form. Empty means
+/// "any port".
 fn check_port_field(field: &str, value: &str) -> AppResult<()> {
     let t = value.trim();
     if t.is_empty() {
@@ -769,11 +981,14 @@ fn check_port_field(field: &str, value: &str) -> AppResult<()> {
     if t.len() > 128 {
         return Err(AppError::BadRequest(format!("{field} is too long")));
     }
-    if t.chars().any(|c| c.is_control() || c.is_whitespace()) {
+    if t.chars().any(char::is_control) {
         return Err(AppError::BadRequest(format!(
-            "{field} must not contain spaces or control characters: {t}"
+            "{field} must not contain control characters: {t}"
         )));
     }
+    // Interior spaces are fine — the port input's own placeholder shows
+    // "443, 1024-65535", and both consumers trim each part. `parse_port_list`
+    // (called on the cleaned rule) is the actual syntax authority.
     Ok(())
 }
 
@@ -783,7 +998,9 @@ fn check_port_field(field: &str, value: &str) -> AppResult<()> {
 ///     leaves on the old socket. (`path-only` or `port+path` walk here as
 ///     long as the new port differs from the running one.)
 ///   * port same, only the prefix moved → close-then-rebind on the same
-///     port. ~10ms unbound window; the UI's redirect-after-save reconnects.
+///     port. ~10ms unbound window; the old prefix stops being served at once, so
+///     the UI must send the operator to the new address (it redirects, or shows
+///     the address when a routing warning has to stay on screen).
 async fn swap_panel_listener(
     state: &AppState,
     new_port: u16,
@@ -1183,5 +1400,122 @@ pub async fn load_for_boot(db: &crate::db::DbPool) -> (u16, String, i32) {
             (port, r.panel_base_path, sub_port)
         }
         None => (8080, String::new(), 0),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Ports are stored canonicalised because the two emitters disagree on
+    /// whitespace: xray's own JSON parser does NOT trim around a range dash and
+    /// would reject " 65535", which would then block every later config write
+    /// (and stop xray from starting on a cold boot).
+    fn targets(names: &[&str]) -> std::collections::HashSet<String> {
+        names.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    fn rule(id: &str) -> RoutingRule {
+        RoutingRule {
+            id: id.to_string(),
+            enabled: true,
+            name: String::new(),
+            domain: vec![],
+            ip: vec![],
+            source_ip: vec![],
+            port: String::new(),
+            source_port: String::new(),
+            network: vec!["tcp".to_string()],
+            protocol: vec![],
+            inbound_tag: vec![],
+            user: vec![],
+            outbound_tag: "direct".to_string(),
+        }
+    }
+
+    /// This is the only gate between operator input and BOTH emitters (proto on
+    /// the hot path, JSON on the restart path), and each guard below exists
+    /// because the two disagree about the input it rejects. A rule that slips
+    /// through here does not fail loudly — it either silently never matches, or
+    /// it fails to build inside xray, which wipes the whole live rule set.
+    #[test]
+    fn rule_validation_rejects_what_the_emitters_disagree_on() {
+        let ok = targets(&["direct", "blocked", "relay-jp"]);
+
+        // A system token as an id is matched by the SYSTEM_TOKENS arm first in
+        // both emitters, so the operator's rule would silently vanish.
+        for reserved in crate::xray::config_gen::SYSTEM_TOKENS {
+            let mut r = rule(reserved);
+            r.outbound_tag = "direct".to_string();
+            assert!(
+                validate_and_clean_rule(&r, &ok).is_err(),
+                "reserved id '{reserved}' must be rejected"
+            );
+        }
+
+        // xray's JSON parser accepts these and turns them into Network_Unknown
+        // (a rule that never fires); the proto path drops them, leaving a rule
+        // with no conditions at all, which xray refuses outright.
+        for bad in ["quic", "unix", "TCP,udp"] {
+            let mut r = rule("r1");
+            r.network = vec![bad.to_string()];
+            assert!(
+                validate_and_clean_rule(&r, &ok).is_err(),
+                "network '{bad}' must be rejected"
+            );
+        }
+
+        // A blank entry is a match-everything Substr to xray's JSON parser and
+        // a hard error on the proto path.
+        let mut r = rule("r1");
+        r.domain = vec!["  ".to_string(), String::new()];
+        r.network = vec![];
+        assert!(
+            validate_and_clean_rule(&r, &ok).is_err(),
+            "a rule whose only matcher is blank has no conditions"
+        );
+
+        // Blanks are stripped rather than forwarded, and surviving entries trimmed.
+        let mut r = rule("r1");
+        r.domain = vec![" a.com ".to_string(), String::new(), "b.com".to_string()];
+        let cleaned = validate_and_clean_rule(&r, &ok).unwrap();
+        assert_eq!(
+            cleaned.domain,
+            vec!["a.com".to_string(), "b.com".to_string()]
+        );
+
+        // Ports are stored canonicalised, so the JSON emitter never sees the
+        // interior whitespace it would reject.
+        let mut r = rule("r1");
+        r.port = " 443, 1024 - 65535 ".to_string();
+        assert_eq!(
+            validate_and_clean_rule(&r, &ok).unwrap().port,
+            "443,1024-65535"
+        );
+
+        // An outbound that isn't there would dangle in the pushed rule set.
+        let mut r = rule("r1");
+        r.outbound_tag = "relay-de".to_string();
+        assert!(validate_and_clean_rule(&r, &ok).is_err());
+        r.outbound_tag = "relay-jp".to_string();
+        assert!(validate_and_clean_rule(&r, &ok).is_ok());
+    }
+
+    #[test]
+    fn port_specs_are_canonicalised_for_both_emitters() {
+        let (spec, has_range) = canonical_port_spec("port", " 1024 - 65535 ", "r").unwrap();
+        assert_eq!(spec, "1024-65535");
+        assert!(has_range);
+
+        let (spec, _) = canonical_port_spec("port", "443, 8080 - 8090", "r").unwrap();
+        assert_eq!(spec, "443,8080-8090");
+
+        // No ranges at all: not a matcher, and stored empty.
+        let (spec, has_range) = canonical_port_spec("port", ",,", "r").unwrap();
+        assert!(spec.is_empty());
+        assert!(!has_range);
+
+        assert!(canonical_port_spec("port", "70000", "r").is_err());
+        assert!(canonical_port_spec("port", "abc", "r").is_err());
     }
 }

@@ -307,6 +307,12 @@ pub(super) fn build_one_domain_rule(raw: &str, allow_geo: bool) -> anyhow::Resul
             allow_geo,
             "geosite/ext domain rules aren't supported here: {r}"
         );
+        // Mirror xray's parseGeoSiteRule: reject an empty attr (trailing `@`
+        // or `@@`) before splitting.
+        anyhow::ensure!(
+            !spec.ends_with('@') && !spec.contains("@@"),
+            "empty geosite attr: {r}"
+        );
         // `CODE` or `CODE@attr`; xray upper-cases the code, lower-cases attrs.
         let (code, attrs) = spec.split_once('@').unwrap_or((spec, ""));
         anyhow::ensure!(!code.is_empty(), "empty geosite code: {r}");
@@ -362,20 +368,26 @@ pub(super) fn build_ip_rules(ips: &[String], allow_geo: bool) -> anyhow::Result<
         .collect()
 }
 
-pub(super) fn build_one_ip_rule(raw: &str, allow_geo: bool) -> anyhow::Result<IpRule> {
-    let mut s = raw.trim();
-    anyhow::ensure!(!s.is_empty(), "empty ip rule");
-    // Leading `!`(s) toggle reverse-match — xray's `cutReversePrefix`.
+/// Strip leading `!`s, returning the rest and whether their count was odd —
+/// xray's `cutReversePrefix` (`common/geodata/rule_parser.go`), which it applies
+/// both to the whole entry and again to a `geoip:` code.
+fn cut_reverse_prefix(mut s: &str) -> (&str, bool) {
     let mut reverse = false;
     while let Some(rest) = s.strip_prefix('!') {
         reverse = !reverse;
         s = rest;
     }
+    (s, reverse)
+}
+
+pub(super) fn build_one_ip_rule(raw: &str, allow_geo: bool) -> anyhow::Result<IpRule> {
+    let trimmed = raw.trim();
+    anyhow::ensure!(!trimmed.is_empty(), "empty ip rule");
+    let (s, mut reverse) = cut_reverse_prefix(trimmed);
     if let Some(code) = s.strip_prefix("geoip:") {
         anyhow::ensure!(allow_geo, "geoip/ext ip rules aren't supported here: {raw}");
-        // A `!` may also sit inside the code (`geoip:!cn`) — xray's second
-        // cutReversePrefix — so re-strip and toggle again.
-        let (code, inner_rev) = code.strip_prefix('!').map_or((code, false), |c| (c, true));
+        // xray applies cutReversePrefix a second time to the code (`geoip:!cn`).
+        let (code, inner_rev) = cut_reverse_prefix(code);
         reverse ^= inner_rev;
         anyhow::ensure!(!code.is_empty(), "empty geoip code: {raw}");
         return Ok(IpRule {
