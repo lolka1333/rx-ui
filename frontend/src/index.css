@@ -26,7 +26,7 @@ body {
 
 /* Antd derives `--ant-color-border-disabled` by blending `colorPrimary`
    (#6366f1, blue-violet) into the page background. On the `dark` palette
-   that produces a neutral-ish grey, but on `darker` (#050608 bg) the
+   that produces a neutral-ish grey, but on `darker` (#050505 bg) the
    blend skews bluish (#2e4064) and disabled inputs look like they have
    a stray focus ring against the near-black surface. We override the
    token to the same neutral border antd uses for enabled inputs — the

@@ -67,7 +67,7 @@ export function Login() {
 
       {/* Pre-login settings: theme + language so users can pick before logging in */}
       <div style={{ position: 'fixed', top: 16, right: 16, zIndex: 2 }}>
-        <SettingsPopover placement="bottomRight" />
+        <SettingsPopover />
       </div>
 
       <div className="login-card-wrap" key={locale}>

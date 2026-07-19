@@ -7,9 +7,9 @@ import { useLocale } from '@/stores/locale';
 import { LOCALES } from '@/i18n';
 
 /**
- * The actual form — theme switches + language picker. Shared between the
- * Popover variant (used on the login page) and the Modal variant (used from
- * the sidebar menu, where there's no good DOM anchor for a popover).
+ * The actual form — theme switches + language picker. Rendered by the popover
+ * below, which is the login screen's pre-auth entry point for these two
+ * settings; once signed in they live in the settings modal instead.
  */
 function SettingsContent() {
   const { t } = useTranslation();
@@ -99,11 +99,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
  * Floating cog button + popover. Used in the top-right corner of the login
  * screen so users can pick language before authenticating.
  */
-export function SettingsPopover({
-  placement = 'bottomRight',
-}: {
-  placement?: 'bottomRight' | 'topRight' | 'rightTop';
-}) {
+export function SettingsPopover() {
   const { t } = useTranslation();
   return (
     <Popover
@@ -116,7 +112,7 @@ export function SettingsPopover({
         </div>
       }
       trigger="click"
-      placement={placement}
+      placement="bottomRight"
       destroyOnHidden
     >
       <Button

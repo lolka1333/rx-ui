@@ -11,8 +11,8 @@ import { QRCode } from 'react-qr-code';
 import { theme } from 'antd';
 
 /** Dark modules / light bg, theme-INSENSITIVE. See file header for why. */
-export const QR_BG = '#f1f5f9';
-export const QR_FG = '#0f172a';
+const QR_BG = '#f1f5f9';
+const QR_FG = '#0f172a';
 
 interface QrCardProps {
   value: string;

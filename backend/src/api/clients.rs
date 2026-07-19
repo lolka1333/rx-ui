@@ -33,8 +33,10 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use uuid::Uuid;
 
-/// Nested router mounted at `/api/inbounds/{inbound_id}/clients`. Used by
-/// the inbound-modal Clients tab where the inbound is the context.
+/// Nested router mounted at `/api/inbounds/{inbound_id}/clients`, for callers
+/// that already hold the inbound as context — today the reverse-pair wizard's
+/// create call. It is also the shared implementation the global `/api/clients`
+/// routes delegate into after resolving the inbound from the client id.
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/", get(list).post(create))

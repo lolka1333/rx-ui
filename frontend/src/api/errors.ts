@@ -20,7 +20,7 @@ import i18n from '@/i18n';
  *     message.error(apiErrorMessage(err) ?? t('common.error'));
  *   }
  */
-export interface ApiError {
+interface ApiError {
   code?: string;
   message?: string;
   response?: {
