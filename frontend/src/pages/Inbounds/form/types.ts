@@ -62,7 +62,6 @@ export interface ProtocolDef {
   allowedSecurities: ReadonlyArray<SecurityConfig['kind']>;
   /** Snap target when the operator switches protocol and the current
    *  transport/security is no longer allowed. */
-  defaultTransport: TransportConfig['kind'];
   defaultSecurity: SecurityConfig['kind'];
   /** True if the protocol carries a `flow` field (VLESS-style). When
    *  false the Flow selector hides and `vless_flow` snaps to 'none'. */

@@ -611,26 +611,6 @@ button {
 }
 
 /* ====================================================================
-   Dashboard typography helpers
-   ==================================================================== */
-.stat-label {
-  font-size: 11px;
-  color: var(--text-3);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-weight: 500;
-}
-
-.stat-number {
-  font-size: 30px;
-  font-weight: 600;
-  color: var(--text);
-  letter-spacing: -0.025em;
-  line-height: 1.1;
-  font-variant-numeric: tabular-nums;
-}
-
-/* ====================================================================
    Dashboard gauge meta — `ЦП · 16 ядер` inline on tablet+, two-row stack
    on phones (where the detail string would wrap awkwardly with the · as
    a leading character).
@@ -978,26 +958,6 @@ button {
   line-height: 1.2;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--text-3, #8a94a6);
-}
-/* Empty-state for a section whose controls aren't built yet (Xray). */
-.app-settings-placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 52px 20px;
-  text-align: center;
-}
-.app-settings-placeholder-icon {
-  font-size: 32px;
-  color: var(--text-3, #6a6a6a);
-  opacity: 0.65;
-}
-.app-settings-placeholder-text {
-  margin: 0;
-  font-size: 14px;
   color: var(--text-3, #8a94a6);
 }
 /* Sidebar footer — settings + sign-out as compact icon-only buttons pinned
@@ -1803,16 +1763,6 @@ button {
   .app-quota-bar-live .ant-progress-rail::after {
     animation: none;
   }
-}
-
-/* Subscription-landing app rows — clickable card hover. The border
-   transitions to brand-accent, the row lifts 1 px and a thin shadow
-   appears so the cursor gets a clear "this is a button" hint without
-   changing the static look. */
-.app-sub-row:hover {
-  border-color: var(--ant-color-primary) !important;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px -4px rgba(99, 102, 241, 0.3);
 }
 
 /* Landing-page entrance animation. Cards slide in from below with a

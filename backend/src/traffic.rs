@@ -40,7 +40,7 @@ use tokio::sync::RwLock;
 use tokio::time::interval;
 use ts_rs::TS;
 
-/// How often we hit `GetUsersStats`. 5 s is the same cadence as the
+/// How often we poll `QueryStats` + `GetAllOnlineUsers`. 5 s is the same cadence as the
 /// dashboard system-stats poll; matches Frontend's react-query default
 /// stale window so a single roundtrip drives both panels.
 const POLL_INTERVAL: Duration = Duration::from_secs(5);

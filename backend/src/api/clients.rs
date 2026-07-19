@@ -872,17 +872,7 @@ async fn get_one(
     State(state): State<AppState>,
     Path((inbound_id, id)): Path<(String, String)>,
 ) -> AppResult<Json<Client>> {
-    let row = sqlx::query_as!(
-        Row,
-        r#"SELECT id, inbound_id, email, uuid, auth, flow, reverse_tag, enabled, note,
-                  traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at
-           FROM clients WHERE id = ? AND inbound_id = ?"#,
-        id,
-        inbound_id
-    )
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or(AppError::NotFound)?;
+    let row = read_row(&state, &inbound_id, &id).await?;
     Ok(Json(row_to_client(row)))
 }
 

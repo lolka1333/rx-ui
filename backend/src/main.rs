@@ -454,9 +454,6 @@ pub fn build_sub_router(state: AppState) -> axum::Router {
 /// session tokens are immediately invalidated (next API call → 401 →
 /// frontend logs out gracefully).
 fn resolve_or_generate_jwt_secret(data_dir: &std::path::Path) -> anyhow::Result<String> {
-    use rand::TryRng as _;
-    use std::fmt::Write as _;
-
     const MIN_LEN: usize = 32;
 
     if let Ok(env_val) = std::env::var("JWT_SECRET") {
@@ -489,18 +486,9 @@ fn resolve_or_generate_jwt_secret(data_dir: &std::path::Path) -> anyhow::Result<
         );
     }
 
-    // Fresh generation. 32 bytes from OS-RNG → 64 hex chars (256 bits
-    // of entropy, well above HS256's 128-bit security target). Writing
-    // into a pre-sized `String` via `write!` avoids the 32 transient
-    // `String` allocations a `.map(format!).collect()` would produce.
-    let mut bytes = [0u8; 32];
-    rand::rngs::SysRng
-        .try_fill_bytes(&mut bytes)
-        .expect("OS RNG unavailable");
-    let mut hex = String::with_capacity(bytes.len() * 2);
-    for b in &bytes {
-        let _ = write!(hex, "{b:02x}");
-    }
+    // Fresh generation. 32 bytes from OS-RNG → 64 hex chars (256 bits of
+    // entropy, well above HS256's 128-bit security target).
+    let hex = crate::xray::keygen::hex_lower(&crate::xray::keygen::os_random_bytes::<32>());
 
     if let Some(parent) = secret_file.parent() {
         std::fs::create_dir_all(parent)

@@ -42,8 +42,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Used by custom outbounds to relay through an upstream VLESS server.
         "proto/proxy/vless/outbound/config.proto",
         // Hysteria 2 — proxy + per-user account. ServerConfig carries the
-        // users[]; per-user Account.auth is the shared secret. ClientConfig
-        // is generated but unused (the panel never dials out).
+        // users[] for an inbound; per-user Account.auth is the shared secret.
+        // ClientConfig is the outbound half, built by the orchestrator when a
+        // custom outbound relays through an upstream hysteria server.
         "proto/proxy/hysteria/config.proto",
         "proto/proxy/hysteria/account/config.proto",
         // Transports we support today.

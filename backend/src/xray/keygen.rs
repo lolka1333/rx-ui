@@ -42,7 +42,7 @@ pub struct RealityKeypair {
 /// source is unavailable — unrecoverable for a server whose security rests on
 /// unpredictable keys, so we panic rather than emit guessable bytes (exactly
 /// what x25519-dalek's own `StaticSecret::random()` does internally).
-fn os_random_bytes<const N: usize>() -> [u8; N] {
+pub fn os_random_bytes<const N: usize>() -> [u8; N] {
     let mut bytes = [0u8; N];
     rand::rngs::SysRng
         .try_fill_bytes(&mut bytes)
@@ -214,7 +214,7 @@ pub fn generate_short_id() -> String {
 /// `write!` instead of `bytes.iter().map(format!).collect()`, which
 /// allocates one `String` per byte. Writing to a `String` is infallible,
 /// so the `write!` results can't fail.
-fn hex_lower(bytes: &[u8]) -> String {
+pub fn hex_lower(bytes: &[u8]) -> String {
     use std::fmt::Write as _;
     let mut out = String::with_capacity(bytes.len() * 2);
     for b in bytes {
@@ -363,6 +363,25 @@ pub fn decode_short_id(hex_str: &str) -> anyhow::Result<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
+    use super::{hex_lower, os_random_bytes};
+
+    /// Both callers of these helpers pick their width through a const generic,
+    /// which compiles at any size — so the widths that matter are pinned here.
+    /// The JWT secret in particular is checked at startup against a `MIN_LEN` of
+    /// 32 measured on the HEX string, so a mistaken `::<16>()` would produce
+    /// exactly 32 chars, pass that guard, and silently halve the entropy.
+    #[test]
+    fn helper_widths_are_what_the_callers_expect() {
+        assert_eq!(
+            hex_lower(&os_random_bytes::<16>()).len(),
+            32,
+            "subscription token"
+        );
+        assert_eq!(hex_lower(&os_random_bytes::<32>()).len(), 64, "jwt secret");
+        assert!(hex_lower(&[0x0a, 0xff]).chars().all(|c| !c.is_uppercase()));
+        assert_eq!(hex_lower(&[0x0a, 0xff]), "0aff");
+    }
+
     use super::*;
 
     // === generate_reality_keypair =========================================

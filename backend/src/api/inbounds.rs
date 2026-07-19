@@ -13,6 +13,11 @@
 //!   * `security=Reality` requires a non-empty `dest` and a non-empty
 //!     `server_names` list.
 //!   * `port` must be unique across inbounds.
+//!   * `security=Reality + finalmask=Sudoku` — Sudoku must run server-side
+//!     and Reality can't wrap its socket (xray-core panics).
+//!   * `FinalMask` invariants: Fragment ranges (`min <= max`) and the Noise
+//!     per-item rules, shared with the outbound write path so neither can
+//!     crash the same xray process.
 //!
 //! Everything else (tag uniqueness, JSON shape) is enforced by DB
 //! constraints + serde at the request boundary.

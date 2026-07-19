@@ -21,19 +21,16 @@ interface QrCardProps {
    *  packs more data into fewer modules; bump to `M` (15 %) when the
    *  payload is short and the scan environment might be noisy. */
   level?: 'L' | 'M' | 'Q' | 'H';
-  /** Override container padding. Defaults to 16 — gives the camera a
-   *  quiet zone wider than the spec-required 4 modules. */
-  padding?: number;
 }
 
-export function QrCard({ value, size = 224, level = 'M', padding = 16 }: QrCardProps) {
+export function QrCard({ value, size = 224, level = 'M' }: QrCardProps) {
   const { token } = theme.useToken();
   return (
     <div
       style={{
         display: 'flex',
         justifyContent: 'center',
-        padding,
+        padding: 16,
         background: QR_BG,
         border: `1px solid ${token.colorBorder}`,
         borderRadius: 8,

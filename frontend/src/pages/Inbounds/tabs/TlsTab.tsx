@@ -28,6 +28,7 @@ import { DeleteOutlined, PlusOutlined, QuestionCircleOutlined } from '@ant-desig
 import { useMutation } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { pemRule } from '@/lib/pem';
 import { apiClient } from '@/api/client';
 import { apiErrorMessage } from '@/api/errors';
 import type { EchKeyBundle, TlsCertSource, TlsCertUsage } from '@/api/types';
@@ -100,17 +101,7 @@ const CURVE_OPTIONS = [
   { value: 'P-521', label: 'P-521' },
 ];
 
-const PEM_HEADER_RE = /-----BEGIN [A-Z ]+-----/;
 
-/** Validator: accept empty (handled by `required` on the parent) or any
- *  PEM-shaped blob. Strict enough to catch "I pasted my SSH key" but
- *  loose on header word (`PRIVATE KEY`, `ENCRYPTED PRIVATE KEY`, etc). */
-function pemRule(message: string) {
-  return {
-    validator: (_: unknown, v: string) =>
-      !v || PEM_HEADER_RE.test(v) ? Promise.resolve() : Promise.reject(new Error(message)),
-  };
-}
 
 export function TlsTab() {
   const { t } = useTranslation();

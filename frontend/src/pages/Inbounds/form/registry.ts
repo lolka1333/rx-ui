@@ -32,7 +32,6 @@ export const PROTOCOL_REGISTRY: Record<FormProtocol, ProtocolDef> = {
     label: 'VLESS',
     allowedTransports: ['tcp', 'ws', 'xhttp'],
     allowedSecurities: ['none', 'tls', 'reality'],
-    defaultTransport: 'tcp',
     defaultSecurity: 'reality',
     hasFlow: true,
     MainTabExtras: VlessEncryption,
@@ -41,7 +40,6 @@ export const PROTOCOL_REGISTRY: Record<FormProtocol, ProtocolDef> = {
     label: 'Hysteria 2',
     allowedTransports: ['hysteria'],
     allowedSecurities: ['tls'],
-    defaultTransport: 'hysteria',
     defaultSecurity: 'tls',
     hasFlow: false,
     extraTabs: [

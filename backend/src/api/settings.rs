@@ -1,7 +1,10 @@
-//! Runtime panel settings — port, URL prefix — plus the machinery to
-//! apply them hot, without restarting the process.
+//! Runtime panel settings — listener (port, URL prefix, TLS), subscription
+//! delivery, and the xray routing/Freedom knobs — plus the machinery to apply
+//! them without restarting the process. Routing rules are pushed into the live
+//! xray (see `xray::reload::hot_apply_routing`); the two listener fields are
+//! applied here.
 //!
-//! Both fields are applied by rebuilding the router (`build_router`, which
+//! Port and prefix are applied by rebuilding the router (`build_router`, which
 //! mounts the prefix as a static `nest`) and swapping the `TcpListener`:
 //!
 //! * **Port change** — a single `TcpListener` is bound to exactly one

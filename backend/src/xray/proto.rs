@@ -6,9 +6,9 @@
 //! `xray.app.proxyman.command.HandlerService` translates one-to-one to
 //! `pb::xray::app::proxyman::command::handler_service_client::*` here.
 //!
-//! Anything we don't actively use (sniffing, fallbacks, geodata, the
-//! outbound-side of `HandlerService`, etc.) is generated but unused — the dead
-//! code lives in `$OUT_DIR` and doesn't bloat the binary if LTO is on.
+//! The vendored set also pulls in messages we never construct (proto-level
+//! imports of messages we do use). Those live in `$OUT_DIR` and don't bloat the
+//! binary if LTO is on — see the `dead_code` note on the re-export below.
 
 // `tonic::include_proto!` expands to `include!(concat!(env!("OUT_DIR"), "/<pkg>.rs"))`.
 // We re-export everything verbatim under the original package hierarchy.

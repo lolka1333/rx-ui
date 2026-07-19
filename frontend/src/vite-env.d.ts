@@ -1,7 +1,6 @@
 /// <reference types="vite/client" />
 
 declare module '*.css';
-declare module '*.svg';
 
 // Dev-only zustand store handles exposed on `window` for poking state from
 // the browser console. Guarded by `import.meta.env.DEV` so the assignment

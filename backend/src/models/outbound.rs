@@ -104,7 +104,7 @@ pub struct VlessOutbound {
 }
 
 /// Hysteria 2 client settings → xray `protocol: "hysteria"` settings, which is
-/// just `ClientConfig { version: 2, server: { address, port } }`. Everything
+/// just `ClientConfig { server: { address, port } }`. Everything
 /// else is reused as-is by the orchestrator, mirroring the inbound pairing:
 /// the auth (password) and QUIC / masquerade knobs ride on the paired
 /// `hysteria` transport (`HysteriaTransport.auth` etc.), and client TLS

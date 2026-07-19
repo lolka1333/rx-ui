@@ -4,6 +4,7 @@
 //! a filesystem path read by xray at handshake time.
 
 use super::{Security, SecurityKind};
+use crate::xray::keygen::hex_lower;
 use crate::xray::proto::xray::common::serial::TypedMessage;
 use crate::xray::proto::xray::transport::internet::tls::{
     Certificate as XrayCertificate, Config as XrayTlsConfig, certificate::Usage as XrayCertUsage,
@@ -49,17 +50,6 @@ fn pem_first_certificate_der(pem: &str) -> Option<Vec<u8>> {
     let body_end = rest.find(END)?;
     let b64: String = rest[..body_end].split_whitespace().collect();
     base64::engine::general_purpose::STANDARD.decode(b64).ok()
-}
-
-/// Lowercase hex — the format both xray's `pinnedPeerCertSha256` and the
-/// hysteria2 `pinSHA256` URI param accept for a cert fingerprint.
-fn hex_lower(bytes: &[u8]) -> String {
-    use std::fmt::Write as _;
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        let _ = write!(out, "{b:02x}");
-    }
-    out
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
@@ -170,6 +160,8 @@ impl TlsSecurity {
             return None;
         }
         let der = pem_first_certificate_der(&spec.cert)?;
+        // Lowercase hex — the format both xray's `pinnedPeerCertSha256` and
+        // the hysteria2 `pinSHA256` URI param accept for a fingerprint.
         Some(hex_lower(&Sha256::digest(der)))
     }
 

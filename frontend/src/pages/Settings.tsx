@@ -1,8 +1,8 @@
 /**
  * Settings — a full-window modal.
  *
- * A left rail lists the categories (Account, Session, Access,
- * Subscription); the selected one renders in the content pane on the
+ * A left rail lists the categories (Account, Access, HTTPS,
+ * Subscription, Xray); the selected one renders in the content pane on the
  * right. All sections stay mounted and are toggled with `display` so
  * unsaved edits survive switching between them. A DirtyBar pinned to
  * the modal footer appears while any section has pending changes, so
@@ -22,7 +22,7 @@ import {
   Tooltip,
   Typography,
 } from 'antd';
-import type { SelectProps } from 'antd';
+import type { FormInstance, SelectProps } from 'antd';
 import {
   BranchesOutlined,
   CheckOutlined,
@@ -38,6 +38,7 @@ import {
   UserOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { QueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -48,6 +49,7 @@ import { setLocaleAndReload, useLocale } from '@/stores/locale';
 import { LOCALES } from '@/i18n';
 import type { PanelSettings, RoutingRule } from '@/api/types';
 import { mergePanelSettings } from '@/lib/panelSettings';
+import { pemRule } from '@/lib/pem';
 import { reportRouting } from '@/lib/routingReport';
 import type { RoutingApplyResult } from '@/lib/routingReport';
 import { RoutingRulesField } from '@/components/RoutingRulesField';
@@ -57,7 +59,6 @@ type SectionKey = 'account' | 'access' | 'subscription' | 'xray' | 'tls';
 // PanelSettings *_DEFAULTS and the whole-row PUT merge (`mergePanelSettings`)
 // live in `@/lib/panelSettings` — shared with the reverse-pair wizard, which
 // can't import from this component module (react-refresh only-export-components).
-// Imported at the top of this file.
 
 /** No-op control that only registers the `xray_rule_order` array field on the
  *  form, so it's reactive via `Form.useWatch` and writable via `setFieldsValue`
@@ -96,6 +97,63 @@ interface DirtyHandle {
    *  so `saveAll` can sequence sections instead of racing them. */
   onSave: () => Promise<void>;
   onDiscard: () => void;
+}
+
+/** Publish one section's dirty state (and how to save/discard it) to the page.
+ *
+ *  Extracted because all four sections need byte-identical wiring, and the
+ *  wiring has two traps worth stating once instead of four times:
+ *
+ *  - `mutation` is a fresh object every render, so it CANNOT be an effect dep —
+ *    it would republish the handle on every render, which feeds back through
+ *    `onDirtyChange` into another render. The save goes through a ref that a
+ *    deps-less effect keeps current; only `mutation.isPending` is a dep.
+ *  - `onSave` is awaitable so `saveAll` can run sections one at a time. It takes
+ *    the same path `onFinish` does (validate, then the section's own mutation)
+ *    and awaits the query invalidation too, so the next section's payload merges
+ *    post-save data. Errors are already surfaced by field validation and the
+ *    mutation's own onError, hence the bare `.catch`.
+ */
+function useSectionDirtyPublish<V>({
+  dirty,
+  setDirty,
+  form,
+  mutation,
+  onDirtyChange,
+  qc,
+}: {
+  dirty: boolean;
+  setDirty: (v: boolean) => void;
+  form: FormInstance<V>;
+  mutation: { mutateAsync: (v: V) => Promise<unknown>; isPending: boolean };
+  onDirtyChange: (h: DirtyHandle | null) => void;
+  qc: QueryClient;
+}) {
+  const saveRef = useRef(mutation.mutateAsync);
+  useEffect(() => {
+    saveRef.current = mutation.mutateAsync;
+  });
+
+  useEffect(() => {
+    onDirtyChange(
+      dirty
+        ? {
+            saving: mutation.isPending,
+            onSave: () =>
+              form
+                .validateFields()
+                .then((v) => saveRef.current(v))
+                .then(() => qc.invalidateQueries({ queryKey: ['panel-settings'] }))
+                .then(() => undefined)
+                .catch(() => undefined),
+            onDiscard: () => {
+              form.resetFields();
+              setDirty(false);
+            },
+          }
+        : null,
+    );
+  }, [dirty, mutation.isPending, form, onDirtyChange, qc, setDirty]);
 }
 
 type CategoryKey = SectionKey;
@@ -691,40 +749,8 @@ function AccessSection({
       message.error(apiErrorMessage(err) ?? t('settings.panelSaveError')),
   });
 
-  // A ref, not a dep: `mutation` is a fresh object every render, so capturing
-  // it in the publish effect below would republish the handle on every render
-  // — which feeds back through onDirtyChange into another render. (`qc` is
-  // stable, so that one can just be a dep.)
-  const saveRef = useRef(mutation.mutateAsync);
-  useEffect(() => {
-    saveRef.current = mutation.mutateAsync;
-  });
-
-  useEffect(() => {
-    onDirtyChange(
-      dirty
-        ? {
-            saving: mutation.isPending,
-            // Awaitable so `saveAll` can run sections one at a time. Same path
-            // `onFinish` takes (validate, then the section's own mutation) —
-            // the invalidated query is awaited too, so the next section's
-            // payload merges post-save data. Errors are already surfaced by
-            // the field validation and the mutation's onError.
-            onSave: () =>
-              form
-                .validateFields()
-                .then((v) => saveRef.current(v))
-                .then(() => qc.invalidateQueries({ queryKey: ['panel-settings'] }))
-                .then(() => undefined)
-                .catch(() => undefined),
-            onDiscard: () => {
-              form.resetFields();
-              setDirty(false);
-            },
-          }
-        : null,
-    );
-  }, [dirty, mutation.isPending, form, onDirtyChange, qc]);
+  // Publishes this section's dirty state to the page-level bar.
+  useSectionDirtyPublish({ dirty, setDirty, form, mutation, onDirtyChange, qc });
 
   // `settingsQuery.data` lands a moment after the /api/settings/panel
   // response. Skip the form entirely until then — no skeleton, no
@@ -793,17 +819,6 @@ interface TlsFormValues {
   panel_tls_enabled: boolean;
   panel_tls_cert: string;
   panel_tls_key: string;
-}
-
-const PEM_HEADER_RE = /-----BEGIN [A-Z0-9 ]+-----/;
-
-/** Validator: accept empty (the required check is separate) or any PEM-shaped
- *  blob — strict enough to catch a wrong paste, loose on the header word. */
-function pemRule(msg: string) {
-  return {
-    validator: (_: unknown, v: string) =>
-      !v || PEM_HEADER_RE.test(v) ? Promise.resolve() : Promise.reject(new Error(msg)),
-  };
 }
 
 function TlsSection({
@@ -888,40 +903,8 @@ function TlsSection({
       message.error(apiErrorMessage(err) ?? t('settings.panelSaveError')),
   });
 
-  // A ref, not a dep: `mutation` is a fresh object every render, so capturing
-  // it in the publish effect below would republish the handle on every render
-  // — which feeds back through onDirtyChange into another render. (`qc` is
-  // stable, so that one can just be a dep.)
-  const saveRef = useRef(mutation.mutateAsync);
-  useEffect(() => {
-    saveRef.current = mutation.mutateAsync;
-  });
-
-  useEffect(() => {
-    onDirtyChange(
-      dirty
-        ? {
-            saving: mutation.isPending,
-            // Awaitable so `saveAll` can run sections one at a time. Same path
-            // `onFinish` takes (validate, then the section's own mutation) —
-            // the invalidated query is awaited too, so the next section's
-            // payload merges post-save data. Errors are already surfaced by
-            // the field validation and the mutation's onError.
-            onSave: () =>
-              form
-                .validateFields()
-                .then((v) => saveRef.current(v))
-                .then(() => qc.invalidateQueries({ queryKey: ['panel-settings'] }))
-                .then(() => undefined)
-                .catch(() => undefined),
-            onDiscard: () => {
-              form.resetFields();
-              setDirty(false);
-            },
-          }
-        : null,
-    );
-  }, [dirty, mutation.isPending, form, onDirtyChange, qc]);
+  // Publishes this section's dirty state to the page-level bar.
+  useSectionDirtyPublish({ dirty, setDirty, form, mutation, onDirtyChange, qc });
 
   const data = settingsQuery.data;
   return (
@@ -1111,40 +1094,8 @@ function SubscriptionSection({
       message.error(apiErrorMessage(err) ?? t('settings.subscriptionSaveError')),
   });
 
-  // A ref, not a dep: `mutation` is a fresh object every render, so capturing
-  // it in the publish effect below would republish the handle on every render
-  // — which feeds back through onDirtyChange into another render. (`qc` is
-  // stable, so that one can just be a dep.)
-  const saveRef = useRef(mutation.mutateAsync);
-  useEffect(() => {
-    saveRef.current = mutation.mutateAsync;
-  });
-
-  useEffect(() => {
-    onDirtyChange(
-      dirty
-        ? {
-            saving: mutation.isPending,
-            // Awaitable so `saveAll` can run sections one at a time. Same path
-            // `onFinish` takes (validate, then the section's own mutation) —
-            // the invalidated query is awaited too, so the next section's
-            // payload merges post-save data. Errors are already surfaced by
-            // the field validation and the mutation's onError.
-            onSave: () =>
-              form
-                .validateFields()
-                .then((v) => saveRef.current(v))
-                .then(() => qc.invalidateQueries({ queryKey: ['panel-settings'] }))
-                .then(() => undefined)
-                .catch(() => undefined),
-            onDiscard: () => {
-              form.resetFields();
-              setDirty(false);
-            },
-          }
-        : null,
-    );
-  }, [dirty, mutation.isPending, form, onDirtyChange, qc]);
+  // Publishes this section's dirty state to the page-level bar.
+  useSectionDirtyPublish({ dirty, setDirty, form, mutation, onDirtyChange, qc });
 
   const data = settingsQuery.data;
   return (
@@ -1642,40 +1593,8 @@ function XraySection({
       message.error(apiErrorMessage(err) ?? t('settings.panelSaveError')),
   });
 
-  // A ref, not a dep: `mutation` is a fresh object every render, so capturing
-  // it in the publish effect below would republish the handle on every render
-  // — which feeds back through onDirtyChange into another render. (`qc` is
-  // stable, so that one can just be a dep.)
-  const saveRef = useRef(mutation.mutateAsync);
-  useEffect(() => {
-    saveRef.current = mutation.mutateAsync;
-  });
-
-  useEffect(() => {
-    onDirtyChange(
-      dirty
-        ? {
-            saving: mutation.isPending,
-            // Awaitable so `saveAll` can run sections one at a time. Same path
-            // `onFinish` takes (validate, then the section's own mutation) —
-            // the invalidated query is awaited too, so the next section's
-            // payload merges post-save data. Errors are already surfaced by
-            // the field validation and the mutation's onError.
-            onSave: () =>
-              form
-                .validateFields()
-                .then((v) => saveRef.current(v))
-                .then(() => qc.invalidateQueries({ queryKey: ['panel-settings'] }))
-                .then(() => undefined)
-                .catch(() => undefined),
-            onDiscard: () => {
-              form.resetFields();
-              setDirty(false);
-            },
-          }
-        : null,
-    );
-  }, [dirty, mutation.isPending, form, onDirtyChange, qc]);
+  // Publishes this section's dirty state to the page-level bar.
+  useSectionDirtyPublish({ dirty, setDirty, form, mutation, onDirtyChange, qc });
 
   // "Test outbound": the server fetches the current URL field value through
   // its own egress (the same path xray's freedom outbound uses) and reports

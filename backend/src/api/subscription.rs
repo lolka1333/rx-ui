@@ -23,7 +23,8 @@
 //!   * `Subscription-Userinfo: upload=…; download=…; total=…; expire=…`
 //!     — the client app surfaces these as a per-profile traffic widget
 //!     (used/total bar, remaining-days badge).
-//!   * `Profile-Update-Interval: 12` — clients auto-refetch every 12h
+//!   * `Profile-Update-Interval` — how often clients auto-refetch, in hours
+//!     (operator-set, `panel_settings.sub_update_interval_hours`)
 //!     so config rotations propagate without operator intervention.
 //!   * `Content-Disposition: attachment; filename="<email>"` — gives
 //!     the imported profile a sensible default name in the UI.
@@ -31,6 +32,7 @@
 //! No auth — the URL itself is the credential. Rotation invalidates
 //! the old URL atomically (`POST /api/clients/{id}/rotate-sub-token`).
 
+use crate::xray::keygen::{hex_lower, os_random_bytes};
 use crate::{
     AppState,
     error::{AppError, AppResult},
@@ -44,24 +46,14 @@ use axum::{
     routing::get,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
-use rand::TryRng;
 use serde::Deserialize;
 use sqlx::SqlitePool;
-use std::fmt::Write as _;
 
 /// Random 32-char lowercase hex token. CSPRNG via OS entropy — these
 /// URLs are public-facing, so collision/predictability are both
 /// attack surface.
 pub fn generate_token() -> String {
-    let mut bytes = [0u8; 16];
-    rand::rngs::SysRng
-        .try_fill_bytes(&mut bytes)
-        .expect("OS RNG unavailable");
-    let mut out = String::with_capacity(32);
-    for b in bytes {
-        write!(out, "{b:02x}").expect("write to String never fails");
-    }
-    out
+    hex_lower(&os_random_bytes::<16>())
 }
 
 /// Generate a `sub_token` that's verified not to collide with any existing
@@ -537,4 +529,22 @@ fn wants_html(headers: &HeaderMap) -> bool {
 async fn best_host(state: &AppState) -> Option<String> {
     let snap = state.host.snapshot().await;
     snap.ipv4.or(snap.ipv6)
+}
+
+#[cfg(test)]
+mod token_tests {
+    /// The token goes into a public URL, so its width is load-bearing: 16 bytes
+    /// of OS entropy rendered as 32 lowercase hex chars. The const generic that
+    /// sets it compiles at any size, so pin it here.
+    #[test]
+    fn token_is_32_lowercase_hex_chars() {
+        let t = super::generate_token();
+        assert_eq!(t.len(), 32, "{t}");
+        assert!(
+            t.chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()),
+            "{t}"
+        );
+        assert_ne!(t, super::generate_token(), "tokens must not repeat");
+    }
 }

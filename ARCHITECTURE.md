@@ -17,9 +17,7 @@ Bird's-eye view of how rx-ui works. For day-to-day operator usage see
 **Non-goals (intentional limits):**
 - No multi-user / RBAC. Single admin.
 - No multi-node / cluster mode. One panel, one xray.
-- No outbound/routing UI yet (only inbounds + clients).
 - No ACME / auto-certs. Operator pastes PEM strings manually.
-- No password change UI (yet — planned).
 
 ## Processes
 
@@ -87,63 +85,47 @@ The remove-then-add cycle is what lets you tweak the DB directly
 
 ## Schema choices
 
-### Inbounds table — wide-column
+### Inbounds table — typed JSON layers
 
-Every xray knob = one DB column (e.g. `xhttp_xmux_max_concurrency`,
-`tls_reject_unknown_sni`). Current count: **~70 columns**.
+Five JSON blob columns carry the xray knobs: `protocol_config`,
+`transport_config`, `security_config`, `sniffing_config`,
+`finalmask_config` (plus `sockopt_config`). Only what the panel queries
+stays a real column: `id`, `tag`, `enabled`, `listen`, `port`, timestamps.
 
-**Why:** simple SQL, type-checked at compile time via sqlx macros,
-trivial to query per field (`WHERE port = ?` for uniqueness checks).
+**Why:** each blob deserialises into a tagged enum (`ProtocolConfig`,
+`TransportConfig`, …) whose variants live in `protocols/`, `transports/`
+and `security/`. Adding a knob is a change to one Rust enum plus the form
+that edits it — not an ALTER TABLE and a sweep through every SELECT.
 
-**Cost:** adding one field is a ~9-14-file edit — see below.
+**Cost:** the blobs are opaque to SQL, so anything that needs to filter on
+a knob has to load and decode rows. Nothing does today; `port` uniqueness
+and tag lookups run against the real columns.
+
+This replaced a wide-column layout of ~70 columns; migrations 0014-0016
+moved the data into the blobs and dropped the old columns.
 
 ### Clients table — narrow
 
-Per-inbound users. Just `id`, `inbound_id`, `email`, `uuid`,
-`flow`, `enabled`, `note`. Flow `None` = inherit from inbound's
-`vless_flow`.
+Per-inbound users: `id`, `inbound_id`, `email`, `uuid`, `auth`, `flow`,
+`reverse_tag`, `enabled`, `note`, plus quota/expiry and subscription
+fields. Flow `None` = inherit from the inbound's VLESS flow.
 
 ## Adding an inbound field
 
-The current state of the world. **This is the dominant maintenance
-cost of the project and is on the refactor list.**
+For a knob on an existing layer (say a new VLESS option):
 
-For a new column `foo_bar`:
+1. `backend/src/protocols/vless/proto.rs` — add the field to the struct.
+2. `backend/src/xray/orchestrator.rs` — feed it into the proto the
+   layer emits.
+3. `backend/src/xray/share_link.rs` — if it belongs in the client URI.
+4. `cargo test` — regenerates the ts-rs TypeScript bindings.
+5. `frontend/src/pages/Inbounds/` — the tab that owns that layer, plus
+   `form/adapters.ts` if the form shape differs from the wire shape.
+6. `frontend/src/i18n/en.ts` + `ru.ts` — label and optional tooltip.
 
-1. `backend/migrations/NNNN_add_foo_bar.sql` — `ALTER TABLE inbounds ADD COLUMN foo_bar TYPE;`
-2. `backend/src/models/inbound.rs` — add `pub foo_bar: ...` to three structs: `Inbound`, `InboundCreate`, `InboundUpdate`.
-3. `backend/src/api/inbounds.rs`:
-   - add `foo_bar: ...` to the `Row` struct
-   - extend `row_to_inbound` to copy/decode it
-   - add `foo_bar` to **all 4 SELECT statements** (`list`, `get_one`, `read_row`, plus the related path)
-   - extend the INSERT in `create`: column list + `?` placeholder + bind parameter
-   - add a new `if let Some(...) = body.foo_bar { sqlx::query!("UPDATE ...") }` block in `update`
-   - add comparison to `needs_resync`
-4. `backend/src/main.rs` — extend the reconciler's SELECT and the struct mapping it feeds.
-5. `backend/src/xray/inbound_proto.rs` — feed `inb.foo_bar` into the proto.
-6. `backend/src/xray/share_link.rs` — if relevant for client URI.
-7. Regenerate caches:
-   ```bash
-   cargo sqlx prepare -- --bin rx-ui
-   cargo test export_bindings   # regenerates ts-rs TS files
-   ```
-8. `frontend/src/pages/Inbounds.tsx`:
-   - `FormValues` interface
-   - `DEFAULTS` object
-   - `initialValues` hydration in `InboundForm`
-   - `build-payload` in the save mutation
-   - the actual `<Form.Item name="foo_bar">` rendering somewhere
-9. `frontend/src/i18n/ru.ts` + `en.ts` — label + optional tooltip key.
-
-**Why this hurts:** silent drift between the four parallel listings
-in step 8 has bitten us multiple times (`xhttp_headers` was missing
-from `DEFAULTS` once, save crashed with "not iterable" on submit).
-
-**Planned mitigation:** collapse all the optional config fields into
-a single `config_json TEXT` column carrying a serde-typed
-`InboundConfig` struct. Keeps `id` / `tag` / `port` / `enabled` as
-real columns for indexing; everything else lives in the blob. Brings
-the edit cost down to ~3 files per new field.
+No migration, no SELECT edits: the blob column already carries whatever
+the enum serialises. A new LAYER (a new transport, say) additionally
+needs its module under `transports/` and a registry entry.
 
 ## Frontend ↔ backend type sharing
 
@@ -207,22 +189,6 @@ Three layers:
 
 ## Known structural weaknesses (planned cleanup)
 
-In rough priority order — the corresponding refactor proposals
-live in the project-level audit notes:
+- **No frontend tests** — vitest + react-testing-library on the
+  form payload builder, the URL parser, and i18n key coverage.
 
-1. **Wide-column inbound schema** (described above) — 70+ columns
-   driving 9-14 file touches per new field. The `config_json`
-   blob refactor would cut this to ~3.
-2. **`Inbounds.tsx` ~2200 LoC** — kitchen-sink file holding the
-   page, form, 5 tab components, advanced collapses, client
-   sub-panel, share-link modal, helpers, defaults, payload
-   builder. Should split into `pages/Inbounds/{index, InboundForm,
-   tabs/*, ClientsPanel, ShareLinkModal, formSchema}.tsx`.
-3. **`api/inbounds.rs` ~1100 LoC** with 35 cookie-cutter UPDATE
-   blocks and 4 duplicate 19-line SELECT lists. Becomes obsolete
-   if #1 ships (one column = one bind instead of 60+).
-4. **No frontend tests** — vitest + react-testing-library on the
-   form payload builder, the URL parser, and i18n key coverage.
-
-Each of these is a ~half-day to 2-day refactor; do them in the
-order above to avoid touching the same code twice.

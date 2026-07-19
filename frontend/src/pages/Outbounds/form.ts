@@ -21,6 +21,7 @@ import {
   collapseHeaders,
   hydrateFinalMask,
   type FinalMaskFormFields,
+  orNull,
 } from '@/pages/Inbounds/form/adapters';
 import { DEFAULTS as INB_DEFAULTS } from '@/pages/Inbounds/form/defaults';
 import type { FormValues as InbFormValues } from '@/pages/Inbounds/form/types';
@@ -196,7 +197,6 @@ const XHTTP_NULL = {
 } as const;
 
 function buildTransport(v: OutboundFormValues): TransportConfig {
-  const orNull = (s: string) => s.trim() || null;
   if (v.network === 'ws') {
     const h = collapseHeaders(v.ws_headers);
     return {
@@ -242,7 +242,7 @@ function buildSecurity(v: OutboundFormValues): SecurityConfig {
     return {
       kind: 'tls',
       certificates: [],
-      server_name: v.tls_server_name.trim() || null,
+      server_name: orNull(v.tls_server_name),
       alpn: v.tls_alpn.length > 0 ? v.tls_alpn : null,
       min_version: null,
       max_version: null,
@@ -253,7 +253,7 @@ function buildSecurity(v: OutboundFormValues): SecurityConfig {
       ech_server_keys: null,
       ech_config_list: null,
       curve_preferences: null,
-      fingerprint: v.tls_fingerprint.trim() || null,
+      fingerprint: orNull(v.tls_fingerprint),
       verify_peer_cert_by_name:
         v.tls_verify_peer_cert_by_name.length > 0 ? v.tls_verify_peer_cert_by_name : null,
       pinned_peer_cert_sha256:
@@ -304,9 +304,9 @@ export function formToOutbound(
             // null out the cipher detail when not using native encryption.
             encryption_xor_mode: v.encryption_mode === 'none' ? null : v.encryption_xor_mode,
             encryption_client_key:
-              v.encryption_mode === 'none' ? null : v.encryption_client_key.trim() || null,
+              v.encryption_mode === 'none' ? null : orNull(v.encryption_client_key),
             encryption_padding:
-              v.encryption_mode === 'none' ? null : v.encryption_padding.trim() || null,
+              v.encryption_mode === 'none' ? null : orNull(v.encryption_padding),
           },
     // Hysteria 2 IS its transport: the password rides on the hysteria transport
     // (where xray's dialer reads it), masquerade is server-only so a client
@@ -315,7 +315,7 @@ export function formToOutbound(
       v.protocol_kind === 'hysteria'
         ? {
             kind: 'hysteria',
-            auth: v.hysteria_auth.trim() || null,
+            auth: orNull(v.hysteria_auth),
             udp_idle_timeout: null,
             masquerade: { kind: 'notfound' },
             quic_params: null,

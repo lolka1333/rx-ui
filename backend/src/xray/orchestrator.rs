@@ -192,8 +192,8 @@ pub fn outbound_to_handler_config(ob: &CustomOutbound) -> anyhow::Result<Outboun
             }
         }
         OutboundProtocolConfig::Hysteria(h) => {
-            // `protocol: "hysteria"` carries only the endpoint — version + the
-            // server address/port. The password (`auth`) lives on the paired
+            // `protocol: "hysteria"` carries only the endpoint — the server
+            // address/port. The password (`auth`) lives on the paired
             // hysteria TRANSPORT (xray's dialer reads it as RequestHeaderAuth),
             // and client TLS on the security block, both built generically above.
             let cfg = HysteriaClientConfig {

@@ -199,7 +199,7 @@ rx-ui/
 cd backend
 cargo fmt
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test                                  # 74 tests covering pure logic
+cargo test                                  # unit tests covering pure logic
 cargo sqlx prepare -- --bin rx-ui  # after editing any sqlx::query!()
 
 # Frontend changes
