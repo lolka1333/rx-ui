@@ -1271,12 +1271,27 @@ pub async fn spawn_main_listener(
     app: Router,
 ) -> std::io::Result<(oneshot::Sender<()>, bool)> {
     let tls = load_tls_for_boot(&state.db).await;
+    spawn_with_https_fallback(host, port, app, tls, "panel").await
+}
+
+/// Bind `app`, and if HTTPS was requested but wouldn't start, bind plain HTTP
+/// instead rather than leaving the endpoint down. `what` names the listener in
+/// the error log. The returned `bool` reports the scheme actually bound (true =
+/// HTTPS), so callers report the real outcome rather than what was requested —
+/// the fallback drops to plain HTTP without the caller knowing.
+async fn spawn_with_https_fallback(
+    host: &str,
+    port: u16,
+    app: Router,
+    tls: Option<PanelTls>,
+    what: &str,
+) -> std::io::Result<(oneshot::Sender<()>, bool)> {
     let tls_requested = tls.is_some();
     match spawn_listener(host, port, app.clone(), tls).await {
         Ok(tx) => Ok((tx, tls_requested)),
         Err(e) if tls_requested => {
             tracing::error!(
-                "panel HTTPS failed to start ({e}); falling back to plain HTTP on port {port}"
+                "{what} HTTPS failed to start ({e}); falling back to plain HTTP on port {port}"
             );
             Ok((spawn_listener(host, port, app, None).await?, false))
         }
@@ -1296,20 +1311,7 @@ pub async fn spawn_sub_listener(
     app: Router,
 ) -> std::io::Result<(oneshot::Sender<()>, bool)> {
     let tls = load_sub_tls_for_boot(&state.db).await;
-    let tls_requested = tls.is_some();
-    match spawn_listener(host, port, app.clone(), tls).await {
-        // `bool` reports the scheme actually bound (true = HTTPS), so callers
-        // log/report the real outcome rather than what was merely requested —
-        // the fallback below drops to plain HTTP without the caller knowing.
-        Ok(tx) => Ok((tx, tls_requested)),
-        Err(e) if tls_requested => {
-            tracing::error!(
-                "subscription HTTPS failed to start ({e}); falling back to plain HTTP on port {port}"
-            );
-            Ok((spawn_listener(host, port, app, None).await?, false))
-        }
-        Err(e) => Err(e),
-    }
+    spawn_with_https_fallback(host, port, app, tls, "subscription").await
 }
 
 /// Boot/runtime read of operator-provided panel TLS. Returns `Some` only when

@@ -87,7 +87,15 @@ async fn bulk_assign(
     State(state): State<AppState>,
     Json(body): Json<ClientBulkAssign>,
 ) -> AppResult<Json<ClientBulkAssignResult>> {
-    if body.email.trim().is_empty() {
+    // Trim ONCE, here, and use it for every read and write below. The email is
+    // the user's identity key: `WHERE email = ?` lookups match exactly, and xray
+    // keys its per-user stats on the same string. Validating the trimmed value
+    // but storing the raw one would let `" alice "` become a second user that
+    // shares no quota, traffic or credentials with `alice` while looking
+    // identical in the UI. The frontend trims too, but it isn't the thing that
+    // enforces uniqueness.
+    let email = body.email.trim().to_owned();
+    if email.is_empty() {
         return Err(AppError::BadRequest("email is required".to_owned()));
     }
     if body.inbound_ids.is_empty() {
@@ -131,7 +139,7 @@ async fn bulk_assign(
     // credentials, breaking every already-installed share-link.
     let creds = resolve_shared_credentials(
         &state,
-        &body.email,
+        &email,
         caller_uuid,
         shared_auth_explicit,
         &target_inbounds,
@@ -162,9 +170,9 @@ async fn bulk_assign(
         .into_iter()
         .map(|(id, inbound_id)| ClientBulkRemoved { id, inbound_id })
         .collect();
-    let mut xray_failures = sync_xray_removed(&state, &body.email, &removed).await?;
+    let mut xray_failures = sync_xray_removed(&state, &email, &removed).await?;
     let (created, updated, mut apply_failures) =
-        sync_xray_applied(&state, &body.email, &applied, &target_inbounds).await?;
+        sync_xray_applied(&state, &email, &applied, &target_inbounds).await?;
     xray_failures.append(&mut apply_failures);
 
     Ok(Json(ClientBulkAssignResult {
@@ -370,6 +378,9 @@ async fn commit_bulk_assign_tx(
     creds: &SharedCredentials,
     to_remove: &[(String, String)],
 ) -> AppResult<Vec<(String, bool)>> {
+    // Same normalisation as the caller: this runs the INSERT, so the stored
+    // identity has to be the trimmed form.
+    let email = body.email.trim();
     let mut tx = state.db.begin().await?;
     let mut applied: Vec<(String, bool)> = Vec::with_capacity(target.len());
     let expires_at = normalize_expiry(body.expires_at.clone())?;
@@ -410,8 +421,7 @@ async fn commit_bulk_assign_tx(
             .await?;
             if res.rows_affected() == 0 {
                 return Err(AppError::Conflict(format!(
-                    "client '{}' in inbound {} was deleted by another session — retry",
-                    body.email, inbound_id
+                    "client '{email}' in inbound {inbound_id} was deleted by another session — retry"
                 )));
             }
             applied.push((inbound_id.clone(), true));
@@ -435,7 +445,7 @@ async fn commit_bulk_assign_tx(
                            COALESCE((SELECT MAX(downlink_total) FROM clients WHERE email = ?), 0))"#,
                 new_id,
                 inbound_id,
-                body.email,
+                email,
                 creds.uuid,
                 auth,
                 body.flow,
@@ -444,15 +454,14 @@ async fn commit_bulk_assign_tx(
                 body.traffic_limit_bytes,
                 expires_at.clone(),
                 sub_token,
-                body.email,
-                body.email,
+                email,
+                email,
             )
             .execute(&mut *tx)
             .await
             .map_err(|e| match e {
                 sqlx::Error::Database(d) if d.is_unique_violation() => AppError::Conflict(format!(
-                    "client '{}' already exists in inbound {}",
-                    body.email, inbound_id
+                    "client '{email}' already exists in inbound {inbound_id}"
                 )),
                 e => e.into(),
             })?;
@@ -910,7 +919,11 @@ async fn create(
     Path(inbound_id): Path<String>,
     Json(body): Json<ClientCreate>,
 ) -> AppResult<(StatusCode, Json<Client>)> {
-    if body.email.trim().is_empty() {
+    // Trimmed once and used for every bind below — see the note in
+    // `bulk_assign`: the stored email is the identity key, so it must be the
+    // normalised form, not merely validated as one.
+    let email = body.email.trim().to_owned();
+    if email.is_empty() {
         return Err(AppError::BadRequest("email is required".to_owned()));
     }
 
@@ -931,7 +944,7 @@ async fn create(
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty());
-    let existing = fetch_email_identity_rows(&state.db, &body.email).await?;
+    let existing = fetch_email_identity_rows(&state.db, &email).await?;
     let wants_hysteria_auth = matches!(
         &inbound.protocol,
         crate::protocols::ProtocolConfig::Hysteria2(_)
@@ -969,7 +982,7 @@ async fn create(
                    COALESCE((SELECT MAX(downlink_total) FROM clients WHERE email = ?), 0))"#,
         id,
         inbound_id,
-        body.email,
+        email,
         uuid,
         auth,
         body.flow,
@@ -978,20 +991,19 @@ async fn create(
         body.traffic_limit_bytes,
         expires_at,
         sub_token,
-        body.email,
-        body.email,
+        email,
+        email,
     )
     .execute(&mut *tx)
     .await
     .map_err(|e| match e {
         sqlx::Error::Database(d) if d.is_unique_violation() => AppError::Conflict(format!(
-            "client with email '{}' already exists in this inbound",
-            body.email
+            "client with email '{email}' already exists in this inbound"
         )),
         sqlx::Error::Database(d) if d.is_foreign_key_violation() => AppError::NotFound,
         e => e.into(),
     })?;
-    backfill_shared_auth(&mut *tx, &body.email, auth.as_deref()).await?;
+    backfill_shared_auth(&mut *tx, &email, auth.as_deref()).await?;
     tx.commit().await?;
 
     let row = read_row(&state, &inbound_id, &id).await?;
@@ -1049,7 +1061,10 @@ async fn update(
 async fn write_client_update_tx(state: &AppState, id: &str, body: &ClientUpdate) -> AppResult<()> {
     let mut tx = state.db.begin().await?;
 
-    if let Some(email) = &body.email {
+    if let Some(raw_email) = &body.email {
+        // Trimmed for the same reason as create/bulk_assign: this column is the
+        // identity other rows and xray's stats are matched on.
+        let email = raw_email.trim();
         sqlx::query!(
             "UPDATE clients SET email = ?, updated_at = datetime('now') WHERE id = ?",
             email,
@@ -1730,5 +1745,21 @@ mod db_integration_tests {
             None,
             "inbound with empty protocol_config is safely excluded",
         );
+    }
+}
+
+#[cfg(test)]
+mod email_identity_tests {
+    /// The email column is the identity key: `WHERE email = ?` matches exactly,
+    /// and xray keys per-user stats on the same string. Every write path must
+    /// store the trimmed form, not merely validate it — otherwise `" alice "`
+    /// becomes a second user sharing no quota, traffic or credentials with
+    /// `alice` while looking identical in the UI.
+    #[test]
+    fn padded_email_normalises_to_the_same_identity() {
+        let raw = "  alice@test  ";
+        assert_eq!(raw.trim(), "alice@test");
+        // and an all-whitespace email is still rejected as empty
+        assert!("   ".trim().is_empty());
     }
 }
