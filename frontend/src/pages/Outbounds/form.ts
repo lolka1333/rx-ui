@@ -7,6 +7,8 @@
 
 import type {
   CustomOutbound,
+  QuicParams,
+  UdpHop,
   SecurityConfig,
   TransportConfig,
   VlessEncryptionMode,
@@ -60,6 +62,20 @@ export interface OutboundFormValues extends FinalMaskFormFields {
   // Hysteria 2 password. Stored on the transport in the model, but the form
   // surfaces it as a protocol-level credential (it IS the connection secret).
   hysteria_auth: string;
+  // Hysteria 2 QUIC tuning — the knobs a client actually needs: Brutal
+  // bandwidth caps (hysteria2's congestion-control feature) and the QUIC
+  // keepalive/idle timers. '' congestion = xray default. All ride on the
+  // hysteria transport's `quic_params`.
+  hy_congestion: '' | 'brutal' | 'bbr';
+  hy_brutal_up_mbps: number | null;
+  hy_brutal_down_mbps: number | null;
+  hy_keep_alive_secs: number | null;
+  hy_max_idle_secs: number | null;
+  // Port hopping — rotate the UDP port across a set to dodge port-based
+  // blocking. Empty = disabled.
+  hy_udp_hop_ports: string[];
+  hy_udp_hop_interval_min: number | null;
+  hy_udp_hop_interval_max: number | null;
   // transport
   network: OutboundNetwork;
   ws_path: string;
@@ -119,6 +135,14 @@ export const OUTBOUND_DEFAULTS: OutboundFormValues = {
   encryption_client_key: '',
   encryption_padding: '',
   hysteria_auth: '',
+  hy_congestion: '',
+  hy_brutal_up_mbps: null,
+  hy_brutal_down_mbps: null,
+  hy_keep_alive_secs: null,
+  hy_max_idle_secs: null,
+  hy_udp_hop_ports: [],
+  hy_udp_hop_interval_min: null,
+  hy_udp_hop_interval_max: null,
   network: 'tcp',
   ws_path: '/',
   ws_host: '',
@@ -281,6 +305,48 @@ function buildSecurity(v: OutboundFormValues): SecurityConfig {
 /** Build the typed `CustomOutbound` the API stores. `existing` preserves the
  *  id + created_at on edit; a fresh row mints both. Timestamps are ISO-8601
  *  (the backend stores the array verbatim — no server-side stamping). */
+/** The hysteria client's QUIC knobs, or null when the operator set none.
+ *  Only the fields a client cares about are surfaced (Brutal caps + keepalive
+ *  /idle); everything else stays at xray's defaults. */
+function buildHyQuic(v: OutboundFormValues): QuicParams | null {
+  const congestion =
+    v.hy_congestion === 'brutal' ? 'brutal' : v.hy_congestion === 'bbr' ? 'bbr' : null;
+  const ports = v.hy_udp_hop_ports
+    .map((p) => Number.parseInt(p, 10))
+    .filter((n) => Number.isFinite(n) && n > 0 && n < 65536);
+  const udpHop: UdpHop | null =
+    ports.length > 0
+      ? {
+          ports,
+          interval_min: v.hy_udp_hop_interval_min ?? 0,
+          interval_max: v.hy_udp_hop_interval_max ?? 0,
+        }
+      : null;
+  const anySet =
+    congestion !== null ||
+    v.hy_brutal_up_mbps !== null ||
+    v.hy_brutal_down_mbps !== null ||
+    v.hy_keep_alive_secs !== null ||
+    v.hy_max_idle_secs !== null ||
+    udpHop !== null;
+  if (!anySet) return null;
+  return {
+    congestion,
+    bbr_profile: null,
+    brutal_up_mbps: v.hy_brutal_up_mbps,
+    brutal_down_mbps: v.hy_brutal_down_mbps,
+    udp_hop: udpHop,
+    init_stream_receive_window: null,
+    max_stream_receive_window: null,
+    init_conn_receive_window: null,
+    max_conn_receive_window: null,
+    max_incoming_streams: null,
+    max_idle_timeout_secs: v.hy_max_idle_secs,
+    keep_alive_period_secs: v.hy_keep_alive_secs,
+    disable_path_mtu_discovery: false,
+  };
+}
+
 export function formToOutbound(
   v: OutboundFormValues,
   existing: CustomOutbound | null,
@@ -318,7 +384,7 @@ export function formToOutbound(
             auth: orNull(v.hysteria_auth),
             udp_idle_timeout: null,
             masquerade: { kind: 'notfound' },
-            quic_params: null,
+            quic_params: buildHyQuic(v),
           }
         : buildTransport(v),
     security: buildSecurity(v),
@@ -364,6 +430,24 @@ export function outboundToForm(ob: CustomOutbound): OutboundFormValues {
   d.network = tr.kind === 'hysteria' ? 'tcp' : tr.kind;
   if (tr.kind === 'hysteria') {
     d.hysteria_auth = tr.auth ?? '';
+    const q = tr.quic_params;
+    if (q) {
+      d.hy_congestion =
+        q.congestion === 'brutal' || q.congestion === 'force-brutal'
+          ? 'brutal'
+          : q.congestion === 'bbr'
+            ? 'bbr'
+            : '';
+      d.hy_brutal_up_mbps = q.brutal_up_mbps;
+      d.hy_brutal_down_mbps = q.brutal_down_mbps;
+      d.hy_keep_alive_secs = q.keep_alive_period_secs;
+      d.hy_max_idle_secs = q.max_idle_timeout_secs;
+      if (q.udp_hop) {
+        d.hy_udp_hop_ports = q.udp_hop.ports.map(String);
+        d.hy_udp_hop_interval_min = q.udp_hop.interval_min;
+        d.hy_udp_hop_interval_max = q.udp_hop.interval_max;
+      }
+    }
   }
   const toPairs = (h: { [k: string]: string } | null): HeaderPair[] =>
     h ? Object.entries(h).map(([name, value]) => ({ name, value })) : [];

@@ -107,6 +107,7 @@ export const OutboundForm = memo(function OutboundForm({
     | VlessEncryptionMode
     | undefined;
   const xhttpObfs = Form.useWatch('xhttp_x_padding_obfs_mode', form) as boolean | undefined;
+  const hyCongestion = Form.useWatch('hy_congestion', form) as string | undefined;
   const { message } = App.useApp();
   const [linkText, setLinkText] = useState('');
 
@@ -290,6 +291,93 @@ export const OutboundForm = memo(function OutboundForm({
           tooltipKey="outbounds.hysteriaAuthHint"
           rules={[{ required: true, message: t('outbounds.hysteriaAuthRequired') }]}
         />
+      )}
+
+      {isHysteria && (
+        <>
+          <SubHeader>{t('outbounds.hyQuicSection')}</SubHeader>
+          <Form.Item
+            name="hy_congestion"
+            label={t('outbounds.hyCongestion')}
+            tooltip={t('outbounds.hyCongestionHint')}
+            style={{ marginBottom: 12 }}
+          >
+            <Select
+              options={[
+                { value: '', label: t('outbounds.hyCongestionDefault') },
+                { value: 'brutal', label: 'Brutal' },
+                { value: 'bbr', label: 'BBR' },
+              ]}
+            />
+          </Form.Item>
+          {hyCongestion === 'brutal' && (
+            <div style={{ display: 'flex', gap: 12 }}>
+              <Form.Item
+                name="hy_brutal_up_mbps"
+                label={t('outbounds.hyBrutalUp')}
+                tooltip={t('outbounds.hyBrutalHint')}
+                style={{ flex: 1, marginBottom: 12 }}
+              >
+                <InputNumber min={1} placeholder="100" style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item
+                name="hy_brutal_down_mbps"
+                label={t('outbounds.hyBrutalDown')}
+                style={{ flex: 1, marginBottom: 12 }}
+              >
+                <InputNumber min={1} placeholder="100" style={{ width: '100%' }} />
+              </Form.Item>
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 12 }}>
+            <Form.Item
+              name="hy_keep_alive_secs"
+              label={t('outbounds.hyKeepAlive')}
+              tooltip={t('outbounds.hyKeepAliveHint')}
+              style={{ flex: 1, marginBottom: 12 }}
+            >
+              <InputNumber min={0} placeholder="10" style={{ width: '100%' }} />
+            </Form.Item>
+            <Form.Item
+              name="hy_max_idle_secs"
+              label={t('outbounds.hyMaxIdle')}
+              tooltip={t('outbounds.hyMaxIdleHint')}
+              style={{ flex: 1, marginBottom: 12 }}
+            >
+              <InputNumber min={0} placeholder="30" style={{ width: '100%' }} />
+            </Form.Item>
+          </div>
+          <Form.Item
+            name="hy_udp_hop_ports"
+            label={t('outbounds.hyUdpHopPorts')}
+            tooltip={t('outbounds.hyUdpHopPortsHint')}
+            style={{ marginBottom: 12 }}
+          >
+            <Select
+              mode="tags"
+              tokenSeparators={[',', ' ']}
+              allowClear
+              placeholder="20000, 20001, 20002"
+            />
+          </Form.Item>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <Form.Item
+              name="hy_udp_hop_interval_min"
+              label={t('outbounds.hyUdpHopMin')}
+              tooltip={t('outbounds.hyUdpHopHint')}
+              style={{ flex: 1, marginBottom: 12 }}
+            >
+              <InputNumber min={1} placeholder="30" style={{ width: '100%' }} />
+            </Form.Item>
+            <Form.Item
+              name="hy_udp_hop_interval_max"
+              label={t('outbounds.hyUdpHopMax')}
+              style={{ flex: 1, marginBottom: 12 }}
+            >
+              <InputNumber min={1} placeholder="60" style={{ width: '100%' }} />
+            </Form.Item>
+          </div>
+        </>
       )}
 
       <div style={{ display: 'flex', gap: 12 }}>
