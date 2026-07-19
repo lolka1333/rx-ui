@@ -43,12 +43,12 @@ import { OutboundForm } from './OutboundForm';
 import { ReverseWizard } from './ReverseWizard';
 import { formToOutbound, type OutboundFormValues } from './form';
 
-/** Endpoint `address:port` for the table, regardless of protocol variant. */
+/** Endpoint `address:port` for the table. Both protocol variants (vless and
+ *  hysteria) carry `address` + `port` at this level, so the union exposes them
+ *  directly — no per-kind branch. (The old code special-cased vless and left
+ *  hysteria showing a bare "—".) */
 function endpointOf(ob: CustomOutbound): string {
-  if (ob.protocol.kind === 'vless') {
-    return `${ob.protocol.address}:${ob.protocol.port}`;
-  }
-  return '—';
+  return `${ob.protocol.address}:${ob.protocol.port}`;
 }
 
 /** xray's always-present built-in outbounds — emitted into every bootstrap
