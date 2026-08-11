@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { QueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/stores/auth';
+import { clearOverviewCache } from '@/lib/overviewCache';
 
 // Single QueryClient instance shared between the React provider tree and
 // the 401 interceptor below — the latter needs to cancel every in-flight
@@ -60,6 +61,9 @@ apiClient.interceptors.response.use(
       // keep firing without an Authorization header → cascading 401s.
       queryClient.cancelQueries();
       queryClient.clear();
+      // The session snapshot seeds the sidebar plaque on reload; drop it with
+      // the rest of the cache so a logged-out tab can't paint a stale status.
+      clearOverviewCache();
     }
     return Promise.reject(err);
   },
