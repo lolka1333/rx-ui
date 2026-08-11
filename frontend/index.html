@@ -15,15 +15,27 @@
     <title>Admin Panel</title>
 
     <script>
-      // Pre-paint the background color from the persisted theme so refreshes
-      // don't flash white before React mounts. Mirrors the PALETTES in
-      // src/theme/tokens.ts — keep in sync if you change those colors.
+      // Pre-paint from the persisted theme so a refresh never flashes the
+      // wrong colours before React mounts.
+      //
+      // Two things happen here, both necessarily BEFORE the bundle runs:
+      //
+      //  1. `--bg` + the html background, so the page doesn't flash white.
+      //  2. `--sidebar` and the app-shell flag (see the #app-shell rules
+      //     below), so the sidebar column is already painted in the very
+      //     first frame. The bundle needs ~200ms to parse, execute and
+      //     render; without the shell the viewport sat empty for that
+      //     whole time and then the sidebar — a lighter slab than the page
+      //     background — snapped into existence. That pop is what read as
+      //     the sidebar flickering on every reload.
+      //
+      // The palette below is stamped in at build time from
+      // src/theme/palette.ts by the `shell-constants` plugin in
+      // vite.config.ts — this script runs before any module can be imported,
+      // so it needs literals, but they are not a second copy to maintain.
+      // Everything else is applied from the bundle (see main.tsx).
       (function () {
-        var PALETTES = {
-          light: '#f8fafc',
-          dark: '#0b1220',
-          darker: '#050505',
-        };
+        var PALETTES = __SHELL_PALETTES__;
         var mode = 'dark';
         try {
           var raw = localStorage.getItem('app-theme');
@@ -33,11 +45,50 @@
             if (m && PALETTES[m]) mode = m;
           }
         } catch (e) { /* fall through to default */ }
-        var bg = PALETTES[mode];
+        var palette = PALETTES[mode];
         var root = document.documentElement;
         root.dataset.theme = mode;
-        root.style.setProperty('--bg', bg);
-        root.style.backgroundColor = bg;
+        root.style.setProperty('--bg', palette.bg);
+        root.style.setProperty('--sidebar', palette.sidebar);
+        root.style.backgroundColor = palette.bg;
+
+        // Only draw the shell where the app will actually render a sidebar:
+        // signed in (App falls back to <Login/> without a token), on the
+        // admin route (/sub/<token> is the public landing), and wide enough
+        // that the rail isn't a drawer (992px is Antd's `lg`). Guessing wrong
+        // would trade one flicker for a worse one — a phantom column that
+        // has to disappear.
+        var signedIn = false;
+        try {
+          var auth = JSON.parse(sessionStorage.getItem('app-auth') || '{}');
+          signedIn = !!(auth && auth.state && auth.state.token);
+        } catch (e) { /* treat unreadable state as signed out */ }
+        var isSubscriptionPage = /^\/sub\/[A-Za-z0-9_-]+\/?$/.test(window.location.pathname);
+        if (!signedIn || isSubscriptionPage || window.innerWidth < 992) return;
+
+        root.dataset.shell = 'sidebar';
+        var drop = function () { delete root.dataset.shell; };
+
+        // Hand over on React's first commit. The observer fires as a
+        // microtask — after the real sidebar is in the DOM but before the
+        // browser paints — so the swap lands inside a single frame and is
+        // invisible. Watching for *any* first child (not the sidebar
+        // specifically) also covers the case where the stored token turns
+        // out to be stale and the app renders the login screen instead.
+        document.addEventListener('DOMContentLoaded', function () {
+          var host = document.getElementById('root');
+          if (!host || host.firstChild) return drop();
+          var obs = new MutationObserver(function () {
+            obs.disconnect();
+            drop();
+          });
+          obs.observe(host, { childList: true });
+          // Backstop: never let a failed boot strand the placeholder on screen.
+          setTimeout(function () {
+            obs.disconnect();
+            drop();
+          }, 8000);
+        });
       })();
     </script>
     <style>
@@ -48,9 +99,34 @@
          above immediately overrides this with the persisted theme's
          exact colour once it runs. */
       html, body { background-color: #050505; margin: 0; }
+
+      /* Stand-in for the sidebar until React paints the real one. Hidden by
+         default and only revealed by the script above; the width is stamped in
+         from SIDEBAR_WIDTH in src/theme/palette.ts (the rail always mounts
+         expanded — the collapsed state isn't persisted). Fixed and behind
+         #root, so the real sidebar simply covers it and the removal can't be
+         seen. */
+      #app-shell { display: none; }
+      html[data-shell='sidebar'] #app-shell {
+        display: block;
+        position: fixed;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: __SHELL_SIDEBAR_WIDTH__;
+        /* Must NOT be negative. A negative z-index paints below the in-flow
+           block backgrounds of the root stacking context — including body's
+           own opaque background — so the placeholder was invisible and this
+           whole mechanism silently did nothing. Zero keeps it above that
+           background but still in DOM order behind #root's positioned
+           content, and the handover removes it before it could matter. */
+        z-index: 0;
+        background-color: var(--sidebar);
+      }
     </style>
   </head>
   <body>
+    <div id="app-shell" aria-hidden="true"></div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

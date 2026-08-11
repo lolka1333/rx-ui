@@ -1,90 +1,66 @@
 import type { ThemeConfig } from 'antd';
 import { theme as antdTheme } from 'antd';
-import type { ThemeMode } from '@/stores/theme';
+import { PALETTES } from '@/theme/palette';
+import type { ThemeMode } from '@/theme/palette';
 
-interface Palette {
-  bg: string;
-  bgLayout: string;
-  sidebar: string;
-  surface: string;
-  surfaceElev: string;
-  border: string;
-  borderStrong: string;
-  text: string;
-  textSecondary: string;
-  textTertiary: string;
+// The "you are here" wash behind the active navigation row. Deliberately
+// translucent: it tints the rail instead of covering it, so the row reads as
+// part of the sidebar rather than a plate dropped on top of it — and the
+// accent stays on the glyph, where it says "this page", instead of flooding a
+// whole block. One function feeds both the Antd Menu tokens and the
+// `--nav-active` variable, so the few CSS rules that must paint this state on
+// elements Antd doesn't tokenise (a shut submenu title) can't drift out of
+// step with the menu itself.
+function navActive(mode: ThemeMode): string {
+  // Lighter on white — the same alpha that reads as a gentle tint on a dark
+  // rail turns into a solid lilac band on a light one.
+  return mode === 'light' ? 'rgba(99, 102, 241, 0.14)' : 'rgba(99, 102, 241, 0.18)';
 }
-
-const PALETTES: Record<ThemeMode, Palette> = {
-  light: {
-    bg: '#f8fafc',
-    bgLayout: '#f1f5f9',
-    sidebar: '#ffffff',
-    surface: '#ffffff',
-    surfaceElev: '#ffffff',
-    border: '#e2e8f0',
-    borderStrong: '#cbd5e1',
-    text: '#0f172a',
-    textSecondary: '#475569',
-    textTertiary: '#64748b',
-  },
-  dark: {
-    bg: '#0b1220',
-    bgLayout: '#0b1220',
-    sidebar: '#131c2e',
-    surface: '#131c2e',
-    surfaceElev: '#1a2438',
-    border: '#1e2a44',
-    borderStrong: '#2a3a5c',
-    text: '#f1f5f9',
-    textSecondary: '#94a3b8',
-    textTertiary: '#64748b',
-  },
-  darker: {
-    // Pure grayscale at every level — earlier values (#0c0d10, #1b1d22, …)
-    // had a 5-7-unit blue lean per channel that the eye reads as bluish-
-    // violet against the near-black bg, especially on input borders. The
-    // operator wants "очень тёмная" to actually feel neutral-dark, not
-    // tinted, so every R/G/B trio is now equal.
-    bg: '#050505',
-    bgLayout: '#050505',
-    sidebar: '#0d0d0d',
-    surface: '#0d0d0d',
-    surfaceElev: '#141414',
-    border: '#1f1f1f',
-    borderStrong: '#2d2d2d',
-    // Soft off-white, NOT pure white. Near-white (#fafafa) on the near-black
-    // bg is ~18:1 contrast — technically great, but it glares and tires the
-    // eye on this very-dark palette. ~#d4 keeps it crisply readable (~12:1)
-    // while taking the harsh edge off all primary text app-wide.
-    text: '#d4d4d4',
-    textSecondary: '#a1a1a1',
-    textTertiary: '#717171',
-  },
-};
 
 function build(mode: ThemeMode): ThemeConfig {
   const isLight = mode === 'light';
   const p = PALETTES[mode];
+  const active = navActive(mode);
 
   const menuDark = {
     darkItemBg: 'transparent',
     darkSubMenuItemBg: 'transparent',
-    // The vivid solid accent reads fine on the bluish "тёмная" bg, but on the
-    // near-black "очень тёмная" bg (#050505) it glares. There the selected
-    // item gets a muted, translucent indigo fill instead of the full-bright
-    // solid, so it still reads as "selected" without burning.
-    darkItemSelectedBg: mode === 'darker' ? 'rgba(99, 102, 241, 0.55)' : '#6366f1',
-    darkItemSelectedColor: '#ffffff',
-    darkItemHoverBg: 'rgba(255, 255, 255, 0.06)',
-    darkItemActiveBg: 'rgba(255, 255, 255, 0.06)',
-    darkItemColor: '#cbd5e1',
+    // Hover flyouts off the collapsed rail are portalled to <body>, so they
+    // escape both the sider's own background and any `.ant-layout-sider`
+    // rule. Antd's dark algorithm then falls back to its stock navy
+    // (#001529), which ignores our palette entirely — on "очень тёмная" the
+    // popup stayed blue while everything around it went neutral near-black.
+    // The elevated surface is the right fill: it's what every other portalled
+    // panel (dropdown, popover, modal) already uses via `colorBgElevated`.
+    darkPopupBg: p.surfaceElev,
+    darkItemSelectedBg: active,
+    darkItemSelectedColor: p.text,
+    // Kept in step with the hover rule in index.css, which is what actually
+    // paints (it carries `!important`; this token does not).
+    darkItemHoverBg: 'rgba(255, 255, 255, 0.04)',
+    // Antd's default here is pure white, which left a row you were merely
+    // pointing at brighter than the row you were actually on. Hover now lands
+    // on the same text colour as the active row; what separates them is the
+    // wash, the weight and the accent glyph, not who is whiter.
+    darkItemHoverColor: p.text,
+    // Resting labels sit a step below the active row's ink — that step is what
+    // makes "selected" legible once the fill stopped being a solid block. On
+    // "тёмная" the step is a cool slate. On "очень тёмная" it takes the
+    // palette's own secondary ink instead: that palette is deliberately
+    // neutral, and #cbd5e1 was both the one blue-leaning grey left in it and,
+    // at 1.00:1 against #d4d4d4, no step at all.
+    darkItemColor: mode === 'darker' ? p.textSecondary : '#cbd5e1',
   };
   const menuLight = {
     itemBg: 'transparent',
     subMenuItemBg: 'transparent',
-    itemSelectedBg: '#6366f1',
-    itemSelectedColor: '#ffffff',
+    itemSelectedBg: active,
+    itemSelectedColor: p.text,
+    // An open group whose child is active: antd tints the parent title with
+    // `colorPrimary` unless told otherwise, so on the light palette "Настройки"
+    // alone turned indigo while every other row kept its normal ink. The dark
+    // algorithm derives this from `darkItemSelectedColor` and needs no twin.
+    subMenuItemSelectedColor: p.text,
     itemHoverBg: 'rgba(0, 0, 0, 0.04)',
     itemActiveBg: 'rgba(0, 0, 0, 0.04)',
     itemColor: '#334155',
@@ -179,7 +155,10 @@ function build(mode: ThemeMode): ThemeConfig {
         colorPrimaryHover: '#4f46e5',
       },
       Tooltip: {
-        colorBgSpotlight: isLight ? 'rgba(15, 23, 42, 0.96)' : 'rgba(15, 23, 42, 0.98)',
+        // Deep slate on the light and "тёмная" palettes; neutral near-black on
+        // "очень тёмная", where a slate fill is the one blue patch left on an
+        // otherwise grayscale screen.
+        colorBgSpotlight: mode === 'darker' ? 'rgba(20, 20, 20, 0.98)' : 'rgba(15, 23, 42, 0.97)',
         colorTextLightSolid: '#f1f5f9',
         borderRadiusOuter: 6,
         boxShadowSecondary: '0 4px 12px rgba(0,0,0,0.25)',
@@ -214,6 +193,7 @@ export function applyCssVariables(mode: ThemeMode): void {
   r.setProperty('--text-2', p.textSecondary);
   r.setProperty('--text-3', p.textTertiary);
   r.setProperty('--accent', '#6366f1');
+  r.setProperty('--nav-active', navActive(mode));
   // Keep <html>'s inline backgroundColor in sync — the pre-paint script
   // in index.html sets it on initial load to avoid a flash-of-white, but
   // it only runs once. Without this line, switching theme mid-session

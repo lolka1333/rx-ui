@@ -1,6 +1,43 @@
 import { defineConfig } from 'vite';
+import type { Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
+import { PALETTES, SIDEBAR_WIDTH } from './src/theme/palette';
+
+/**
+ * Stamps the shell constants into index.html.
+ *
+ * The inline script in index.html paints the page background and the sidebar
+ * column before the bundle parses, which is the whole reason a reload doesn't
+ * flash. Running that early means it cannot import anything, so it needs the
+ * colours as literals. Writing them out by hand is what let the drawer sit on
+ * a stale `#0c0d10` for a palette revision; this takes them from
+ * `src/theme/palette.ts` instead, the same file the Antd theme is built from.
+ *
+ * Missing placeholders throw. A silent no-op here would ship an index.html
+ * whose inline script is a syntax error — the app would still boot off the
+ * module bundle, so the only symptom would be the flicker quietly coming back.
+ */
+function shellConstants(): Plugin {
+  const shell = Object.fromEntries(
+    Object.entries(PALETTES).map(([mode, p]) => [mode, { bg: p.bg, sidebar: p.sidebar }]),
+  );
+  const values: Record<string, string> = {
+    __SHELL_PALETTES__: JSON.stringify(shell),
+    __SHELL_SIDEBAR_WIDTH__: `${SIDEBAR_WIDTH}px`,
+  };
+  return {
+    name: 'shell-constants',
+    transformIndexHtml(html) {
+      return Object.entries(values).reduce((out, [token, value]) => {
+        if (!out.includes(token)) {
+          throw new Error(`index.html is missing the ${token} placeholder`);
+        }
+        return out.replaceAll(token, value);
+      }, html);
+    },
+  };
+}
 
 export default defineConfig(({ command }) => ({
   // Relative asset base for the production build so the SPA works both at the
@@ -9,7 +46,7 @@ export default defineConfig(({ command }) => ({
   // the backend stamps in. Dev stays at '/' so Vite's HMR + module URLs are
   // clean (the dev server serves at the root and proxies /api).
   base: command === 'build' ? './' : '/',
-  plugins: [react()],
+  plugins: [react(), shellConstants()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
