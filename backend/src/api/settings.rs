@@ -164,7 +164,9 @@ async fn update_panel(
     // DB write. Valid targets = the reserved built-ins ∪ the tags of currently-
     // enabled custom outbounds (a rule may route to an operator's relay).
     let valid_targets = valid_rule_targets(&state.db).await?;
-    let (custom_rules_json, rule_order_json) = validate_custom_routing(&body, &valid_targets)?;
+    let stored_targets = stored_rule_targets(&state.db).await?;
+    let (custom_rules_json, rule_order_json) =
+        validate_custom_routing(&body, &valid_targets, &stored_targets)?;
 
     // Panel HTTPS: validate + resolve the cert/key (an empty incoming key keeps
     // the stored one) before persisting — a bad pair fails here as a clean 400
@@ -774,6 +776,28 @@ async fn valid_rule_targets(
     Ok(set)
 }
 
+/// `(rule id, outbound tag)` for every rule already persisted.
+///
+/// A rule's target is checked against what exists *now*, but a target can
+/// disappear after the rule was stored — delete the custom outbound, or clear
+/// the client whose `reverse_tag` the rule pointed at, and the stored rule is
+/// suddenly "invalid". Re-rejecting it on every save would wedge the whole
+/// settings page: an unrelated edit (a brand name, the egress-test URL) would
+/// be refused because of a rule the operator is not touching, and the only way
+/// out would be to find and fix that rule first — with nothing in the UI saying
+/// so. Rules that arrive unchanged are therefore grandfathered; creating or
+/// re-pointing one still requires a live target.
+async fn stored_rule_targets(
+    db: &crate::db::DbPool,
+) -> AppResult<std::collections::HashSet<(String, String)>> {
+    Ok(load_panel_settings(db)
+        .await?
+        .xray_custom_rules
+        .into_iter()
+        .map(|r| (r.id, r.outbound_tag))
+        .collect())
+}
+
 /// Trim entries and drop blanks from a matcher list. Both rule emitters must
 /// see identical tokens: a blank entry is a match-everything `Substr("")` to
 /// xray's JSON parser but a hard error to the proto builder.
@@ -819,6 +843,7 @@ fn canonical_port_spec(field: &str, spec: &str, rule_name: &str) -> AppResult<(S
 fn validate_and_clean_rule(
     r: &RoutingRule,
     valid_targets: &std::collections::HashSet<String>,
+    stored: &std::collections::HashSet<(String, String)>,
 ) -> AppResult<RoutingRule> {
     let id = r.id.trim();
     if id.is_empty() {
@@ -841,13 +866,27 @@ fn validate_and_clean_rule(
         )));
     }
     if !valid_targets.contains(&r.outbound_tag) {
-        let mut known: Vec<&str> = valid_targets.iter().map(String::as_str).collect();
-        known.sort_unstable();
-        return Err(AppError::BadRequest(format!(
-            "custom rule target '{}' is not a known outbound (valid: {})",
-            r.outbound_tag,
-            known.join(", ")
-        )));
+        // Already stored with this exact target: its outbound vanished after the
+        // fact. Warn and carry on — the rule is already dead at runtime, so
+        // refusing the save protects nothing and would hold every other setting
+        // hostage. Everything below still runs, so a grandfathered rule is
+        // normalised exactly like any other.
+        if stored.contains(&(id.to_owned(), r.outbound_tag.clone())) {
+            tracing::warn!(
+                rule = %id,
+                target = %r.outbound_tag,
+                "routing rule points at an outbound that no longer exists; kept as-is"
+            );
+        } else {
+            let mut known: Vec<&str> = valid_targets.iter().map(String::as_str).collect();
+            known.sort_unstable();
+            return Err(AppError::BadRequest(format!(
+                "custom rule '{}' targets '{}', which is not a known outbound (valid: {})",
+                r.name.trim(),
+                r.outbound_tag,
+                known.join(", ")
+            )));
+        }
     }
     if r.name.chars().count() > 80 {
         return Err(AppError::BadRequest(
@@ -933,6 +972,7 @@ fn validate_and_clean_rule(
 fn validate_custom_routing(
     body: &PanelSettingsUpdate,
     valid_targets: &std::collections::HashSet<String>,
+    stored: &std::collections::HashSet<(String, String)>,
 ) -> AppResult<(String, String)> {
     if body.xray_custom_rules.len() > 200 {
         return Err(AppError::BadRequest(
@@ -942,7 +982,7 @@ fn validate_custom_routing(
     let mut cleaned: Vec<crate::models::RoutingRule> =
         Vec::with_capacity(body.xray_custom_rules.len());
     for r in &body.xray_custom_rules {
-        cleaned.push(validate_and_clean_rule(r, valid_targets)?);
+        cleaned.push(validate_and_clean_rule(r, valid_targets, stored)?);
     }
     // Ids key the evaluation order, and that order is de-duplicated — a repeated
     // id would silently drop one of the rules instead of applying both.
@@ -1420,6 +1460,12 @@ mod tests {
         names.iter().map(|s| (*s).to_string()).collect()
     }
 
+    /// No rule is already persisted, so nothing is grandfathered and every
+    /// guard below is exercised at full strength.
+    fn nothing_stored() -> std::collections::HashSet<(String, String)> {
+        std::collections::HashSet::new()
+    }
+
     fn rule(id: &str) -> RoutingRule {
         RoutingRule {
             id: id.to_string(),
@@ -1453,7 +1499,7 @@ mod tests {
             let mut r = rule(reserved);
             r.outbound_tag = "direct".to_string();
             assert!(
-                validate_and_clean_rule(&r, &ok).is_err(),
+                validate_and_clean_rule(&r, &ok, &nothing_stored()).is_err(),
                 "reserved id '{reserved}' must be rejected"
             );
         }
@@ -1465,7 +1511,7 @@ mod tests {
             let mut r = rule("r1");
             r.network = vec![bad.to_string()];
             assert!(
-                validate_and_clean_rule(&r, &ok).is_err(),
+                validate_and_clean_rule(&r, &ok, &nothing_stored()).is_err(),
                 "network '{bad}' must be rejected"
             );
         }
@@ -1476,14 +1522,14 @@ mod tests {
         r.domain = vec!["  ".to_string(), String::new()];
         r.network = vec![];
         assert!(
-            validate_and_clean_rule(&r, &ok).is_err(),
+            validate_and_clean_rule(&r, &ok, &nothing_stored()).is_err(),
             "a rule whose only matcher is blank has no conditions"
         );
 
         // Blanks are stripped rather than forwarded, and surviving entries trimmed.
         let mut r = rule("r1");
         r.domain = vec![" a.com ".to_string(), String::new(), "b.com".to_string()];
-        let cleaned = validate_and_clean_rule(&r, &ok).unwrap();
+        let cleaned = validate_and_clean_rule(&r, &ok, &nothing_stored()).unwrap();
         assert_eq!(
             cleaned.domain,
             vec!["a.com".to_string(), "b.com".to_string()]
@@ -1494,16 +1540,49 @@ mod tests {
         let mut r = rule("r1");
         r.port = " 443, 1024 - 65535 ".to_string();
         assert_eq!(
-            validate_and_clean_rule(&r, &ok).unwrap().port,
+            validate_and_clean_rule(&r, &ok, &nothing_stored())
+                .unwrap()
+                .port,
             "443,1024-65535"
         );
 
         // An outbound that isn't there would dangle in the pushed rule set.
         let mut r = rule("r1");
         r.outbound_tag = "relay-de".to_string();
-        assert!(validate_and_clean_rule(&r, &ok).is_err());
+        assert!(validate_and_clean_rule(&r, &ok, &nothing_stored()).is_err());
         r.outbound_tag = "relay-jp".to_string();
-        assert!(validate_and_clean_rule(&r, &ok).is_ok());
+        assert!(validate_and_clean_rule(&r, &ok, &nothing_stored()).is_ok());
+    }
+
+    /// A target can vanish after its rule was stored — the custom outbound is
+    /// deleted, or the client whose `reverse_tag` the rule pointed at loses it.
+    /// Re-rejecting the stored rule would wedge the entire settings page: an
+    /// unrelated edit elsewhere in the form would be refused because of a rule
+    /// the operator never touched.
+    #[test]
+    fn stored_rule_with_a_vanished_target_does_not_block_unrelated_saves() {
+        let ok = targets(&["direct", "blocked"]);
+        let mut r = rule("r1");
+        r.outbound_tag = "my_user_1_pc".to_string();
+
+        // Never stored → this is the operator pointing a rule at nothing.
+        assert!(validate_and_clean_rule(&r, &ok, &nothing_stored()).is_err());
+
+        // Stored with this exact target → grandfathered, and still normalised
+        // like any other rule rather than passed through raw.
+        let mut stored = std::collections::HashSet::new();
+        stored.insert(("r1".to_string(), "my_user_1_pc".to_string()));
+        r.port = " 1024 - 2048 ".to_string();
+        let cleaned = validate_and_clean_rule(&r, &ok, &stored).expect("stored rule is kept");
+        assert_eq!(cleaned.outbound_tag, "my_user_1_pc");
+        assert_eq!(
+            cleaned.port, "1024-2048",
+            "grandfathered rules are still cleaned"
+        );
+
+        // Re-pointing a stored rule at another dead tag is a fresh mistake.
+        r.outbound_tag = "some_other_ghost".to_string();
+        assert!(validate_and_clean_rule(&r, &ok, &stored).is_err());
     }
 
     #[test]
