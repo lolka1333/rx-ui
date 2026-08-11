@@ -10,7 +10,8 @@ import { Clients } from '@/pages/Clients';
 import { Settings } from '@/pages/Settings';
 import { SubscriptionLanding } from '@/pages/SubscriptionLanding';
 import { useAuth } from '@/stores/auth';
-import { useNav, isNavPage } from '@/stores/nav';
+import { useNav, isNavPage, isSettingsPage, settingsSectionOf } from '@/stores/nav';
+import { SIDEBAR_WIDTH, SIDEBAR_COLLAPSED } from '@/theme/palette';
 
 /** Public route detection. The backend's `/sub/{token}` falls through
  *  to the SPA when the caller asks for HTML (Accept: text/html and no
@@ -28,8 +29,6 @@ function subscriptionToken(): string | null {
 
 const { Content } = Layout;
 
-const SIDEBAR_WIDTH = 208;
-const SIDEBAR_COLLAPSED = 64;
 const MOBILE_DRAWER = 260;
 const BTN_SIZE = 32;
 const BTN_TOP = 60;
@@ -55,9 +54,6 @@ function AdminApp() {
   const setCurrent = useNav((s) => s.setCurrent);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  // Settings is a modal overlay, not a nav page — it opens
-  // over whatever page you're on and closes back to it.
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [animX, setAnimX] = useState(0);
   const [animate, setAnimate] = useState(true);
   const screens = Grid.useBreakpoint();
@@ -130,11 +126,10 @@ function AdminApp() {
   const handleNavigate = useCallback(
     (key: string) => {
       // Sidebar's menu items may include keys for things that aren't
-      // top-level pages (e.g. logout). Settings opens as a modal overlay
-      // rather than switching the page; the rest narrow to known NavPages.
-      if (key === 'settings') {
-        setSettingsOpen(true);
-      } else if (isNavPage(key)) {
+      // top-level pages (e.g. logout, or the "settings" accordion parent
+      // which only toggles its submenu). Navigate for known NavPages —
+      // that includes the `settings-<section>` sub-items.
+      if (isNavPage(key)) {
         setCurrent(key);
       }
       setDrawerOpen(false);
@@ -155,6 +150,15 @@ function AdminApp() {
   const inboundsPage = useMemo(() => <Inbounds />, []);
   const outboundsPage = useMemo(() => <Outbounds />, []);
   const clientsPage = useMemo(() => <Clients />, []);
+  // Settings is a full-width page now, driven by the sidebar's accordion.
+  // `section` picks which category shows; all sections stay mounted inside so
+  // the cross-section "save all" dirty registry survives switching. Defaults to
+  // `account` while off the settings pages (the block is display:none then).
+  const settingsSection = settingsSectionOf(current) ?? 'account';
+  const settingsPage = useMemo(
+    () => <Settings section={settingsSection} />,
+    [settingsSection],
+  );
 
   if (!authToken) return <Login />;
 
@@ -208,6 +212,13 @@ function AdminApp() {
             style={{ display: current === 'clients' ? 'block' : 'none' }}
           >
             {clientsPage}
+          </div>
+          {/* No `app-page-fade` here, unlike the four above: this one wrapper
+              holds BOTH settings pages, so its display never changes when the
+              sidebar switches between them and the animation could not replay.
+              Settings.tsx puts the fade on the two blocks that do toggle. */}
+          <div style={{ display: isSettingsPage(current) ? 'block' : 'none' }}>
+            {settingsPage}
           </div>
         </Content>
       </Layout>
@@ -278,8 +289,6 @@ function AdminApp() {
           </span>
         </button>
       )}
-
-      <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </Layout>
   );
 }

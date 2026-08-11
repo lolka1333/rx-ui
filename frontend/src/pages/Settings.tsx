@@ -22,29 +22,32 @@ import {
   Tooltip,
   Typography,
 } from 'antd';
-import type { FormInstance, SelectProps } from 'antd';
+import type { FormInstance, SelectProps, SwitchProps } from 'antd';
 import {
   BranchesOutlined,
   CheckOutlined,
+  ClockCircleOutlined,
   CloseOutlined,
+  CloudUploadOutlined,
   ControlOutlined,
-  DatabaseOutlined,
-  LeftOutlined,
+  DownOutlined,
+  KeyOutlined,
   LinkOutlined,
   LoadingOutlined,
+  LockOutlined,
   LogoutOutlined,
-  RightOutlined,
   SafetyCertificateOutlined,
   UserOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { DragEvent, FocusEventHandler, PointerEvent, ReactNode } from 'react';
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/api/client';
 import { apiErrorMessage } from '@/api/errors';
 import { useAuth } from '@/stores/auth';
+import { useNav, type SettingsSection } from '@/stores/nav';
 import { setLocaleAndReload, useLocale } from '@/stores/locale';
 import { LOCALES } from '@/i18n';
 import type { PanelSettings, RoutingRule } from '@/api/types';
@@ -114,6 +117,35 @@ interface DirtyHandle {
  *    post-save data. Errors are already surfaced by field validation and the
  *    mutation's own onError, hence the bare `.catch`.
  */
+/** Does the live form differ from what's actually saved?
+ *
+ *  The sections used to flag themselves dirty on ANY edit, so typing a value
+ *  and then putting it back left the "unsaved changes" bar stuck on screen with
+ *  nothing to save. Compare against the saved baseline instead.
+ *
+ *  Nullish and `''` count as the same empty value — an untouched optional input
+ *  reports `undefined` where the server sent `''`. Arrays and objects compare
+ *  structurally INCLUDING order, because order is itself a setting here (the
+ *  routing-rule list). */
+function differsFromSaved(
+  current: Record<string, unknown>,
+  baseline: Record<string, unknown>,
+): boolean {
+  const norm = (v: unknown) => (v === undefined || v === null ? '' : v);
+  const same = (a: unknown, b: unknown) => {
+    const x = norm(a);
+    const y = norm(b);
+    if (typeof x === 'object' || typeof y === 'object') {
+      return JSON.stringify(x) === JSON.stringify(y);
+    }
+    return x === y;
+  };
+  // Only the saved settings decide dirtiness. `getFieldsValue(true)` also hands
+  // back transient fields the form registered that were never part of the saved
+  // row — comparing those would flag the section dirty with nothing to save.
+  return Object.keys(baseline).some((k) => !same(current[k], baseline[k]));
+}
+
 function useSectionDirtyPublish<V>({
   dirty,
   setDirty,
@@ -156,47 +188,27 @@ function useSectionDirtyPublish<V>({
   }, [dirty, mutation.isPending, form, onDirtyChange, qc, setDirty]);
 }
 
-type CategoryKey = SectionKey;
-
-/** Left-nav structure for the settings modal. Short labels here; the
- *  per-section headings live inside each section. The account page bundles
- *  profile info + password + the active session under one entry, so there's a single item in the
- *  first group. */
-const SETTINGS_GROUPS: {
-  titleKey: string;
-  items: { key: CategoryKey; labelKey: string; icon: ReactNode }[];
-}[] = [
-  {
-    titleKey: 'settings.groupAccount',
-    items: [
-      { key: 'account', labelKey: 'settings.navAccount', icon: <UserOutlined /> },
-    ],
-  },
-  {
-    titleKey: 'settings.groupPanel',
-    items: [
-      { key: 'access', labelKey: 'settings.navAccess', icon: <ControlOutlined /> },
-      { key: 'tls', labelKey: 'settings.navTls', icon: <SafetyCertificateOutlined /> },
-      { key: 'subscription', labelKey: 'settings.navSubscription', icon: <LinkOutlined /> },
-    ],
-  },
-  {
-    titleKey: 'settings.groupEngine',
-    items: [
-      { key: 'xray', labelKey: 'settings.navXray', icon: <DatabaseOutlined /> },
-    ],
-  },
-];
-
 /**
- * Settings — a full-window modal. A categorized left nav
- * switches the visible section; every section stays mounted, so the
- * form state and the cross-section "save all" dirty registry survive
- * category switches (and closing/reopening the modal). Rendered
- * always-mounted by AdminApp and revealed via `open`.
+ * Settings — a full-width page. The sidebar's "Settings" accordion selects
+ * the visible category via the `section` prop; every section stays mounted,
+ * so the form state and the cross-section "save all" dirty registry survive
+ * switching categories (and navigating away and back). Rendered
+ * always-mounted by AdminApp, revealed when `current` is a `settings-*` page.
  */
-export function Settings({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function Settings({ section }: { section: SectionKey }) {
   const { t } = useTranslation();
+  const setCurrent = useNav((s) => s.setCurrent);
+  // Every section runs this same query, so subscribing here is free (react-query
+  // dedupes by key) and it gives the PAGE something to gate on. Without it the
+  // tabs, the group plaques and the section chrome all painted immediately on a
+  // reload while every field inside was still empty — an empty shell hanging on
+  // screen — and the fields then popped in with no motion, because the page
+  // wrapper had already played its entrance over that empty frame. The other
+  // four pages already do exactly this.
+  const pageQuery = useQuery<PanelSettings>({
+    queryKey: ['panel-settings'],
+    queryFn: async () => (await apiClient.get<PanelSettings>('/settings/panel')).data,
+  });
   // Page-level dirty registry. Sections publish handles by key so
   // the bar can save / discard everything at once with a single
   // click, no matter how many sections the operator has touched.
@@ -270,169 +282,100 @@ export function Settings({ open, onClose }: { open: boolean; onClose: () => void
     [setDirty],
   );
 
-  // `null` = the section list (drill-in root); a key = that section's detail
-  // screen. Opening always starts at the list (reset on close, below).
-  const [active, setActive] = useState<CategoryKey | null>(null);
-  // Which section the detail panel renders. Tracked separately from `active`
-  // so the panel keeps showing its section through the slide-OUT (when
-  // `active` is already null on the way back) instead of blanking mid-glide.
-  const [lastDetail, setLastDetail] = useState<CategoryKey | null>(null);
+  // Two settings groups, each its own sidebar entry: the PANEL container (a
+  // tabbed card over account / access / TLS / subscription) and the standalone
+  // XRAY page. Both stay mounted (display-toggled) so the "save all" dirty
+  // registry and unsaved edits survive switching between them. `section` (from
+  // the sidebar) is 'xray' for the Xray page and a panel key otherwise.
+  const tabLabel = (icon: ReactNode, label: string) => (
+    <span className="app-settings-tab">
+      {icon}
+      {label}
+    </span>
+  );
+  const isXray = section === 'xray';
+  const panelTab: SettingsSection = isXray ? 'account' : section;
 
-  // Esc closes the modal — only wired while it's open.
-  useEffect(() => {
-    if (!open) return undefined;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
-
-  // Keep the overlay displayed through its close animation: `open` drives the
-  // visible state, `rendered` stays true for the exit zoom-out, then flips
-  // false so the base `display:none` hides it. (Same delayed-unmount trick as
-  // the DirtyBar.) The 160ms timeout sits just past the 140ms out-animation.
-  const [rendered, setRendered] = useState(open);
-  useEffect(() => {
-    if (open) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setRendered(true);
-      return undefined;
-    }
-    const id = window.setTimeout(() => {
-      setRendered(false);
-      // Back to the section list so the next open starts at the root,
-      // matching the push-navigation model.
-      setActive(null);
-      setLastDetail(null);
-    }, 220);
-    return () => window.clearTimeout(id);
-  }, [open]);
+  // Nothing until the first payload lands — same contract as the other pages:
+  // no skeleton flash, and `app-content-reveal` fades the real content in once
+  // there is something to show. A refetch keeps the current content on screen.
+  if (pageQuery.isLoading && !pageQuery.data) return null;
 
   return (
-    <div
-      className={`app-settings-overlay${open ? ' is-open' : rendered ? ' is-closing' : ''}`}
-      aria-hidden={!open}
-    >
-      <div className="app-settings-backdrop" onClick={onClose} />
-      <div
-        className="app-settings-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label={t('settings.title')}
-        data-view={active === null ? 'list' : 'detail'}
-      >
-        {/* Fixed header — it never slides, so the close button (and the
-            title / back control) sit ABOVE the push animation instead of
-            having the panels travel under them. Morphs title ⇄ back by view. */}
-        <div className="app-settings-header">
-          {active === null ? (
-            <span className="app-settings-header-title">{t('settings.title')}</span>
-          ) : (
-            <button
-              type="button"
-              className="app-settings-header-back"
-              onClick={() => setActive(null)}
-            >
-              <LeftOutlined />
-              <span>{t('settings.title')}</span>
-            </button>
-          )}
-          <button
-            type="button"
-            className="app-settings-close"
-            onClick={onClose}
-            aria-label={t('common.close')}
-          >
-            <CloseOutlined />
-          </button>
-        </div>
-
-        {/* Drill-in: the root list and the detail screen are both mounted,
-            stacked, and slide horizontally (push navigation) below the fixed
-            header, driven by the modal's `data-view`. */}
-        <div className="app-settings-drill">
-          {/* Root — sections as drill-in rows. */}
-          <div className="app-settings-drill-list">
-            {SETTINGS_GROUPS.map((group) => (
-              <div key={group.titleKey} className="app-settings-drill-group">
-                <div className="app-settings-drill-grouptitle">{t(group.titleKey)}</div>
-                {group.items.map((item) => (
-                  <button
-                    key={item.key}
-                    type="button"
-                    className="app-settings-drill-row"
-                    onClick={() => {
-                      setLastDetail(item.key);
-                      setActive(item.key);
-                    }}
-                  >
-                    <span className="app-settings-drill-row-icon">{item.icon}</span>
-                    <span className="app-settings-drill-row-label">{t(item.labelKey)}</span>
-                    <RightOutlined className="app-settings-drill-row-go" />
-                  </button>
-                ))}
-              </div>
-            ))}
-          </div>
-
-          {/* Detail — just the active section; the back control lives in the
-              fixed header above. Sections stay mounted (toggled by `lastDetail`,
-              which lingers through the slide-out so the panel doesn't blank
-              mid-animation). */}
-          <div className="app-settings-drill-detail">
-            <div className="app-settings-drill-body">
-              <div style={{ display: lastDetail === 'account' ? 'block' : 'none' }}>
-                <AccountSection />
-              </div>
-              <div style={{ display: lastDetail === 'access' ? 'block' : 'none' }}>
-                <AccessSection onDirtyChange={onAccessDirty} />
-              </div>
-              <div style={{ display: lastDetail === 'tls' ? 'block' : 'none' }}>
-                <TlsSection onDirtyChange={onTlsDirty} />
-              </div>
-              <div style={{ display: lastDetail === 'subscription' ? 'block' : 'none' }}>
-                <SubscriptionSection onDirtyChange={onSubscriptionDirty} />
-              </div>
-              <div style={{ display: lastDetail === 'xray' ? 'block' : 'none' }}>
-                <XraySection onDirtyChange={onXrayDirty} />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <DirtyBar
-          visible={dirtyCount > 0}
-          saving={anySaving}
-          count={dirtyCount}
-          onSave={saveAll}
-          onDiscard={discardAll}
+    <div className="app-settings-page app-content-reveal">
+      <DirtyBar
+        visible={dirtyCount > 0}
+        saving={anySaving}
+        count={dirtyCount}
+        onSave={saveAll}
+        onDiscard={discardAll}
+      />
+      {/* The entry animation lives on these two blocks, not on the page wrapper
+          in App.tsx. Both settings pages share one wrapper (so the cross-section
+          dirty registry survives switching), and that wrapper stays displayed
+          when the sidebar moves between them — a CSS animation only replays
+          when an element comes back from `display: none`, so the switch had no
+          animation at all while every other tab did. Sitting on the blocks that
+          actually toggle, it replays for a section switch AND for arriving from
+          another page (the wrapper's display flip restarts descendants too). */}
+      <div className="app-page-fade" style={{ display: isXray ? 'none' : 'block' }}>
+        <Tabs
+          className="app-settings-tabs"
+          activeKey={panelTab}
+          onChange={(k) => setCurrent(`settings-${k as SettingsSection}`)}
+          items={[
+            {
+              key: 'account',
+              forceRender: true,
+              label: tabLabel(<UserOutlined />, t('settings.navAccount')),
+              children: <AccountSection />,
+            },
+            {
+              key: 'access',
+              forceRender: true,
+              label: tabLabel(<ControlOutlined />, t('settings.navAccess')),
+              children: <AccessSection onDirtyChange={onAccessDirty} />,
+            },
+            {
+              key: 'tls',
+              forceRender: true,
+              label: tabLabel(<SafetyCertificateOutlined />, t('settings.navTls')),
+              children: <TlsSection onDirtyChange={onTlsDirty} />,
+            },
+            {
+              key: 'subscription',
+              forceRender: true,
+              label: tabLabel(<LinkOutlined />, t('settings.navSubscription')),
+              children: <SubscriptionSection onDirtyChange={onSubscriptionDirty} />,
+            },
+          ]}
         />
+      </div>
+      <div className="app-page-fade" style={{ display: isXray ? 'block' : 'none' }}>
+        <XraySection onDirtyChange={onXrayDirty} />
       </div>
     </div>
   );
 }
 
 /**
- * Section wrapper: a big heading, an optional one-paragraph subtitle in
- * muted text, then the body (form, field groups). The column width is
- * capped in CSS (`.app-settings-section`) so it fills the content pane on
- * wide displays without leaving a dead gap on the right — values and
- * controls align to the column edge.
+ * Section wrapper: the section's heading, then the body (form, field groups).
+ * The column width is capped in CSS (`.app-settings-section`) so it fills the
+ * content pane on wide displays without leaving a dead gap on the right —
+ * values and controls align to the column edge.
+ *
+ * The heading is for the document outline and screen readers only. On screen
+ * the tab strip (or the sidebar, for the Xray page) already names the category,
+ * so printing it again inside the panel was repetition — as was the paragraph
+ * of blurb that used to sit under it, which restated the tab name and the
+ * per-field hints. Both were hidden in CSS for a while; the blurb is gone now,
+ * and the heading is taken off the screen without being taken out of the
+ * document (see `.app-settings-page .app-settings-section-title`).
  */
-function SectionFrame({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description?: string;
-  children: React.ReactNode;
-}) {
+function SectionFrame({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="app-settings-section">
       <h1 className="app-settings-section-title">{title}</h1>
-      {description && <p className="app-settings-section-sub">{description}</p>}
       <div className="app-settings-fields">{children}</div>
     </section>
   );
@@ -441,6 +384,19 @@ function SectionFrame({
 /** A titled block of rows within a section — the "Account information" /
  *  "Password & security" headings grouping related rows. Consecutive
  *  groups get a hairline divider above them (see CSS). */
+/** Field label in the 3x-ui idiom: the setting's name with its explanation
+ *  directly beneath it in muted text, instead of hidden behind a `?` tooltip.
+ *  The pair fills the row's left column; the control sits in the right one —
+ *  that's what gives a settings row its weight. */
+function FieldLabel({ title, desc }: { title: string; desc?: string }) {
+  return (
+    <span className="app-field-label">
+      <span className="app-field-title">{title}</span>
+      {desc ? <span className="app-field-desc">{desc}</span> : null}
+    </span>
+  );
+}
+
 function FieldGroup({ title, children }: { title?: string; children: ReactNode }) {
   return (
     <div className="app-settings-fieldgroup">
@@ -495,10 +451,12 @@ function AccountSection() {
   };
 
   return (
-    <section className="app-settings-section">
+    <SectionFrame title={t('settings.accountSection')}>
       <FieldGroup title={t('settings.groupInfo')}>
         <InfoRow
+          icon={<UserOutlined />}
           label={t('settings.currentUsername')}
+          desc={t('settings.currentUsernameHint')}
           value={currentUsername}
           action={
             <Button
@@ -515,7 +473,9 @@ function AccountSection() {
 
       <FieldGroup title={t('settings.groupSecurity')}>
         <InfoRow
+          icon={<LockOutlined />}
           label={t('settings.passwordLabel')}
+          desc={t('settings.passwordRowHint')}
           value="••••••••••"
           action={
             <Button
@@ -529,11 +489,21 @@ function AccountSection() {
           }
         />
         <InfoRow
+          icon={<ClockCircleOutlined />}
           label={t('settings.sectionSession')}
+          desc={t('settings.sessionRowHint')}
           value={
-            sessionInfo
-              ? t('settings.sessionExpiryDescription', { hours: sessionInfo.hoursLeft })
-              : t('settings.sessionExpiryDescriptionInactive')
+            sessionInfo ? (
+              <>
+                {/* Live dot: the session is the one row on this tab whose value
+                    is a STATE rather than a stored setting, so it carries a
+                    status marker the others don't need. */}
+                <span className="app-settings-inforow-dot" aria-hidden="true" />
+                {t('settings.sessionExpiryDescription', { hours: sessionInfo.hoursLeft })}
+              </>
+            ) : (
+              t('settings.sessionExpiryDescriptionInactive')
+            )
           }
           action={
             <Button
@@ -552,8 +522,7 @@ function AccountSection() {
         />
       </FieldGroup>
 
-      {/* Edit dialog — opens over the settings modal (antd popups sit above
-          the overlay thanks to the raised zIndexPopupBase). New value first,
+      {/* Edit dialog for changing the login or password. New value first,
           current password to confirm. */}
       <Modal
         open={editing !== null}
@@ -629,30 +598,46 @@ function AccountSection() {
           </Form.Item>
         </Form>
       </Modal>
-    </section>
+    </SectionFrame>
   );
 }
 
-/** One account row: label on the left, value pushed to the
- *  right, and an action control (Edit / Sign-out) at the far edge. The big
- *  gap between label and value is the "spacious" look — it's intentional,
- *  not empty space. */
+/** One account row, on the SAME two-column grid as the form rows on the other
+ *  tabs: the left column names the setting, the right column carries its
+ *  current value together with the action that changes it (Edit / Sign-out).
+ *
+ *  Value and action belong side by side. The earlier layout kept the value on
+ *  the left and pinned the action to the row's far edge, which stranded the
+ *  button ~700px from the value it acts on and left the row looking unfinished
+ *  no matter how it was styled. */
 function InfoRow({
+  icon,
   label,
+  desc,
   value,
   action,
 }: {
+  icon: ReactNode;
   label: string;
+  desc?: string;
   value: ReactNode;
   action: ReactNode;
 }) {
   return (
     <div className="app-settings-inforow">
-      <div className="app-settings-inforow-main">
-        <div className="app-settings-inforow-label">{label}</div>
-        <div className="app-settings-inforow-value">{value}</div>
+      <span className="app-settings-inforow-id">
+        <span className="app-settings-inforow-icon" aria-hidden="true">
+          {icon}
+        </span>
+        <span className="app-field-label">
+          <span className="app-field-title">{label}</span>
+          {desc ? <span className="app-field-desc">{desc}</span> : null}
+        </span>
+      </span>
+      <div className="app-settings-inforow-control">
+        <span className="app-settings-inforow-value">{value}</span>
+        {action}
       </div>
-      {action}
     </div>
   );
 }
@@ -756,30 +741,37 @@ function AccessSection({
   // response. Skip the form entirely until then — no skeleton, no
   // placeholder, just empty space for ~50ms (and never a wrong port).
   const data = settingsQuery.data;
+  const accessBaseline = useMemo(
+    () => (data ? {
+            panel_port: data.panel_port,
+            panel_base_path: data.panel_base_path,
+          } : {}),
+    [data],
+  );
   return (
-    <SectionFrame
-      title={t('settings.panelSection')}
-      description={t('settings.panelSettingsHotHint')}
-    >
+    <SectionFrame title={t('settings.panelSection')}>
       {data && (
         <Form<PanelAccessFormValues>
           form={form}
           layout="vertical"
           autoComplete="off"
           key={`${data.panel_port}-${data.panel_base_path}`}
-          initialValues={{
-            panel_port: data.panel_port,
-            panel_base_path: data.panel_base_path,
-          }}
+          initialValues={accessBaseline}
           disabled={mutation.isPending}
-          onValuesChange={() => setDirty(true)}
+          onValuesChange={() =>
+            setDirty(differsFromSaved(form.getFieldsValue(true), accessBaseline))
+          }
           onFinish={(v) => mutation.mutate(v)}
         >
           <FieldGroup title={t('settings.accessGroupPanel')}>
             <Form.Item
               name="panel_port"
-              label={t('settings.panelPort')}
-              tooltip={t('settings.panelPortHint')}
+              label={
+                <FieldLabel
+                  title={t('settings.panelPort')}
+                  desc={t('settings.panelPortHint')}
+                />
+              }
               rules={[
                 { required: true, message: t('settings.panelPortRequired') },
                 {
@@ -794,8 +786,12 @@ function AccessSection({
             </Form.Item>
             <Form.Item
               name="panel_base_path"
-              label={t('settings.panelBasePath')}
-              tooltip={t('settings.panelBasePathHint')}
+              label={
+                <FieldLabel
+                  title={t('settings.panelBasePath')}
+                  desc={t('settings.panelBasePathHint')}
+                />
+              }
             >
               <Input placeholder={t('settings.panelBasePathPlaceholder')} />
             </Form.Item>
@@ -820,6 +816,314 @@ interface TlsFormValues {
   panel_tls_cert: string;
   panel_tls_key: string;
 }
+
+/**
+ * A PEM field styled as a compact dashed drop target: a name row always on top,
+ * then a short mono textarea that grows on focus/content, with an upload
+ * invitation that fades once the field is focused or filled. Dropping a .pem
+ * file reads it straight into the field.
+ *
+ * Controlled the antd way — `value`/`onChange` come from the wrapping
+ * `Form.Item`, so validation and dirty-tracking work unchanged. `forwardRef`
+ * lets antd scroll-to-error focus the textarea.
+ */
+/**
+ * A Switch whose whole settings row is the hit target: clicking anywhere in
+ * the row toggles it, and the row washes on hover to advertise that. A 44px
+ * pill at the far end of a 1000px row is a small thing to aim at, and the rest
+ * of the row was doing nothing.
+ *
+ * The row click is REPLAYED as a real click on the switch button rather than
+ * writing the field directly: `form.setFieldValue` does not fire
+ * `onValuesChange`, so a direct write would flip the control while leaving the
+ * page's unsaved-changes tracking blind to it. Going through the button keeps
+ * one code path — validation, dirty tracking and the disabled state all behave
+ * exactly as they do for a click on the switch itself.
+ *
+ * Mouse affordance only: the switch stays the keyboard target, so no second
+ * tab stop is introduced for the row.
+ */
+function RowSwitch(props: SwitchProps) {
+  const btn = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const row = btn.current?.closest('.app-field-switch');
+    if (!row) return undefined;
+    const onRowClick = (e: Event) => {
+      const target = e.target as HTMLElement | null;
+      // The switch handles clicks on itself; replaying one would undo it.
+      if (target?.closest('.ant-switch')) return;
+      btn.current?.click();
+    };
+    row.addEventListener('click', onRowClick);
+    return () => row.removeEventListener('click', onRowClick);
+  }, []);
+  return <Switch {...props} ref={btn} />;
+}
+
+interface PemDropFieldProps {
+  value?: string;
+  onChange?: (e: { target: { value: string } }) => void;
+  onBlur?: FocusEventHandler<HTMLTextAreaElement>;
+  id?: string;
+  placeholder?: string;
+  fieldName: string;
+  hintSub: string;
+  chipText: string;
+  chipDot?: boolean;
+  icon: ReactNode;
+  disabled?: boolean;
+}
+
+/** At most one PEM field may have a caret on the way to it. Shared across the
+ *  instances on purpose: clicking the second field while the first one's caret
+ *  was still pending let that timer fire mid-growth and focus the OTHER field,
+ *  which is exactly what kills a height animation. Whoever is opening now owns
+ *  the caret, and cancels whatever was queued before it. */
+let pendingCaret: number | null = null;
+let pendingCaretCleanup: (() => void) | null = null;
+function cancelPendingCaret() {
+  if (pendingCaret !== null) {
+    window.clearTimeout(pendingCaret);
+    pendingCaret = null;
+  }
+  if (pendingCaretCleanup) {
+    pendingCaretCleanup();
+    pendingCaretCleanup = null;
+  }
+}
+
+/** Every mounted PEM field's "close yourself" handle. A field normally closes on
+ *  blur, but one that was opened and then abandoned before its caret arrived
+ *  never gets a blur to close on — click one field, click the next, and the
+ *  first would sit open for good. Handing over closes them all; the one taking
+ *  over reopens itself in the same render. A field holding a certificate stays
+ *  tall regardless: that comes from `:not(:placeholder-shown)`, not from here. */
+const pemClosers = new Set<() => void>();
+
+const PemDropField = forwardRef<HTMLTextAreaElement, PemDropFieldProps>(function PemDropField(
+  { value, onChange, onBlur, id, placeholder, fieldName, hintSub, chipText, chipDot, icon, disabled },
+  ref,
+) {
+  const { t } = useTranslation();
+  const { message } = App.useApp();
+  const [dragOver, setDragOver] = useState(false);
+  // Open/closed is tracked here rather than left to `:focus` in CSS, and the
+  // click opens the box BEFORE the caret lands in it.
+  //
+  // Chrome will not animate the height of a focused textarea. Measured on this
+  // very field: the same 44→128 transition runs frame by frame while the field
+  // is unfocused (45.3 → 54.2 → 69.6 → 85.7 …) and collapses to the final value
+  // the instant focus arrives — mid-flight, even. It is not the trigger and not
+  // the element: animating an ancestor while the textarea inside holds focus
+  // snaps just the same. So the growth has to finish before the field is
+  // focused, which is what the pointer handler below does.
+  const [open, setOpen] = useState(false);
+  /** Matches the box's transition in the stylesheet, plus a frame of slack. */
+  const OPEN_MS = 180;
+  /** Corner square the browser draws the resize grip in. */
+  const GRIP = 20;
+  /** The resting strip, and a ceiling for a dragged-open box. Both mirror the
+   *  stylesheet's `.app-tls-ta` height and its `--open-h` fallback. */
+  const CLOSED_H = 44;
+  const MAX_OPEN = 800;
+
+  /** Releases an in-flight resize drag; set while the grip is held. */
+  const releaseGrip = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    const close = () => setOpen(false);
+    pemClosers.add(close);
+    return () => {
+      pemClosers.delete(close);
+      // A drag or a queued caret can still be in flight when this field goes
+      // away — switching settings tabs unmounts it. Both hang listeners on
+      // `document`, and one of them holds a timer that would focus a detached
+      // node; nothing else would ever reach them again.
+      releaseGrip.current?.();
+      cancelPendingCaret();
+    };
+  }, []);
+
+  /** Click on a closed field: grow it first, put the caret in afterwards. The
+   *  default action is what focuses a textarea, so suppressing it is what buys
+   *  the animation its 180ms. Only for the closed, empty state — a field that
+   *  is already open behaves like an ordinary textarea, caret placement and
+   *  all. Reduced-motion users get the caret immediately; there is no animation
+   *  for them to wait on. */
+  const onPointerDown = (e: PointerEvent<HTMLTextAreaElement>) => {
+    const el = e.currentTarget;
+
+    // The resize grip lives in the bottom-right corner and is dragged with the
+    // same pointerdown this handler intercepts. Suppressing the default action
+    // — which is what buys the open animation its 180ms — also cancels the
+    // browser's resize drag, so the grip stopped working entirely. Leave the
+    // corner alone, and switch the height transition off for the duration of
+    // the drag: with it on, the box eased toward the pointer 160ms behind and
+    // the whole thing felt like it was sagging.
+    const box = el.getBoundingClientRect();
+    if (e.clientX > box.right - GRIP && e.clientY > box.bottom - GRIP) {
+      const drop = el.closest('.app-tls-drop');
+      drop?.classList.add('is-resizing');
+      const done = () => {
+        releaseGrip.current = null;
+        drop?.classList.remove('is-resizing');
+        document.removeEventListener('pointerup', done);
+        document.removeEventListener('pointercancel', done);
+        // A drag leaves the height written onto the element itself, which
+        // outranks every rule in the stylesheet — the box could no longer
+        // collapse. Keep the size as this field's OPEN height instead and give
+        // the stylesheet back control: the box still closes to the strip, and
+        // reopens at the size the operator chose. Clearing the inline height
+        // and focusing happen in the same task, so nothing is painted in
+        // between and there is no flash.
+        const dragged = Math.round(el.getBoundingClientRect().height);
+        el.style.height = '';
+        if (drop instanceof HTMLElement && dragged > CLOSED_H + 4) {
+          drop.style.setProperty('--open-h', `${Math.min(dragged, MAX_OPEN)}px`);
+        }
+        el.focus();
+      };
+      releaseGrip.current = done;
+      document.addEventListener('pointerup', done);
+      document.addEventListener('pointercancel', done);
+      return;
+    }
+
+    if (open || (value ?? '').length > 0) return;
+    // A focused textarea suppresses height animations for the whole document,
+    // not just for itself — so opening the second field while the first still
+    // held the caret made the second one snap. Suppressing the default action
+    // (below) is what keeps the old field focused, so the blur has to be
+    // explicit. It also gives the other field its own closing animation, and
+    // fires the form's blur handler exactly as clicking away normally would.
+    // Order matters: cancel first, then blur (the old field's blur handler
+    // cancels too, and must not be able to kill the caret queued below).
+    cancelPendingCaret();
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active !== el) active.blur();
+    pemClosers.forEach((close) => close());
+    // Two cases skip the deferral and let the browser focus normally, with
+    // `:focus` holding the box open: reduced motion, where there is no
+    // animation to wait for; and touch or pen, where the software keyboard only
+    // comes up if focus lands in the same task as the tap — from a timer it
+    // stays down. A finger also pans: suppressing the default here would arm a
+    // caret that fires 180ms into a scroll and drags the page back.
+    if (
+      e.pointerType !== 'mouse' ||
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) {
+      return;
+    }
+    setOpen(true);
+    e.preventDefault();
+
+    // Give the caret up if the operator's next action lands anywhere else
+    // before it is due. Without this, clicking the field and then quickly
+    // clicking something else — a toggle, another tab — pulled focus back into
+    // the field 180ms later, over whatever they had just clicked, and left the
+    // box open with no blur coming to close it.
+    // `pointercancel` targets this very field — it fires when the browser takes
+    // the gesture over — so it cannot be filtered by target like the other two.
+    const abort = (ev: Event) => {
+      if (ev.type === 'pointercancel' || ev.target !== el) {
+        cancelPendingCaret();
+        setOpen(false);
+      }
+    };
+    pendingCaretCleanup = () => {
+      document.removeEventListener('pointerdown', abort, true);
+      document.removeEventListener('pointercancel', abort, true);
+      document.removeEventListener('focusin', abort, true);
+    };
+    document.addEventListener('pointerdown', abort, true);
+    document.addEventListener('pointercancel', abort, true);
+    document.addEventListener('focusin', abort, true);
+
+    pendingCaret = window.setTimeout(() => {
+      pendingCaret = null;
+      pendingCaretCleanup?.();
+      pendingCaretCleanup = null;
+      // The field was just clicked, so it is already in view; scrolling to it
+      // could only move the page out from under the operator.
+      el.focus({ preventScroll: true });
+      // Hand the open state over to `:focus` and drop the flag. The flag exists
+      // only to cover the window before the caret arrives, so it can never be
+      // left set on a field nobody is in.
+      setOpen(false);
+    }, OPEN_MS);
+  };
+
+  const onDrop = (e: DragEvent<HTMLTextAreaElement>) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      // A dropped folder also arrives as a File, and reading it rejects. Say so
+      // rather than leaving the drop to fail silently on an unhandled rejection.
+      void file
+        .text()
+        .then((txt) => onChange?.({ target: { value: txt.trim() } }))
+        .catch(() => message.error(t('settings.tlsDropUnreadable')));
+      return;
+    }
+    // Text dragged from an editor or another field carries no File at all. It
+    // is a PEM just the same, and the hint invites pasting one.
+    const text = e.dataTransfer.getData('text/plain').trim();
+    if (text) onChange?.({ target: { value: text } });
+  };
+  return (
+    <div className="app-tls-field-inner">
+      <div className="app-tls-flabel">
+        <span className="app-tls-tile-sm" aria-hidden="true">
+          {icon}
+        </span>
+        <span className="app-tls-fname">{fieldName}</span>
+        <span className={`app-tls-chip${chipDot ? ' is-set' : ''}`}>
+          {chipDot ? <span className="app-tls-chip-dot" aria-hidden="true" /> : null}
+          {chipText}
+        </span>
+      </div>
+      <div className={`app-tls-drop${dragOver ? ' is-drag' : ''}${open ? ' is-open' : ''}`}>
+        <textarea
+          ref={ref}
+          id={id}
+          className="app-tls-ta"
+          spellCheck={false}
+          value={value ?? ''}
+          placeholder={placeholder}
+          disabled={disabled}
+          onChange={(e) => onChange?.(e)}
+          onPointerDown={onPointerDown}
+          onBlur={(e) => {
+            // Clicking away before the caret arrived: drop it, or it would pull
+            // focus back into a field the operator has already left.
+            cancelPendingCaret();
+            setOpen(false);
+            onBlur?.(e);
+          }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragOver(true);
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={onDrop}
+        />
+        {/* The resting field is one strip, so it carries both halves of what an
+            operator needs: the PEM header says WHAT belongs here — and differs
+            between the two fields, which is what tells them apart at a glance —
+            while the sub says HOW to get it in. The header is the textarea's own
+            placeholder, reused rather than duplicated, so the two can't drift. */}
+        <div className="app-tls-hint" aria-hidden="true">
+          <span className="app-tls-hint-ic">
+            <CloudUploadOutlined />
+          </span>
+          <span className="app-tls-hint-ghost">{placeholder}</span>
+          <span className="app-tls-hint-sub">{hintSub}</span>
+        </div>
+      </div>
+    </div>
+  );
+});
 
 function TlsSection({
   onDirtyChange,
@@ -907,37 +1211,83 @@ function TlsSection({
   useSectionDirtyPublish({ dirty, setDirty, form, mutation, onDirtyChange, qc });
 
   const data = settingsQuery.data;
+  const tlsBaseline = useMemo(
+    () => (data ? {
+            panel_tls_enabled: data.panel_tls_enabled,
+            panel_tls_cert: data.panel_tls_cert,
+            panel_tls_key: '',
+          } : {}),
+    [data],
+  );
+  const certPresent = !!data?.panel_tls_cert?.trim();
+  const keyPresent = !!data?.panel_tls_key_set;
+  const httpsOn = !!data?.panel_tls_enabled;
   return (
-    <SectionFrame title={t('settings.tlsSection')} description={t('settings.tlsSectionHint')}>
+    <SectionFrame title={t('settings.tlsSection')}>
       {data && (
         <Form<TlsFormValues>
           form={form}
           layout="vertical"
           autoComplete="off"
           key={`tls-${data.panel_tls_enabled}-${data.panel_tls_key_set}`}
-          initialValues={{
-            panel_tls_enabled: data.panel_tls_enabled,
-            panel_tls_cert: data.panel_tls_cert,
-            panel_tls_key: '',
-          }}
+          initialValues={tlsBaseline}
           disabled={mutation.isPending}
-          onValuesChange={() => setDirty(true)}
+          onValuesChange={() =>
+            setDirty(differsFromSaved(form.getFieldsValue(true), tlsBaseline))
+          }
           onFinish={(v) => mutation.mutate(v)}
         >
           <FieldGroup>
             <Form.Item
               name="panel_tls_enabled"
-              label={t('settings.tlsEnabled')}
-              tooltip={t('settings.tlsEnabledHint')}
+              className="app-field-switch"
+              label={
+                <FieldLabel
+                  title={t('settings.tlsEnabled')}
+                  desc={t('settings.tlsEnabledHint')}
+                />
+              }
               valuePropName="checked"
             >
-              <Switch />
+              <RowSwitch />
             </Form.Item>
+          </FieldGroup>
+
+          {/* Status ribbon — reflects only what the panel actually knows: is a
+              cert stored, is a key stored, is HTTPS active. Domain / issuer /
+              expiry / fingerprint would need the backend to parse the stored
+              cert, so they're intentionally absent rather than faked. */}
+          <div className="app-tls-ribbon" data-active={httpsOn && certPresent}>
+            <span className="app-tls-live" data-on={httpsOn} aria-hidden="true" />
+            <span className="app-tls-rb-main">
+              {certPresent ? t('settings.tlsStatusCertLoaded') : t('settings.tlsStatusCertNone')}
+            </span>
+            <span className="app-tls-sep" aria-hidden="true">
+              ·
+            </span>
+            <span>{keyPresent ? t('settings.tlsStatusKeySaved') : t('settings.tlsStatusKeyNone')}</span>
+            <span className="app-tls-sep" aria-hidden="true">
+              ·
+            </span>
+            <span>{httpsOn ? t('settings.tlsStatusHttpsOn') : t('settings.tlsStatusHttpsOff')}</span>
+            {httpsOn && certPresent ? (
+              <span className="app-tls-rb-badge">{t('settings.tlsStatusActive')}</span>
+            ) : null}
+          </div>
+
+          <div className="app-tls-sec">
+            <span className="app-tls-sec-title">{t('settings.tlsReplaceTitle')}</span>
+            <span className="app-tls-sec-sub">
+              {certPresent ? t('settings.tlsReplaceSubHas') : t('settings.tlsReplaceSubNone')}
+            </span>
+            <span className="app-tls-sec-line" />
+          </div>
+
+          <div className="app-tls-pair">
             <Form.Item
               name="panel_tls_cert"
-              label={t('settings.tlsCert')}
-              tooltip={t('settings.tlsCertHint')}
-              className="app-field-stacked"
+              className="app-tls-fitem"
+              extra={t('settings.tlsCertHint')}
               rules={[
                 pemRule(t('settings.tlsCertInvalid')),
                 ({ getFieldValue }) => ({
@@ -948,21 +1298,23 @@ function TlsSection({
                 }),
               ]}
             >
-              <Input.TextArea
-                rows={5}
-                spellCheck={false}
-                placeholder="-----BEGIN CERTIFICATE-----"
-                style={{
-                  fontFamily: 'ui-monospace, "JetBrains Mono", Consolas, monospace',
-                  fontSize: 12,
-                }}
+              <PemDropField
+                fieldName={t('settings.tlsCert')}
+                hintSub={t('settings.tlsDropHint')}
+                placeholder={
+                  certPresent
+                    ? t('settings.tlsCertStoredPlaceholder')
+                    : '-----BEGIN CERTIFICATE-----'
+                }
+                chipText={t('settings.tlsChipReplace')}
+                icon={<SafetyCertificateOutlined />}
+                disabled={mutation.isPending}
               />
             </Form.Item>
             <Form.Item
               name="panel_tls_key"
-              label={t('settings.tlsKey')}
-              tooltip={t('settings.tlsKeyHint')}
-              className="app-field-stacked"
+              className="app-tls-fitem"
+              extra={t('settings.tlsKeyHint')}
               rules={[
                 pemRule(t('settings.tlsKeyInvalid')),
                 ({ getFieldValue }) => ({
@@ -973,21 +1325,25 @@ function TlsSection({
                 }),
               ]}
             >
-              <Input.TextArea
-                rows={5}
-                spellCheck={false}
+              <PemDropField
+                fieldName={t('settings.tlsKey')}
+                hintSub={t('settings.tlsDropHint')}
                 placeholder={
                   data.panel_tls_key_set
                     ? t('settings.tlsKeyStoredPlaceholder')
                     : '-----BEGIN PRIVATE KEY-----'
                 }
-                style={{
-                  fontFamily: 'ui-monospace, "JetBrains Mono", Consolas, monospace',
-                  fontSize: 12,
-                }}
+                chipText={
+                  data.panel_tls_key_set
+                    ? t('settings.tlsChipKeySet')
+                    : t('settings.tlsChipKeyUnset')
+                }
+                chipDot={data.panel_tls_key_set}
+                icon={<KeyOutlined />}
+                disabled={mutation.isPending}
               />
             </Form.Item>
-          </FieldGroup>
+          </div>
         </Form>
       )}
     </SectionFrame>
@@ -1012,7 +1368,7 @@ function LanguagePicker() {
   return (
     <FieldGroup title={t('settings.interfaceGroup')}>
       <div className="app-settings-plaque">
-        <span className="app-settings-plaque-label">{t('settings.language')}</span>
+        <FieldLabel title={t('settings.language')} desc={t('settings.languageHint')} />
         <div className="app-settings-plaque-control">
           <Select
             value={locale}
@@ -1098,18 +1454,8 @@ function SubscriptionSection({
   useSectionDirtyPublish({ dirty, setDirty, form, mutation, onDirtyChange, qc });
 
   const data = settingsQuery.data;
-  return (
-    <SectionFrame
-      title={t('settings.sectionSubscription')}
-      description={t('settings.subscriptionHint')}
-    >
-      {data && (
-        <Form<SubscriptionFormValues>
-          form={form}
-          layout="vertical"
-          autoComplete="off"
-          key={`${data.sub_enabled}-${data.sub_host_override}-${data.sub_link_host}-${data.sub_update_interval_hours}-${data.sub_brand_name}-${data.sub_service_url}-${data.sub_port}-${data.sub_tls_mode}-${data.sub_key_set}`}
-          initialValues={{
+  const subBaseline = useMemo(
+    () => (data ? {
             sub_enabled: data.sub_enabled,
             sub_host_override: data.sub_host_override,
             sub_link_host: data.sub_link_host,
@@ -1120,19 +1466,37 @@ function SubscriptionSection({
             sub_tls_mode: data.sub_tls_mode,
             sub_cert_pem: data.sub_cert_pem,
             sub_key_pem: '',
-          }}
+          } : {}),
+    [data],
+  );
+  return (
+    <SectionFrame title={t('settings.sectionSubscription')}>
+      {data && (
+        <Form<SubscriptionFormValues>
+          form={form}
+          layout="vertical"
+          autoComplete="off"
+          key={`${data.sub_enabled}-${data.sub_host_override}-${data.sub_link_host}-${data.sub_update_interval_hours}-${data.sub_brand_name}-${data.sub_service_url}-${data.sub_port}-${data.sub_tls_mode}-${data.sub_key_set}`}
+          initialValues={subBaseline}
           disabled={mutation.isPending}
-          onValuesChange={() => setDirty(true)}
+          onValuesChange={() =>
+            setDirty(differsFromSaved(form.getFieldsValue(true), subBaseline))
+          }
           onFinish={(v) => mutation.mutate(v)}
         >
           <FieldGroup>
             <Form.Item
               name="sub_enabled"
-              label={t('settings.subEnabled')}
-              tooltip={t('settings.subEnabledHint')}
+              className="app-field-switch"
+              label={
+                <FieldLabel
+                  title={t('settings.subEnabled')}
+                  desc={t('settings.subEnabledHint')}
+                />
+              }
               valuePropName="checked"
             >
-              <Switch />
+              <RowSwitch />
             </Form.Item>
           </FieldGroup>
 
@@ -1149,8 +1513,12 @@ function SubscriptionSection({
                   <FieldGroup title={t('settings.subGroupConnection')}>
                     <Form.Item
                       name="sub_host_override"
-                      label={t('settings.subHostOverride')}
-                      tooltip={t('settings.subHostOverrideHint')}
+                      label={
+                        <FieldLabel
+                          title={t('settings.subHostOverride')}
+                          desc={t('settings.subHostOverrideHint')}
+                        />
+                      }
                       rules={[
                         {
                           // Bare hostname / IPv4 / bracketed-IPv6 only — no
@@ -1169,8 +1537,12 @@ function SubscriptionSection({
                     </Form.Item>
                     <Form.Item
                       name="sub_link_host"
-                      label={t('settings.subLinkHost')}
-                      tooltip={t('settings.subLinkHostHint')}
+                      label={
+                        <FieldLabel
+                          title={t('settings.subLinkHost')}
+                          desc={t('settings.subLinkHostHint')}
+                        />
+                      }
                       rules={[
                         {
                           // Same bare-host constraint as the connection address
@@ -1187,8 +1559,12 @@ function SubscriptionSection({
                     </Form.Item>
                     <Form.Item
                       name="sub_port"
-                      label={t('settings.subPort')}
-                      tooltip={t('settings.subPortHint')}
+                      label={
+                        <FieldLabel
+                          title={t('settings.subPort')}
+                          desc={t('settings.subPortHint')}
+                        />
+                      }
                       rules={[
                         {
                           validator: (_, v: number) => {
@@ -1210,8 +1586,12 @@ function SubscriptionSection({
                     </Form.Item>
                     <Form.Item
                       name="sub_tls_mode"
-                      label={t('settings.subTlsMode')}
-                      tooltip={t('settings.subTlsModeHint')}
+                      label={
+                        <FieldLabel
+                          title={t('settings.subTlsMode')}
+                          desc={t('settings.subTlsModeHint')}
+                        />
+                      }
                     >
                       <Select
                         disabled={!enabled}
@@ -1226,39 +1606,62 @@ function SubscriptionSection({
                       noStyle
                       shouldUpdate={(p, n) => p.sub_tls_mode !== n.sub_tls_mode}
                     >
-                      {({ getFieldValue }) =>
-                        getFieldValue('sub_tls_mode') === 'custom' ? (
-                          <>
+                      {({ getFieldValue }) => (
+                        // Same pair of drop targets as the Security tab, and
+                        // revealed rather than snapped in — in BOTH directions.
+                        // The block stays mounted and is collapsed by CSS
+                        // instead of being conditionally rendered: `{cond &&
+                        // <Block/>}` tears the node out the instant cond turns
+                        // false, leaving nothing to animate on the way out.
+                        // antd preserves field values across this either way,
+                        // and both validators are already gated on the mode, so
+                        // a collapsed pair stays quiet.
+                        //
+                        // `inert` is what makes "collapsed" mean collapsed for
+                        // the keyboard too: the CSS collapse (0fr + opacity +
+                        // overflow) hides the block but leaves its two
+                        // textareas focusable, so tabbing through the tab put
+                        // the caret in an invisible field.
+                        <div
+                          className={`app-reveal${
+                            getFieldValue('sub_tls_mode') === 'custom' ? ' is-in' : ''
+                          }`}
+                          inert={getFieldValue('sub_tls_mode') !== 'custom'}
+                        >
+                          <div className="app-tls-pair">
                             <Form.Item
                               name="sub_cert_pem"
-                              label={t('settings.subTlsCert')}
-                              className="app-field-stacked"
+                              className="app-tls-fitem"
+                              extra={t('settings.tlsCertHint')}
                               rules={[
                                 pemRule(t('settings.tlsCertInvalid')),
                                 ({ getFieldValue: g }) => ({
                                   validator: (_: unknown, v: string) =>
                                     g('sub_tls_mode') === 'custom' && !v?.trim()
-                                      ? Promise.reject(new Error(t('settings.tlsCertRequired')))
+                                      ? Promise.reject(
+                                          new Error(t('settings.subTlsCertRequired')),
+                                        )
                                       : Promise.resolve(),
                                 }),
                               ]}
                             >
-                              <Input.TextArea
-                                rows={4}
-                                spellCheck={false}
+                              <PemDropField
+                                fieldName={t('settings.subTlsCert')}
+                                hintSub={t('settings.tlsDropHint')}
+                                placeholder={
+                                  data.sub_cert_pem.trim()
+                                    ? t('settings.tlsCertStoredPlaceholder')
+                                    : '-----BEGIN CERTIFICATE-----'
+                                }
+                                chipText={t('settings.tlsChipReplace')}
+                                icon={<SafetyCertificateOutlined />}
                                 disabled={!enabled}
-                                placeholder="-----BEGIN CERTIFICATE-----"
-                                style={{
-                                  fontFamily:
-                                    'ui-monospace, "JetBrains Mono", Consolas, monospace',
-                                  fontSize: 12,
-                                }}
                               />
                             </Form.Item>
                             <Form.Item
                               name="sub_key_pem"
-                              label={t('settings.subTlsKey')}
-                              className="app-field-stacked"
+                              className="app-tls-fitem"
+                              extra={t('settings.tlsKeyHint')}
                               rules={[
                                 pemRule(t('settings.tlsKeyInvalid')),
                                 ({ getFieldValue: g }) => ({
@@ -1266,35 +1669,43 @@ function SubscriptionSection({
                                     g('sub_tls_mode') === 'custom' &&
                                     !data.sub_key_set &&
                                     !v?.trim()
-                                      ? Promise.reject(new Error(t('settings.tlsKeyRequired')))
+                                      ? Promise.reject(
+                                          new Error(t('settings.subTlsKeyRequired')),
+                                        )
                                       : Promise.resolve(),
                                 }),
                               ]}
                             >
-                              <Input.TextArea
-                                rows={4}
-                                spellCheck={false}
-                                disabled={!enabled}
+                              <PemDropField
+                                fieldName={t('settings.subTlsKey')}
+                                hintSub={t('settings.tlsDropHint')}
                                 placeholder={
                                   data.sub_key_set
                                     ? t('settings.tlsKeyStoredPlaceholder')
                                     : '-----BEGIN PRIVATE KEY-----'
                                 }
-                                style={{
-                                  fontFamily:
-                                    'ui-monospace, "JetBrains Mono", Consolas, monospace',
-                                  fontSize: 12,
-                                }}
+                                chipText={
+                                  data.sub_key_set
+                                    ? t('settings.tlsChipKeySet')
+                                    : t('settings.tlsChipKeyUnset')
+                                }
+                                chipDot={data.sub_key_set}
+                                icon={<KeyOutlined />}
+                                disabled={!enabled}
                               />
                             </Form.Item>
-                          </>
-                        ) : null
-                      }
+                          </div>
+                        </div>
+                      )}
                     </Form.Item>
                     <Form.Item
                       name="sub_update_interval_hours"
-                      label={t('settings.subUpdateInterval')}
-                      tooltip={t('settings.subUpdateIntervalHint')}
+                      label={
+                        <FieldLabel
+                          title={t('settings.subUpdateInterval')}
+                          desc={t('settings.subUpdateIntervalHint')}
+                        />
+                      }
                       rules={[
                         {
                           required: true,
@@ -1314,8 +1725,12 @@ function SubscriptionSection({
                   <FieldGroup title={t('settings.subGroupBranding')}>
                     <Form.Item
                       name="sub_brand_name"
-                      label={t('settings.subBrandName')}
-                      tooltip={t('settings.subBrandNameHint')}
+                      label={
+                        <FieldLabel
+                          title={t('settings.subBrandName')}
+                          desc={t('settings.subBrandNameHint')}
+                        />
+                      }
                       rules={[
                         {
                           max: 60,
@@ -1331,8 +1746,12 @@ function SubscriptionSection({
                     </Form.Item>
                     <Form.Item
                       name="sub_service_url"
-                      label={t('settings.subServiceUrl')}
-                      tooltip={t('settings.subServiceUrlHint')}
+                      label={
+                        <FieldLabel
+                          title={t('settings.subServiceUrl')}
+                          desc={t('settings.subServiceUrlHint')}
+                        />
+                      }
                       rules={[
                         {
                           validator: (_, v: string) => {
@@ -1404,6 +1823,36 @@ const FREEDOM_STRATEGY_OPTIONS = [
 const ROUTING_STRATEGY_OPTIONS = ['AsIs', 'IPIfNonMatch', 'IPOnDemand'].map(
   (value) => ({ value, label: value }),
 );
+
+/**
+ * Endpoints offered for the egress test. The list is deliberately closed: the
+ * result is only useful when the backend can read the exit IP out of the reply,
+ * and it understands exactly two shapes (see `outbound_test::parse_trace`) —
+ * a Cloudflare `cdn-cgi/trace` block, which also carries the country, and a
+ * bare single-line IP. A URL like `generate_204` answers with an empty body, so
+ * the exit IP on this page and on Outbounds stays blank — which is what this
+ * list exists to prevent.
+ */
+const TEST_URL_TRACE = [
+  'https://www.cloudflare.com/cdn-cgi/trace',
+  'https://speed.cloudflare.com/cdn-cgi/trace',
+  'https://1.1.1.1/cdn-cgi/trace',
+];
+const TEST_URL_PLAIN = [
+  'https://api.ipify.org',
+  'https://api64.ipify.org',
+  'https://ifconfig.me/ip',
+  'https://icanhazip.com',
+  'https://ipinfo.io/ip',
+  'https://checkip.amazonaws.com',
+];
+const hostOf = (u: string) => {
+  try {
+    return new URL(u).host;
+  } catch {
+    return u;
+  }
+};
 
 type GeoOption = { value: string; code: string; label: string };
 
@@ -1482,6 +1931,10 @@ interface OutboundTestResult {
   ok: boolean;
   status: number;
   latency_ms: number;
+  /** Exit IP the probe endpoint saw — null when its reply carried no IP. */
+  exit_ip?: string | null;
+  /** Country code, only Cloudflare's trace block reports one. */
+  exit_loc?: string | null;
   error?: string;
 }
 
@@ -1615,8 +2068,21 @@ function XraySection({
       );
       setTestResult(data);
       if (data.ok) {
+        // The exit IP is the point of the probe, so lead the toast with it when
+        // the endpoint returned one; a URL whose reply carries no IP still gets
+        // the plain status/latency line.
+        const exit = [data.exit_ip, data.exit_loc].filter(Boolean).join(' · ');
         message.success(
-          t('settings.xrayTestOk', { status: data.status, ms: data.latency_ms }),
+          exit
+            ? t('settings.xrayTestOkIp', {
+                exit,
+                status: data.status,
+                ms: data.latency_ms,
+              })
+            : t('settings.xrayTestOk', {
+                status: data.status,
+                ms: data.latency_ms,
+              }),
         );
       } else {
         message.error(
@@ -1636,11 +2102,22 @@ function XraySection({
   }, [form, message, t]);
 
   const data = settingsQuery.data;
+  const xrayBaseline = useMemo(
+    () => (data ? {
+            xray_freedom_strategy: data.xray_freedom_strategy,
+            xray_routing_strategy: data.xray_routing_strategy,
+            xray_test_url: data.xray_test_url,
+            xray_block_bittorrent: data.xray_block_bittorrent,
+            xray_blocked_ips: data.xray_blocked_ips,
+            xray_blocked_domains: data.xray_blocked_domains,
+            xray_ipv4_domains: data.xray_ipv4_domains,
+            xray_custom_rules: data.xray_custom_rules ?? [],
+            xray_rule_order: data.xray_rule_order ?? [],
+          } : {}),
+    [data],
+  );
   return (
-    <SectionFrame
-      title={t('settings.xraySection')}
-      description={t('settings.xraySectionHint')}
-    >
+    <SectionFrame title={t('settings.xraySection')}>
       {data && (
         <Form<XrayFormValues>
           form={form}
@@ -1657,23 +2134,15 @@ function XraySection({
             data.xray_custom_rules ?? [],
             data.xray_rule_order ?? [],
           ])}
-          initialValues={{
-            xray_freedom_strategy: data.xray_freedom_strategy,
-            xray_routing_strategy: data.xray_routing_strategy,
-            xray_test_url: data.xray_test_url,
-            xray_block_bittorrent: data.xray_block_bittorrent,
-            xray_blocked_ips: data.xray_blocked_ips,
-            xray_blocked_domains: data.xray_blocked_domains,
-            xray_ipv4_domains: data.xray_ipv4_domains,
-            xray_custom_rules: data.xray_custom_rules ?? [],
-            xray_rule_order: data.xray_rule_order ?? [],
-          }}
+          initialValues={xrayBaseline}
           disabled={mutation.isPending}
-          onValuesChange={() => setDirty(true)}
+          onValuesChange={() =>
+            setDirty(differsFromSaved(form.getFieldsValue(true), xrayBaseline))
+          }
           onFinish={(v) => mutation.mutate(v)}
         >
           <Tabs
-            className="xray-tabs"
+            className="xray-tabs app-settings-tabs"
             defaultActiveKey="basic"
             items={[
               {
@@ -1688,30 +2157,62 @@ function XraySection({
                   <FieldGroup title={t('settings.xrayGroupBasic')}>
                     <Form.Item
                       name="xray_freedom_strategy"
-                      label={t('settings.xrayFreedomStrategy')}
-                      tooltip={t('settings.xrayFreedomStrategyHint')}
+                      label={
+                        <FieldLabel
+                          title={t('settings.xrayFreedomStrategy')}
+                          desc={t('settings.xrayFreedomStrategyHint')}
+                        />
+                      }
                     >
                       <Select options={FREEDOM_STRATEGY_OPTIONS} />
                     </Form.Item>
                     <Form.Item
                       name="xray_routing_strategy"
-                      label={t('settings.xrayRoutingStrategy')}
-                      tooltip={t('settings.xrayRoutingStrategyHint')}
+                      label={
+                        <FieldLabel
+                          title={t('settings.xrayRoutingStrategy')}
+                          desc={t('settings.xrayRoutingStrategyHint')}
+                        />
+                      }
                     >
                       <Select options={ROUTING_STRATEGY_OPTIONS} />
                     </Form.Item>
-                    {/* Test action is the icon inside the field: click to run,
-                        then it recolours by result — green check on success, red
-                        cross on failure — with the HTTP status / latency in its
+                    {/* A closed list, not free text: the exit IP only shows up
+                        when the reply is one the backend can read (see
+                        TEST_URL_TRACE / TEST_URL_PLAIN). The test action is the
+                        icon beside the field — click to run, then it recolours
+                        by result, with status / latency / exit IP in its
                         tooltip. The detailed toast still fires on click. */}
                     <Form.Item
                       name="xray_test_url"
-                      label={t('settings.xrayTestUrl')}
-                      tooltip={t('settings.xrayTestUrlHint')}
+                      className="app-field-testurl"
+                      label={
+                        <FieldLabel
+                          title={t('settings.xrayTestUrl')}
+                          desc={t('settings.xrayTestUrlHint')}
+                        />
+                      }
                     >
-                      <Input
-                        placeholder="https://www.google.com/gen_204"
-                        suffix={
+                      <Select
+                        popupMatchSelectWidth={false}
+                        options={[
+                          {
+                            label: t('settings.xrayTestGroupTrace'),
+                            options: TEST_URL_TRACE.map((value) => ({
+                              value,
+                              label: hostOf(value),
+                            })),
+                          },
+                          {
+                            label: t('settings.xrayTestGroupPlain'),
+                            options: TEST_URL_PLAIN.map((value) => ({
+                              value,
+                              label: hostOf(value),
+                            })),
+                          },
+                        ]}
+                        suffixIcon={
+                          <span className="app-testurl-suffix">
                           <Tooltip
                             // Force the tooltip shut while a test runs. Clicking
                             // the icon with the result tooltip open would swap its
@@ -1723,7 +2224,13 @@ function XraySection({
                             title={
                               testResult
                                 ? testResult.ok
-                                  ? `${testResult.status} · ${testResult.latency_ms} ms`
+                                  ? [
+                                      `${testResult.status} · ${testResult.latency_ms} ms`,
+                                      testResult.exit_ip,
+                                      testResult.exit_loc,
+                                    ]
+                                      .filter(Boolean)
+                                      .join(' · ')
                                   : testResult.status
                                     ? `HTTP ${testResult.status}`
                                     : (testResult.error ??
@@ -1761,6 +2268,11 @@ function XraySection({
                               )}
                             </span>
                           </Tooltip>
+                          {/* Keep a chevron so the field still reads as a list.
+                              It is inert (see CSS): the click falls through to
+                              the selector, which opens the dropdown. */}
+                          <DownOutlined className="app-testurl-chevron" />
+                          </span>
                         }
                       />
                     </Form.Item>
@@ -1777,16 +2289,25 @@ function XraySection({
                   <FieldGroup title={t('settings.xrayGroupRouting')}>
                     <Form.Item
                       name="xray_block_bittorrent"
-                      label={t('settings.xrayBlockBittorrent')}
-                      tooltip={t('settings.xrayBlockBittorrentHint')}
+                      className="app-field-switch"
+                      label={
+                        <FieldLabel
+                          title={t('settings.xrayBlockBittorrent')}
+                          desc={t('settings.xrayBlockBittorrentHint')}
+                        />
+                      }
                       valuePropName="checked"
                     >
-                      <Switch />
+                      <RowSwitch />
                     </Form.Item>
                     <Form.Item
                       name="xray_blocked_ips"
-                      label={t('settings.xrayBlockedIps')}
-                      tooltip={t('settings.xrayBlockedIpsHint')}
+                      label={
+                        <FieldLabel
+                          title={t('settings.xrayBlockedIps')}
+                          desc={t('settings.xrayBlockedIpsHint')}
+                        />
+                      }
                     >
                       <Select
                         mode="tags"
@@ -1800,8 +2321,12 @@ function XraySection({
                     </Form.Item>
                     <Form.Item
                       name="xray_blocked_domains"
-                      label={t('settings.xrayBlockedDomains')}
-                      tooltip={t('settings.xrayBlockedDomainsHint')}
+                      label={
+                        <FieldLabel
+                          title={t('settings.xrayBlockedDomains')}
+                          desc={t('settings.xrayBlockedDomainsHint')}
+                        />
+                      }
                     >
                       <Select
                         mode="tags"
@@ -1815,8 +2340,12 @@ function XraySection({
                     </Form.Item>
                     <Form.Item
                       name="xray_ipv4_domains"
-                      label={t('settings.xrayIpv4Domains')}
-                      tooltip={t('settings.xrayIpv4DomainsHint')}
+                      label={
+                        <FieldLabel
+                          title={t('settings.xrayIpv4Domains')}
+                          desc={t('settings.xrayIpv4DomainsHint')}
+                        />
+                      }
                     >
                       <Select
                         mode="tags"
@@ -1862,21 +2391,49 @@ function DirtyBar({
 }) {
   const { t } = useTranslation();
   const [mounted, setMounted] = useState(visible);
+  // `shown` drives the `is-visible` class. It stays false for the first painted
+  // frame after mount, then flips true on a later frame so the CSS enter
+  // transition (height 0→auto, inner fade+slide) actually runs. Without this the
+  // node mounts already at full height and snaps in — jerking the whole page.
+  const [shown, setShown] = useState(false);
+  // Only true once the bar has actually been open, so the collapsed first frame
+  // of a fresh mount is not mistaken for a dismissal.
+  const [leaving, setLeaving] = useState(false);
   useEffect(() => {
     if (visible) {
-      // Mount immediately on show; the delayed unmount below keeps the node
-      // alive for the 220ms exit transition.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setMounted(true);
-      return undefined;
+      setLeaving(false);
+      // Two frames: the first lets the browser paint the collapsed state, the
+      // second commits the open state so the transition has a from-value.
+      let raf2 = 0;
+      const raf1 = requestAnimationFrame(() => {
+        raf2 = requestAnimationFrame(() => setShown(true));
+      });
+      return () => {
+        cancelAnimationFrame(raf1);
+        cancelAnimationFrame(raf2);
+      };
     }
-    const id = window.setTimeout(() => setMounted(false), 220);
+    setShown(false);
+    setLeaving(true);
+    // Keep the node alive through the exit animation (see the 0.32–0.34s CSS).
+    const id = window.setTimeout(() => setMounted(false), 380);
     return () => window.clearTimeout(id);
   }, [visible]);
   if (!mounted) return null;
   return (
     <div
-      className={`app-settings-dirtybar${visible ? ' is-visible' : ''}`}
+      // Three states, not two. The entrance is an animation (it has to replay
+      // when the page un-hides with the bar already open), so the exit is an
+      // animation too rather than a transition: a transition would start from
+      // whatever the entrance animation happened to be showing, which collapses
+      // the bar instantly if it is discarded while that entrance is still in
+      // flight. `is-out` only appears after the bar has been open, so a freshly
+      // mounted collapsed bar does not play the exit.
+      className={`app-settings-dirtybar${
+        shown ? ' is-visible' : leaving ? ' is-out' : ''
+      }`}
       role="region"
       aria-live="polite"
     >

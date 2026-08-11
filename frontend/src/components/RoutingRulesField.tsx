@@ -3,7 +3,8 @@
 //! Renders below the "Basic connections" block as an ordered list of
 //! user rules (first-match-wins, evaluated top-to-bottom *after* the
 //! built-in api/block/ipv4 rules). Each rule is a compact surface row:
-//! drag affordance · condition tags · → target tag · enable switch · ⋮.
+//! a numbered spine — the list is the evaluation order, first match wins — with
+//! each rule as name + condition tags beneath, then target tag · switch · ⋮.
 //! Edits flow through the parent Xray form (value/onChange), so the
 //! page-level dirty bar + save/restart path pick the rules up for free.
 //!
@@ -28,7 +29,6 @@ import {
 import type { MenuProps } from 'antd';
 import {
   ArrowDownOutlined,
-  ArrowRightOutlined,
   ArrowUpOutlined,
   DeleteOutlined,
   EditOutlined,
@@ -186,19 +186,69 @@ const hasCondition = (v: RuleFormValues): boolean =>
       v.user?.length,
   );
 
-/** Short condition labels for a rule's row summary. */
-function summarize(rule: RoutingRule): string[] {
-  const out: string[] = [];
-  rule.domain.forEach((d) => out.push(d));
-  rule.ip.forEach((d) => out.push(d));
-  rule.source_ip.forEach((d) => out.push(`src:${d}`));
-  if (rule.port) out.push(`port ${rule.port}`);
-  if (rule.source_port) out.push(`sport ${rule.source_port}`);
-  rule.network.forEach((n) => out.push(n));
-  rule.protocol.forEach((p) => out.push(p));
-  rule.inbound_tag.forEach((i) => out.push(`in:${i}`));
-  rule.user.forEach((u) => out.push(u));
-  return out;
+/** One kind of matcher plus its values, for the row summary. */
+interface CondGroup {
+  /** i18n key of the matcher's own field label, reused from the edit modal. */
+  key: string;
+  items: string[];
+}
+
+/**
+ * A rule's conditions, grouped by matcher kind.
+ *
+ * The row used to flatten all nine matcher kinds into one undifferentiated
+ * chip list, where `geosite:category-ru` (a domain) and `xhttp-via-de2` (an
+ * inbound) looked identical and only the token syntax hinted at which was
+ * which — and a bare `example.com`, a user email and a network name were
+ * genuinely indistinguishable. Naming the kind is the information the row was
+ * missing, and the row has the width to carry it.
+ */
+function summarizeGroups(rule: RoutingRule): CondGroup[] {
+  const groups: CondGroup[] = [
+    { key: 'settings.ruleDomain', items: rule.domain },
+    { key: 'settings.ruleIp', items: rule.ip },
+    { key: 'settings.ruleSourceIp', items: rule.source_ip },
+    { key: 'settings.rulePort', items: rule.port ? [rule.port] : [] },
+    { key: 'settings.ruleSourcePort', items: rule.source_port ? [rule.source_port] : [] },
+    { key: 'settings.ruleNetwork', items: rule.network },
+    { key: 'settings.ruleProtocol', items: rule.protocol },
+    { key: 'settings.ruleInboundTag', items: rule.inbound_tag },
+    { key: 'settings.ruleUser', items: rule.user },
+  ];
+  return groups.filter((g) => g.items.length > 0);
+}
+
+/** Flat count of a rule's conditions — drives the overflow pill. */
+const condCount = (groups: CondGroup[]): number =>
+  groups.reduce((n, g) => n + g.items.length, 0);
+
+/** Grouped condition list for the overflow / phone popovers — same kind
+ *  labels as the row, so the two read alike. */
+function GroupList({
+  groups,
+  t,
+}: {
+  groups: CondGroup[];
+  t: (k: string) => string;
+}) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 320 }}>
+      {groups.map((g) => (
+        <div key={g.key}>
+          <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.04em', opacity: 0.6, marginBottom: 4 }}>
+            {t(g.key)}
+          </div>
+          <Space size={[6, 6]} wrap>
+            {g.items.map((c, k) => (
+              <Tag key={k} style={{ margin: 0 }}>
+                {c}
+              </Tag>
+            ))}
+          </Space>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function RoutingRulesField({
@@ -213,6 +263,13 @@ export function RoutingRulesField({
   // Phone layout: collapse each rule's condition chips into one count-pill so
   // the name + a tappable conditions affordance both fit on a narrow row.
   const isMobile = !Grid.useBreakpoint().md;
+  // How many condition chips ride inline before the rest collapse into "+N".
+  // It used to be a flat 2, which hid most of a rule's matchers behind a
+  // popover while the row sat half empty. The row is now capped (see the
+  // wrapper below), so this is a flat budget too rather than one tied to the
+  // viewport: ~500px of the 780px row is left for labelled chips, which fits
+  // about four.
+  const inlineConds = isMobile ? 2 : 4;
   const rules = value ?? [];
   // Enabled custom outbound tags become additional rule targets — the backend's
   // `valid_rule_targets` does the same (reserved ∪ enabled outbound tags). A
@@ -363,11 +420,19 @@ export function RoutingRulesField({
   const apiAt = order.indexOf('api');
   if (apiAt > 0) order.unshift(...order.splice(apiAt, 1));
 
-  // Persist the custom-rule set + the full order, marking the form dirty
-  // (setFieldsValue alone won't fire onValuesChange, so bounce the bound value
-  // through onChange every time).
-  const apply = (nextRules: RoutingRule[], nextOrder: string[]) => {
-    parentForm.setFieldsValue({ xray_rule_order: nextOrder });
+  // Persist the custom-rule set, marking the form dirty (setFieldsValue alone
+  // won't fire onValuesChange, so bounce the bound value through onChange every
+  // time).
+  //
+  // The order is written ONLY when the caller actually reordered something.
+  // `order` above is the DERIVED list — it carries the system tokens (api,
+  // bittorrent, ipv4) that the stored `xray_rule_order` may not — so writing it
+  // on every interaction left the form permanently dirty: flipping a rule's
+  // switch rewrote the order field, and flipping it back restored `enabled` but
+  // never the field, so the unsaved-changes bar could not be cleared without a
+  // save or a discard.
+  const apply = (nextRules: RoutingRule[], nextOrder?: string[]) => {
+    if (nextOrder) parentForm.setFieldsValue({ xray_rule_order: nextOrder });
     onChange?.(nextRules);
   };
   const moveToken = (from: number, to: number) => {
@@ -377,8 +442,9 @@ export function RoutingRulesField({
     next.splice(to, 0, moved);
     apply(rules.slice(), next);
   };
+  // Flipping a switch is not a reorder — leave the order field alone.
   const toggleId = (id: string) =>
-    apply(rules.map((r) => (r.id === id ? { ...r, enabled: !r.enabled } : r)), order);
+    apply(rules.map((r) => (r.id === id ? { ...r, enabled: !r.enabled } : r)));
   const deleteId = (id: string) =>
     apply(
       rules.filter((r) => r.id !== id),
@@ -394,8 +460,10 @@ export function RoutingRulesField({
   };
   const handleSave = (rule: RoutingRule) => {
     if (customById.has(rule.id)) {
-      apply(rules.map((r) => (r.id === rule.id ? rule : r)), order);
+      // Editing a rule in place leaves the evaluation order untouched.
+      apply(rules.map((r) => (r.id === rule.id ? rule : r)));
     } else {
+      // A new rule genuinely extends the order, so it has to be written.
       apply([...rules, rule], [...order, rule.id]);
     }
     setModalOpen(false);
@@ -438,11 +506,63 @@ export function RoutingRulesField({
     color: token.colorTextTertiary,
   };
 
+  // The list IS the evaluation order — rules are tried top to bottom and the
+  // first match wins — but nothing said so, which is what made a plain stack of
+  // rows feel arbitrary (and left the drag handle unexplained). A numbered
+  // spine down the left says it, and it uses the width that a single line of
+  // conditions could never fill: conditions move to a second line under the
+  // name, the way every other settings tab already reads.
+  const SPINE_X = 30;
   const rowBase: CSSProperties = {
+    position: 'relative',
     display: 'flex',
     alignItems: 'center',
-    gap: 9,
-    padding: '10px 14px',
+    gap: 10,
+    padding: '9px 14px 9px 52px',
+  };
+  /** Vertical line segment through a row, joining its neighbours' nodes. */
+  const spineSeg = (first: boolean, last: boolean): CSSProperties => ({
+    position: 'absolute',
+    left: SPINE_X,
+    top: first ? '50%' : 0,
+    bottom: last ? '50%' : 0,
+    width: 2,
+    background: token.colorBorderSecondary,
+    pointerEvents: 'none',
+  });
+  /** The node on the spine: filled for a live rule, hollow for system rows. */
+  const spineNode = (live: boolean): CSSProperties => ({
+    position: 'absolute',
+    left: SPINE_X - 3,
+    top: '50%',
+    transform: 'translateY(-50%)',
+    width: 8,
+    height: 8,
+    borderRadius: '50%',
+    background: live ? token.colorPrimary : token.colorTextQuaternary,
+    boxShadow: `0 0 0 3px ${token.colorBgElevated}`,
+    pointerEvents: 'none',
+  });
+  /** Evaluation position, sitting left of the spine. */
+  const ordStyle: CSSProperties = {
+    position: 'absolute',
+    left: 0,
+    width: SPINE_X - 9,
+    top: '50%',
+    transform: 'translateY(-50%)',
+    textAlign: 'right',
+    fontSize: 10,
+    fontVariantNumeric: 'tabular-nums',
+    color: token.colorTextQuaternary,
+    pointerEvents: 'none',
+  };
+  /** Second line of a rule: its conditions, muted under the name. */
+  const condRowStyle: CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 4,
   };
   const divider = `1px solid ${token.colorSplit}`;
   const iconGrabStyle: CSSProperties = {
@@ -451,6 +571,29 @@ export function RoutingRulesField({
     fontSize: 14,
   };
   const iconArrowStyle: CSSProperties = { color: token.colorTextQuaternary, fontSize: 13 };
+  // Kind label before each group of condition chips. Quiet and small: it is
+  // there to be read when the eye stops on a rule, not to compete with the
+  // values themselves.
+  const condLabelStyle: CSSProperties = {
+    fontSize: 10,
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+    color: token.colorTextQuaternary,
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
+  };
+  // Trailing controls (switch + ⋮) live in a fixed-width slot. System and
+  // default rows have neither, so without a reserved slot their target tag ran
+  // ~66px further right than every editable rule's — the target column the rail
+  // is there to create was bent by the rows that happen to carry no controls.
+  const tailStyle: CSSProperties = {
+    flex: 'none',
+    width: 52,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 9,
+  };
 
   return (
     <div style={{ marginTop: 20 }}>
@@ -484,6 +627,17 @@ export function RoutingRulesField({
             borderTop: i === 0 ? undefined : divider,
             boxShadow: dropTarget ? `inset 0 2px 0 ${token.colorPrimary}` : undefined,
           };
+          // The default row below is always last, so no row in this map ever
+          // terminates the spine.
+          const spine = (
+            <>
+              <span style={spineSeg(i === 0, false)} aria-hidden="true" />
+              <span style={spineNode(!SYS_KEYS.includes(tok))} aria-hidden="true" />
+              <span style={ordStyle} aria-hidden="true">
+                {i + 1}
+              </span>
+            </>
+          );
 
           // System row — read-only content (edited in "Basic connections"),
           // but reorderable like any other.
@@ -498,10 +652,13 @@ export function RoutingRulesField({
                 {...(pinned ? {} : rowDnd(i))}
                 style={{ ...rowStyle, opacity: dragging && !pinned ? 0.4 : 0.6 }}
               >
+                {spine}
                 <HolderOutlined
                   style={pinned ? { ...iconGrabStyle, cursor: 'default', opacity: 0.35 } : iconGrabStyle}
                 />
                 <LockOutlined style={{ color: token.colorTextQuaternary, fontSize: 12 }} />
+                {/* A system rule's matchers live in "Basic connections", so
+                    there is no second line to show — just its label. */}
                 <span
                   style={{
                     flex: 1,
@@ -515,19 +672,32 @@ export function RoutingRulesField({
                 >
                   {info.label}
                 </span>
-                <ArrowRightOutlined style={iconArrowStyle} />
                 <Tag color={colorOf(info.target)} style={{ margin: 0 }}>
                   {info.target}
                 </Tag>
+                <span style={tailStyle} aria-hidden="true" />
               </div>
             );
           }
 
           const rule = customById.get(tok);
           if (!rule) return null;
-          const conds = summarize(rule);
-          const shown = conds.slice(0, 2);
-          const rest = conds.length - shown.length;
+          const groups = summarizeGroups(rule);
+          const total = condCount(groups);
+          // Fill the row group by group until the inline budget runs out; the
+          // remainder collapses into one "+N" pill. Splitting a group across
+          // the boundary would leave a labelled kind showing only some of its
+          // values with no sign the rest exist, so a group is taken whole or
+          // deferred whole.
+          const shownGroups: CondGroup[] = [];
+          let budget = inlineConds;
+          for (const g of groups) {
+            if (g.items.length > budget) break;
+            shownGroups.push(g);
+            budget -= g.items.length;
+          }
+          const rest = total - condCount(shownGroups);
+          const hiddenGroups = groups.slice(shownGroups.length);
           const menu: MenuProps['items'] = [
             { key: 'edit', icon: <EditOutlined />, label: t('settings.rulesEdit') },
             {
@@ -559,37 +729,27 @@ export function RoutingRulesField({
               {...rowDnd(i)}
               style={{ ...rowStyle, opacity: dragging ? 0.4 : rule.enabled ? 1 : 0.5 }}
             >
+              {spine}
               <HolderOutlined
                 style={iconGrabStyle}
               />
-              <div
-                style={{
-                  flex: 1,
-                  minWidth: 0,
-                  display: 'flex',
-                  gap: 6,
-                  alignItems: 'center',
-                  flexWrap: 'nowrap',
-                  overflow: 'hidden',
-                }}
-              >
-                {rule.name && (
-                  <span
-                    style={{
-                      fontSize: 12.5,
-                      fontWeight: 500,
-                      whiteSpace: 'nowrap',
-                      color: token.colorText,
-                      minWidth: 0,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      flexShrink: 1,
-                    }}
-                  >
-                    {rule.name}
-                  </span>
-                )}
-                {conds.length === 0 ? (
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div
+                  style={{
+                    fontSize: 12.5,
+                    fontWeight: 500,
+                    whiteSpace: 'nowrap',
+                    color: rule.name ? token.colorText : token.colorTextQuaternary,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {/* An unnamed rule still needs a first line, else its
+                      conditions read as a continuation of the row above. */}
+                  {rule.name || t('settings.rulesUnnamed')}
+                </div>
+                <div style={condRowStyle}>
+                {total === 0 ? (
                   <span
                     style={{ fontSize: 11.5, color: token.colorTextTertiary, flexShrink: 0 }}
                   >
@@ -601,41 +761,47 @@ export function RoutingRulesField({
                   // list. flexShrink:0 keeps it visible however long the name is.
                   <Popover
                     trigger="click"
-                    content={
-                      <Space size={[6, 6]} wrap style={{ maxWidth: 280 }}>
-                        {conds.map((c, k) => (
-                          <Tag key={k} style={{ margin: 0 }}>
-                            {c}
-                          </Tag>
-                        ))}
-                      </Space>
-                    }
+                    content={<GroupList groups={groups} t={t} />}
                   >
                     <Tag
                       style={{ cursor: 'pointer', margin: 0, flexShrink: 0 }}
                       onClick={(e) => e.stopPropagation()}
                     >
                       <FilterOutlined style={{ marginInlineEnd: 4 }} />
-                      {conds.length}
+                      {total}
                     </Tag>
                   </Popover>
                 ) : (
                   <>
-                    {shown.map((c, k) => (
-                      <Tag
-                        key={k}
+                    {shownGroups.map((g) => (
+                      <span
+                        key={g.key}
                         style={{
-                          margin: 0,
-                          maxWidth: 180,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 5,
                           minWidth: 0,
                           flexShrink: 1,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
                         }}
                       >
-                        {c}
-                      </Tag>
+                        <span style={condLabelStyle}>{t(g.key)}</span>
+                        {g.items.map((c, k) => (
+                          <Tag
+                            key={k}
+                            style={{
+                              margin: 0,
+                              maxWidth: 180,
+                              minWidth: 0,
+                              flexShrink: 1,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {c}
+                          </Tag>
+                        ))}
+                      </span>
                     ))}
                     {rest > 0 && (
                       // "+N" pill — click opens a Popover listing the hidden
@@ -645,15 +811,7 @@ export function RoutingRulesField({
                       // flexShrink:0 keeps it visible as the chips shrink.
                       <Popover
                         trigger="click"
-                        content={
-                          <Space size={[6, 6]} wrap style={{ maxWidth: 320 }}>
-                            {conds.slice(shown.length).map((c, k) => (
-                              <Tag key={k} style={{ margin: 0 }}>
-                                {c}
-                              </Tag>
-                            ))}
-                          </Space>
-                        }
+                        content={<GroupList groups={hiddenGroups} t={t} />}
                       >
                         <Tag
                           style={{ cursor: 'pointer', margin: 0, flexShrink: 0 }}
@@ -665,30 +823,37 @@ export function RoutingRulesField({
                     )}
                   </>
                 )}
+                </div>
               </div>
-              <ArrowRightOutlined style={iconArrowStyle} />
               <Tag color={colorOf(rule.outbound_tag)} style={{ margin: 0 }}>
                 {rule.outbound_tag}
               </Tag>
-              <Switch size="small" checked={rule.enabled} onChange={() => toggleId(rule.id)} />
-              <Dropdown menu={{ items: menu, onClick: onMenu }} trigger={['click']}>
-                <MoreOutlined
-                  style={{ color: token.colorTextSecondary, cursor: 'pointer', fontSize: 16 }}
-                />
-              </Dropdown>
+              <span style={tailStyle}>
+                <Switch size="small" checked={rule.enabled} onChange={() => toggleId(rule.id)} />
+                <Dropdown menu={{ items: menu, onClick: onMenu }} trigger={['click']}>
+                  <MoreOutlined
+                    style={{ color: token.colorTextSecondary, cursor: 'pointer', fontSize: 16 }}
+                  />
+                </Dropdown>
+              </span>
             </div>
           );
         })}
 
+        {/* The fallback: it matches whatever reached it, so it has no
+            conditions of its own — and it always ends the chain, so it is the
+            row that terminates the spine. */}
         <div style={{ ...rowBase, borderTop: divider, opacity: 0.6 }}>
+          <span style={spineSeg(false, true)} aria-hidden="true" />
+          <span style={spineNode(false)} aria-hidden="true" />
           <FlagOutlined style={iconArrowStyle} />
           <span style={{ flex: 1, fontSize: 12.5, color: token.colorTextSecondary }}>
             {t('settings.rulesDefaultLabel')}
           </span>
-          <ArrowRightOutlined style={iconArrowStyle} />
           <Tag color="success" style={{ margin: 0 }}>
             direct
           </Tag>
+          <span style={tailStyle} aria-hidden="true" />
         </div>
       </div>
 

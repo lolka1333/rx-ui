@@ -10,17 +10,21 @@ import {
   BulbOutlined,
   LeftOutlined,
   RightOutlined,
+  DatabaseOutlined,
+  DesktopOutlined,
 } from '@ant-design/icons';
 import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/stores/auth';
+import { isPanelSettingsPage } from '@/stores/nav';
 import { useTheme } from '@/stores/theme';
 import { SidebarStatus } from './SidebarStatus';
+import type { NavPage } from '@/stores/nav';
 
 const { Sider } = Layout;
 
 interface SidebarProps {
-  current: string;
+  current: NavPage;
   onNavigate: (key: string) => void;
   mobile?: boolean;
   drawerOpen?: boolean;
@@ -64,11 +68,19 @@ export function Sidebar({
   const { t } = useTranslation();
   const logout = useAuth((s) => s.logout);
   const username = useAuth((s) => s.user?.username ?? 'admin');
-  // Track which inline submenus are open ("Тема"). Left free so the collapsed
-  // rail's hover-popup theme switcher still works; we only clear it on the
-  // collapse click (below) so the open inline submenu doesn't sprawl during the
-  // collapse transition.
+  // Track which inline submenus are open ("Тема", "Настройки"). Every group
+  // starts shut, including on a reload that lands inside one of them: the rail
+  // down the group's left edge already answers "you are in this section"
+  // whether it is open or not (see `.ant-menu-submenu-selected::before`), so
+  // unfolding it unasked only costs the operator a click to put it back.
+  // Left free afterwards so the collapsed rail's hover popups still work; we
+  // only clear it on the collapse click (below) so an open inline submenu
+  // doesn't sprawl during the collapse transition.
   const [openKeys, setOpenKeys] = useState<string[]>([]);
+  // Panel-settings tabs (account / access / TLS / subscription) all live under
+  // the single "Panel" child, so map them onto its key for the active-item
+  // highlight. Xray and top-level pages select themselves.
+  const selectedKey = isPanelSettingsPage(current) ? 'settings-account' : current;
   const themeMode = useTheme((s) => s.mode);
   const setThemeMode = useTheme((s) => s.set);
 
@@ -143,6 +155,24 @@ export function Sidebar({
       { key: 'outbounds', icon: <ExportOutlined />, label: t('sidebar.outbounds') },
       { key: 'clients', icon: <TeamOutlined />, label: t('sidebar.clients') },
       { key: 'nodes', icon: <ClusterOutlined />, label: t('sidebar.nodes'), disabled: true },
+      // The two settings destinations sit under one accordion rather than as
+      // two more entries in the navigation list: they are not places to work,
+      // they are what you configure, and side by side at the same level they
+      // read as "which settings did I want again?". The children keep their own
+      // icons so the collapsed rail's hover popup looks like the expanded list.
+      // "Panel" opens a tabbed container (account / access / TLS /
+      // subscription); its key is `settings-account`, that container's default
+      // tab, so choosing it lands there. Highlighting maps any panel tab back
+      // to this child (see `selectedKey` above).
+      {
+        key: 'settings',
+        icon: <SettingOutlined />,
+        label: t('sidebar.settings'),
+        children: [
+          { key: 'settings-account', icon: <DesktopOutlined />, label: t('sidebar.settingsPanel') },
+          { key: 'settings-xray', icon: <DatabaseOutlined />, label: t('sidebar.settingsXray') },
+        ],
+      },
     ],
     [themeChildren, t],
   );
@@ -162,7 +192,7 @@ export function Sidebar({
     <Menu
       theme={themeMode === 'light' ? 'light' : 'dark'}
       mode="inline"
-      selectedKeys={[current]}
+      selectedKeys={[selectedKey]}
       openKeys={openKeys}
       onOpenChange={(keys) => setOpenKeys(keys as string[])}
       inlineIndent={16}
@@ -185,21 +215,6 @@ export function Sidebar({
     <div
       className={`sidebar-footer${!mobile && collapsed ? ' sidebar-footer--collapsed' : ''}`}
     >
-      <Tooltip
-        title={t('sidebar.settings')}
-        placement={!mobile && collapsed ? 'right' : 'top'}
-        arrow={false}
-        mouseEnterDelay={0.3}
-      >
-        <button
-          type="button"
-          className="sidebar-footer-btn"
-          onClick={() => onNavigate('settings')}
-          aria-label={t('sidebar.settings')}
-        >
-          <SettingOutlined />
-        </button>
-      </Tooltip>
       <Tooltip
         title={t('sidebar.logout')}
         placement={!mobile && collapsed ? 'right' : 'top'}

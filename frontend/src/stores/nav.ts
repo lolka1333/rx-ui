@@ -15,17 +15,49 @@ import { persist } from 'zustand/middleware';
  * (e.g. `/inbounds/:id`), this should be replaced by a router. For now,
  * localStorage + a tiny enum string is the right shape.
  */
-export type NavPage = 'dashboard' | 'inbounds' | 'outbounds' | 'clients';
+/** Settings categories, surfaced as sub-items under the sidebar's "Settings"
+ *  group. Each is a first-class page (rendered full-width in the content area),
+ *  keyed `settings-<section>` so it slots into the same `current` nav model as
+ *  the top-level pages — no separate modal state. */
+export const SETTINGS_SECTIONS = [
+  'account',
+  'access',
+  'tls',
+  'subscription',
+  'xray',
+] as const;
+export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
+export type SettingsPage = `settings-${SettingsSection}`;
 
-const VALID_PAGES: ReadonlySet<NavPage> = new Set([
+export type NavPage = 'dashboard' | 'inbounds' | 'outbounds' | 'clients' | SettingsPage;
+
+const VALID_PAGES: ReadonlySet<NavPage> = new Set<NavPage>([
   'dashboard',
   'inbounds',
   'outbounds',
   'clients',
+  ...SETTINGS_SECTIONS.map((s): SettingsPage => `settings-${s}`),
 ]);
 
 export function isNavPage(value: unknown): value is NavPage {
   return typeof value === 'string' && VALID_PAGES.has(value as NavPage);
+}
+
+/** True for any `settings-*` page. */
+export function isSettingsPage(value: NavPage): value is SettingsPage {
+  return value.startsWith('settings-');
+}
+
+/** The section a `settings-*` page targets, or null for a top-level page. */
+export function settingsSectionOf(value: NavPage): SettingsSection | null {
+  return isSettingsPage(value) ? (value.slice('settings-'.length) as SettingsSection) : null;
+}
+
+/** The two settings destinations under the sidebar's "Settings" accordion:
+ *  "panel" (account / access / TLS / subscription, in a tabbed container) and
+ *  the standalone Xray page. True for the former. */
+export function isPanelSettingsPage(value: NavPage): boolean {
+  return isSettingsPage(value) && value !== 'settings-xray';
 }
 
 interface NavState {

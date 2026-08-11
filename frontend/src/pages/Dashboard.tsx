@@ -8,7 +8,7 @@ import {
   ControlOutlined,
   DatabaseOutlined,
 } from '@ant-design/icons';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/api/client';
@@ -16,7 +16,7 @@ import { apiErrorMessage } from '@/api/errors';
 import { XrayUpdatesModal } from '@/components/XrayUpdatesModal';
 import { LogsModal } from '@/components/LogsModal';
 import { ServerInfoCard } from '@/components/ServerInfoCard';
-import type { DashboardOverview } from '@/api/types';
+import { useDashboardOverview } from '@/api/overview';
 
 function fmtBytes(n: number): string {
   if (n === 0) return '0';
@@ -110,11 +110,7 @@ export function Dashboard() {
     error,
     refetch,
     isRefetching,
-  } = useQuery<DashboardOverview>({
-    queryKey: ['dashboard-overview'],
-    queryFn: async () => (await apiClient.get<DashboardOverview>('/dashboard/overview')).data,
-    refetchInterval: 5_000,
-  });
+  } = useDashboardOverview();
 
   const xrayAction = useMutation({
     mutationFn: async (action: 'start' | 'stop' | 'restart') =>
@@ -174,6 +170,25 @@ export function Dashboard() {
 
   return (
     <div className="app-content-reveal">
+      {isError && (
+        // "Had data, refetch failed" — the numbers below are the last ones that
+        // arrived, and without this they would sit there looking live. This case
+        // used to be rare enough to fall through to the error screen above; a
+        // reload now starts from the session snapshot, so `data` is set from the
+        // first frame and that screen is unreachable once anything is cached.
+        <Alert
+          type="warning"
+          showIcon
+          banner
+          title={t('dashboard.stale')}
+          action={
+            <Button size="small" onClick={() => refetch()} loading={isRefetching}>
+              {t('common.retry')}
+            </Button>
+          }
+          style={{ marginBottom: 16 }}
+        />
+      )}
       <ServerInfoCard
         ipv4={data?.system.ipv4 ?? null}
         ipv6={data?.system.ipv6 ?? null}

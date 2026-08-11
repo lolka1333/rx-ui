@@ -144,10 +144,12 @@ body,
 }
 
 /* Drawer panel background — antd's dark algorithm doesn't override the
-   default white, so force it per theme to match the sidebar. */
-[data-theme='dark'] .ant-drawer-section { background-color: #131c2e; }
-[data-theme='darker'] .ant-drawer-section { background-color: #0c0d10; }
-[data-theme='light'] .ant-drawer-section { background-color: #ffffff; }
+   default white, so force it. The drawer IS the sidebar on a phone, so it
+   reads the same variable rather than repeating the three literals: the
+   "очень тёмная" copy here had already drifted a palette revision behind
+   (#0c0d10, from back when that palette still leaned blue) and showed a
+   different black than the rail it replaces. */
+.ant-drawer-section { background-color: var(--sidebar); }
 
 /* ====================================================================
    Inline submenu — minimise per-frame layout cost during height animation
@@ -206,12 +208,20 @@ body,
 
 /* ====================================================================
    Menu hover — subtle white/black tint, not Antd's teal fallback
+
+   These beat the equivalent Menu tokens (`darkItemHoverBg` / `itemHoverBg`),
+   because `!important` here outranks antd's own un-flagged rule regardless of
+   insertion order. Tune hover HERE; editing the token alone changes nothing.
+
+   The tint has to stay clearly under the active row's wash. At 6% white the
+   two sat 1.18:1 and 1.22:1 off the rail — a 3% difference in lightness — so
+   a row you were merely pointing at looked as lit as the one you were on.
    ==================================================================== */
 .ant-menu-dark .ant-menu-item:hover:not(.ant-menu-item-selected),
 .ant-menu-dark .ant-menu-item-active:not(.ant-menu-item-selected),
 .ant-menu-dark .ant-menu-submenu-title:hover,
 .ant-menu-dark .ant-menu-submenu-active > .ant-menu-submenu-title {
-  background-color: rgba(255, 255, 255, 0.06) !important;
+  background-color: rgba(255, 255, 255, 0.04) !important;
 }
 
 .ant-menu-light .ant-menu-item:hover:not(.ant-menu-item-selected),
@@ -219,6 +229,302 @@ body,
 .ant-menu-light .ant-menu-submenu-title:hover,
 .ant-menu-light .ant-menu-submenu-active > .ant-menu-submenu-title {
   background-color: rgba(0, 0, 0, 0.04) !important;
+}
+
+/* ====================================================================
+   Inline accordion (submenu) reveal — antd animates the sub's HEIGHT with
+   its "front-loaded" ease, which reads as a snap. Retime it to the app's
+   Material curve, and deal the rows out from under the title: each one
+   starts a touch above its place and a hair small, then drops into it,
+   one after another. Opacity and transform only, so it is composited.
+   The `!important` overrides the inline transition rc-motion sets.
+   ==================================================================== */
+.ant-menu-submenu-inline > .ant-menu-sub {
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1) !important;
+  /* The rows start ABOVE where they belong, so the list has to clip them —
+     otherwise they slide across the title on the way in. rc-motion only clips
+     while its own height transition runs, which is shorter than the row
+     animation, and the tail end would spill. */
+  overflow: hidden;
+}
+/* A group is held together by a rail down its left edge, not by a filled box.
+   Without something the children came out pixel-identical to top-level entries
+   — same width, same margins, and their icons on the very same x as the
+   parent's, because the blanket item padding further down cancels antd's
+   `inlineIndent`. Nothing said they belonged to the item above them, so they
+   read as two new menu entries that had appeared out of nowhere.
+
+   The rail carries one meaning and spends the accent once: you are inside this
+   section. It therefore keys off `-selected` — which antd keeps on the group
+   whether it is open or shut — and not off `-open`. Shutting the group while
+   you are in one of its pages then still answers "where am I", and an open
+   group you are merely browsing (the theme switcher) stays unmarked.
+
+   Every measurement here is unconditional, and that is the point: antd drops
+   the `-open` class the instant a close BEGINS, while the rows are still on
+   screen collapsing. Anything keyed on that class snapped on the first frame of
+   the close — the row jumped 6px left, grew 12px wider and its icon lost the
+   16px indent, all before the list had moved at all. */
+:is(.ant-layout-sider, .ant-drawer) .ant-menu-submenu-inline {
+  position: relative;
+  margin: 3px 12px;
+  /* Room for the rail. Applied to every group so the rows never shift when the
+     rail appears or goes. */
+  padding-left: 8px;
+  /* The accent marker below is placed at a fixed offset from this box's top. As
+     the group collapses the box gets shorter while the marker does not move, so
+     without clipping it hangs on below the shut group like a stray tick. Clipped
+     here it is eaten by the closing edge instead, which is what the eye expects
+     of something that lives inside the group. */
+  overflow: hidden;
+}
+/* A hairline, not an accent bar. In colour it read as a status marker parked at
+   the edge with nothing to attach to; its actual job is structural — tie the
+   unfolded rows to the title above them. So it is neutral, and it is tied to
+   the group being OPEN: there is nothing to hold together while it is shut. */
+:is(.ant-layout-sider, .ant-drawer) .ant-menu-submenu-inline::before {
+  content: '';
+  position: absolute;
+  left: 1px;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  opacity: 0;
+  /* Waits a beat before coming in, so the line arrives after the list has
+     started opening rather than snapping into an empty group and waiting there
+     for the rows. It lands at 220ms, inside the list's 260ms. */
+  transition: opacity 0.14s ease 0.08s;
+}
+[data-theme='light'] :is(.ant-layout-sider, .ant-drawer) .ant-menu-submenu-inline::before {
+  background: rgba(0, 0, 0, 0.1);
+}
+/* "Open" for the purposes of the rail and the marker below means open OR on its
+   way shut. Antd drops `-open` on the first frame of a close, with the list
+   still at full height, so keying on it alone made both of them blink out from
+   under a list that was still standing there. rc-motion's `-leave` class on the
+   list covers exactly the missing stretch. */
+:is(.ant-layout-sider, .ant-drawer) .ant-menu-submenu-inline.ant-menu-submenu-open::before,
+:is(.ant-layout-sider, .ant-drawer)
+  .ant-menu-submenu-inline:has(> .ant-menu-sub.ant-motion-collapse-leave)::before {
+  opacity: 1;
+}
+/* …and the stretch of it beside the page you are on carries the accent. The
+   line stays a structural hairline; the colour marks a position ON it, which is
+   the one thing a vertical line is good at. It rides on the group rather than
+   on the row because the list clips its own overflow for the deal-out
+   animation, and a marker hung off a row's left edge would be cut off.
+   The offsets come from the rows themselves: the title sits 3 from the group's
+   top and is 40 tall, the list starts 6 below it, and each child is 34 tall on
+   a 3px margin — so the rows begin at 49 and 86. (Measure these with the
+   sidebar's transitions disabled: mid-animation a row is still scaled 0.97 and
+   reports a box a few pixels off, which is exactly how the marker ended up 3px
+   high the first time.) Sliding `top` between the two means switching pages
+   moves the marker instead of teleporting it.
+   WHERE it sits and WHETHER it shows are deliberately separate. The offset is
+   set on the group whenever a child is active, open or not; only the opacity
+   reacts to the group's state. Carrying the offset on the same rules as the
+   opacity meant that on a close — where antd drops `-open` at once — the marker
+   lost its `top` in the same frame and jumped to the group's edge on its way
+   out. */
+:is(.ant-layout-sider, .ant-drawer)
+  .ant-menu-submenu-inline:has(> .ant-menu-sub > .ant-menu-item:nth-child(1).ant-menu-item-selected) {
+  --marker-top: 49px;
+}
+:is(.ant-layout-sider, .ant-drawer)
+  .ant-menu-submenu-inline:has(> .ant-menu-sub > .ant-menu-item:nth-child(2).ant-menu-item-selected) {
+  --marker-top: 86px;
+}
+:is(.ant-layout-sider, .ant-drawer) .ant-menu-submenu-inline::after {
+  content: '';
+  position: absolute;
+  left: 1px;
+  top: var(--marker-top, 49px);
+  width: 2px;
+  height: 34px;
+  border-radius: 2px;
+  background: var(--accent, #6366f1);
+  opacity: 0;
+  transition:
+    /* Same beat as the rail above: the accent belongs to a row, so it must not
+       be on screen before that row is. */
+    opacity 0.14s ease 0.08s,
+    top 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* Shown while the group is open, and held through the close: the group clips
+   its own overflow, so a marker that simply stays put is eaten by the closing
+   edge — which is what the list beside it is doing anyway. Fading it on its own
+   140ms while the list took 260ms was the "snap" — the accent was gone a full
+   frame-and-a-half before the rows it belonged to. */
+:is(.ant-layout-sider, .ant-drawer)
+  .ant-menu-submenu-inline:is(
+    .ant-menu-submenu-open,
+    :has(> .ant-menu-sub.ant-motion-collapse-leave)
+  ):has(> .ant-menu-sub > .ant-menu-item-selected)::after {
+  opacity: 1;
+}
+/* Shut the group while inside one of its pages and the highlight goes with the
+   children. The title then carries it — the same wash every other active row
+   gets, so "a tinted row" means the same thing at every level. A submenu title
+   is the one navigation row antd has no selected-background token for, which
+   is why this is the only place the wash is spelled out in CSS; `--nav-active`
+   is the same value the Menu tokens use (theme/tokens.ts). `!important` beats
+   the hover rule above, which would otherwise wipe the wash off this row on
+   mouse-over while every other active row keeps it.
+   The guard says `-inline-open`, not just `-open`, because those mean two
+   different things. Unfolded in place, the children are on screen and carry
+   the highlight themselves. On the collapsed rail antd sets `-open` too — for
+   the hover flyout — but there the children live in a portal, so the title is
+   still the only thing standing for them. Guarding on bare `-open` stripped
+   the wash and the accent glyph off "Настройки" at the exact moment you
+   pointed at it. */
+:is(.ant-layout-sider, .ant-drawer)
+  .ant-menu-submenu-selected:not(.ant-menu-submenu-inline.ant-menu-submenu-open)
+  > .ant-menu-submenu-title {
+  background: var(--nav-active, rgba(99, 102, 241, 0.18)) !important;
+  color: var(--text, #f1f5f9);
+}
+/* Rows sit against the rail, so they drop their own side margins. */
+:is(.ant-layout-sider, .ant-drawer) .ant-menu-submenu-inline > .ant-menu-submenu-title,
+:is(.ant-layout-sider, .ant-drawer) .ant-menu-submenu-inline > .ant-menu-sub > .ant-menu-item {
+  margin-left: 0;
+  margin-right: 0;
+  width: auto;
+}
+:is(.ant-layout-sider, .ant-drawer) .ant-menu-submenu-inline > .ant-menu-sub > .ant-menu-item {
+  /* The whole row is indented, fill included — not just its contents. The eye
+     reads a filled row by its left EDGE, not by where the icon sits inside it:
+     with the fill starting a few pixels from the title's edge the child looked
+     like a sibling of its own parent, however far in the icon was. Stepping the
+     row itself in by 16px (the indent antd's `inlineIndent` would have given if
+     the constant-padding rule above did not cancel it for these rows — a
+     submenu's <ul> is `.ant-menu-inline` too) puts the step where it can be
+     seen. Padding then matches the title's 11px, so the icons land at 47 as
+     before. Slightly shorter than a top-level row, too: size carries hierarchy
+     as much as position does. `!important` only because that rule is; it is not
+     fighting antd. */
+  margin-inline: 16px 6px;
+  border-radius: 9px;
+  padding-left: 11px !important;
+  height: 34px;
+}
+/* The colour lives in the active row, and only there. A solid accent slab read
+   as a plate dropped on top of the rail; a bar off at the edge read as a
+   marker attached to nothing; no colour at all read as grey. A tinted row with
+   an accent glyph is the middle: the hue is on the thing it is actually about —
+   the page you are on — and it is a wash rather than a block. The wash itself
+   comes from the Menu tokens now, so it lands on every navigation row at once;
+   what's left here is the glyph, which antd has no selected-icon token for.
+   The navigation menu shows up in three containers, none of which nests in
+   another: the rail, the phone's drawer, and the flyout the collapsed rail
+   portals to <body>. Listing them keeps the accent on navigation and off any
+   other menu in the app. Antd pins these glyphs to `color: inherit` — at three
+   classes in the rail and four inside a popup — so each selector here is
+   deliberately one class heavier than the rule it has to outrank, rather than
+   reaching for `!important`. */
+:is(.ant-layout-sider, .ant-drawer) .ant-menu .ant-menu-item-selected .ant-menu-item-icon,
+:is(.ant-layout-sider, .ant-drawer)
+  .ant-menu-submenu-selected:not(.ant-menu-submenu-inline.ant-menu-submenu-open)
+  > .ant-menu-submenu-title
+  .ant-menu-item-icon,
+.ant-menu-submenu-popup
+  > .ant-menu
+  .ant-menu-item.ant-menu-item-selected
+  .ant-menu-item-icon {
+  color: var(--accent, #6366f1);
+}
+/* Third carrier, and the only one that owes nothing to the palette. A wash of
+   translucent indigo can never separate itself from its own background by much
+   — even at full opacity it tops out around 2:1 — so on the light rail the
+   active row and a hovered one sit within a tenth of each other. Weight does
+   not care: it reads at any tint, at any size, and on the collapsed rail it
+   simply has nothing to act on, which is correct there. */
+:is(.ant-layout-sider, .ant-drawer, .ant-menu-submenu-popup)
+  .ant-menu-item-selected
+  > .ant-menu-title-content,
+:is(.ant-layout-sider, .ant-drawer)
+  .ant-menu-submenu-selected:not(.ant-menu-submenu-inline.ant-menu-submenu-open)
+  > .ant-menu-submenu-title
+  > .ant-menu-title-content {
+  font-weight: 500;
+}
+.ant-menu-submenu-inline.ant-menu-submenu-open > .ant-menu-sub > .ant-menu-item {
+  animation: app-submenu-item-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+/* Stagger: each row waits for the one above it to be on its way. 70ms apart is
+   enough to read as an order without the last row feeling late. */
+.ant-menu-submenu-open > .ant-menu-sub > .ant-menu-item:nth-child(1) { animation-delay: 0.02s; }
+.ant-menu-submenu-open > .ant-menu-sub > .ant-menu-item:nth-child(2) { animation-delay: 0.09s; }
+.ant-menu-submenu-open > .ant-menu-sub > .ant-menu-item:nth-child(3) { animation-delay: 0.16s; }
+.ant-menu-submenu-open > .ant-menu-sub > .ant-menu-item:nth-child(4) { animation-delay: 0.23s; }
+.ant-menu-submenu-open > .ant-menu-sub > .ant-menu-item:nth-child(5) { animation-delay: 0.3s; }
+@keyframes app-submenu-item-in {
+  from {
+    opacity: 0;
+    /* Above its place and slightly small: the row reads as coming out from
+       under the title rather than fading in where it already was. */
+    transform: translateY(-18px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* Opening and closing run on the same clock. Antd's own collapse is 0.14s,
+   which against rows that take 0.3s to deal out meant the box flew open and
+   the content arrived afterwards — and once the close was retimed to 0.26s the
+   two directions no longer matched at all. The list's opacity is pinned for the
+   same reason it is on the way out: with the list fading too, a row is dimmed
+   twice and the deal-out reads as a blur instead of an order. */
+.ant-menu-submenu-inline > .ant-menu-sub.ant-motion-collapse-enter,
+.ant-menu-submenu-inline > .ant-menu-sub.ant-motion-collapse-appear {
+  transition-duration: 0.26s !important;
+  opacity: 1 !important;
+}
+/* Closing is the same deal collected back up. It cannot hang off `-open`: antd
+   drops that class on the first frame of a close (measured at 7ms, with the
+   list still at full height), which is exactly why shutting the group used to
+   be a bare 160ms height collapse against an opening that reads for ~390ms —
+   the rows simply blinked out of existence. rc-motion's own `-leave` class sits
+   on the list for the whole close, so the rows hang off that instead. */
+.ant-menu-submenu-inline > .ant-menu-sub.ant-motion-collapse-leave {
+  /* Long enough for the rows to be seen leaving before the list shuts over
+     them — still a touch quicker than opening, which is how a close should
+     feel. */
+  transition-duration: 0.26s !important;
+  /* rc-motion fades the whole list inline. Let the rows carry the fade: with
+     both running, a row is already invisible before its movement can be read. */
+  opacity: 1 !important;
+}
+.ant-menu-submenu-inline > .ant-menu-sub.ant-motion-collapse-leave > .ant-menu-item {
+  animation: app-submenu-item-out 0.18s cubic-bezier(0.4, 0, 1, 1) both;
+}
+/* Reversed order: the last row goes first, so the list is drawn back under the
+   title from the bottom rather than unzipping from the top. */
+.ant-menu-sub.ant-motion-collapse-leave > .ant-menu-item:nth-last-child(1) { animation-delay: 0s; }
+.ant-menu-sub.ant-motion-collapse-leave > .ant-menu-item:nth-last-child(2) { animation-delay: 0.05s; }
+.ant-menu-sub.ant-motion-collapse-leave > .ant-menu-item:nth-last-child(3) { animation-delay: 0.1s; }
+.ant-menu-sub.ant-motion-collapse-leave > .ant-menu-item:nth-last-child(4) { animation-delay: 0.15s; }
+.ant-menu-sub.ant-motion-collapse-leave > .ant-menu-item:nth-last-child(5) { animation-delay: 0.2s; }
+@keyframes app-submenu-item-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    /* Shorter travel than the way in — on the way out the row only has to be
+       seen leaving, and the list is closing over it at the same time. */
+    transform: translateY(-14px) scale(0.97);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ant-menu-submenu-open > .ant-menu-sub > .ant-menu-item,
+  .ant-menu-sub.ant-motion-collapse-leave > .ant-menu-item {
+    animation: none !important;
+  }
 }
 
 /* ====================================================================
@@ -698,28 +1004,246 @@ button {
 }
 
 .app-settings-section {
-  /* Fill the content pane up to a comfortable reading width so values
-     and controls align to the right edge of the column instead of
-     leaving a dead gap. */
-  max-width: 720px;
-  padding: 4px 0 8px;
+  max-width: 100%;
+  padding: 0;
 }
-/* Section heading + one-line muted subtitle. Sized to sit ABOVE the
-   content card as a clear primary title (the card carries the body). */
-.app-settings-section-title {
-  margin: 0 0 6px;
-  font-size: 20px;
-  font-weight: 650;
-  line-height: 1.25;
-  letter-spacing: -0.01em;
+
+/* Settings live in a tabbed container (3x-ui style): one bounded card with the
+   category tabs across the top and the active section's fields below. The
+   fill + tab bar make it read as a deliberate panel, so the page around it is
+   normal margin, not "empty". No outline: the card's own fill bounds it, the
+   way the group plaques inside it are bounded. An outline here also put a
+   second horizontal line 48px above the tab strip's baseline, boxing the tabs
+   between two identical rules. */
+.app-settings-tabs.ant-tabs {
+  background: var(--surface, #131c2e);
+  border-radius: 14px;
+  overflow: hidden;
+}
+[data-theme='light'] .app-settings-tabs.ant-tabs {
+  background: #ffffff;
+}
+/* Near-black theme: the container fill is only ~8 units off the page, which
+   was thin enough that the card leaned on its outline to be seen at all. With
+   the outline gone the fill has to carry it, so lift it here — a colour-only
+   override, so the container's geometry stays identical across themes. Page
+   #050505 < container #121212 < group plaque #1e1e1e reads as three steps. */
+[data-theme='darker'] .app-settings-tabs.ant-tabs {
+  background: #121212;
+}
+.app-settings-tabs > .ant-tabs-nav {
+  margin: 0;
+  padding: 2px 12px 0;
+}
+.app-settings-tabs > .ant-tabs-nav::before {
+  border-bottom: 1px solid var(--border, #1e2a44) !important;
+}
+.app-settings-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+}
+.app-settings-tabs .ant-tabs-tab {
+  padding: 12px 16px;
+}
+/* Muted by default, brightening on hover, accent on the active tab — icon
+   inherits the same colour. Thin rounded accent ink-bar. */
+.app-settings-tabs .ant-tabs-tab .ant-tabs-tab-btn {
+  color: var(--text-2, #9aa6bd);
+}
+.app-settings-tabs .ant-tabs-tab:hover .ant-tabs-tab-btn {
   color: var(--text, #e7ecf5);
 }
-.app-settings-section-sub {
-  max-width: 620px;
-  margin: 0 0 18px;
-  font-size: 13px;
-  line-height: 1.55;
-  color: var(--text-3, #7c899e);
+.app-settings-tabs .ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: var(--accent, #6366f1) !important;
+}
+.app-settings-tabs .ant-tabs-ink-bar {
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent, #6366f1);
+}
+.app-settings-tabs .ant-tabs-body-holder {
+  padding: 22px 22px 24px;
+}
+
+/* Inside the container each field group stays its own card, at a radius one
+   notch tighter than the container's 14px — an identically-rounded box nested
+   inside it is what read as a doubled frame. The fill comes from the theme
+   (every theme defines one); only the geometry lives here, because geometry
+   must NOT depend on which theme is active — when it did, switching theme
+   silently moved every row and resized every control. */
+.app-settings-tabs .app-settings-group {
+  /* Rows here run a touch taller than the default set on `.app-settings-group`
+     — the variable is the only thing that moves, the padding rule stays put. */
+  --settings-row-block: 13px;
+  border-radius: 12px;
+  /* Clip the row hairlines to the rounded corners. */
+  overflow: hidden;
+}
+/* The one row that can't take the inset as a constant: the revealed block's
+   vertical half has to travel to zero along with its height, or a shut block
+   leaves 26px of padding standing. */
+.app-settings-group > .app-reveal {
+  padding-block: 0;
+}
+.app-settings-group > .app-reveal.is-in {
+  padding-block: var(--settings-row-block);
+}
+/* Settings rows in the 3x-ui idiom: the left column carries the setting's name
+   AND its explanation (see FieldLabel), the right column carries a full-size
+   control. The explanation is what gives the row its weight — with only a short
+   label on the left the row read as an empty gutter with a control stranded at
+   the far edge. */
+.app-settings-tabs .app-settings-group .ant-form-item-row,
+.app-settings-tabs .app-settings-group .app-settings-plaque {
+  /* Both tracks carry a floor: a bare `1fr` label column collapses to 0 the
+     moment the container is narrower than the control's max. */
+  grid-template-columns: minmax(240px, 1fr) minmax(200px, 460px);
+  column-gap: 36px;
+  align-items: center;
+}
+.app-settings-tabs .app-settings-group .ant-form-item-label > label {
+  width: 100%;
+  height: auto;
+}
+/* A switch does NOT belong on the input grid. The control track above is sized
+   for text inputs, which stretch to fill it and so share one right rail; a 44px
+   switch inheriting that same 460px track sat at its LEFT edge and left ~434px
+   of dead space beside it, while the label track stayed capped and wrapped the
+   description early — and on a narrow container the label collapsed to its
+   240px floor and the description fell apart into a six-line sliver.
+   Switch rows get their own template: the text takes whatever is going, and the
+   switch is sized to itself at the end of the row — landing on the SAME right
+   rail the inputs end at, so the tab keeps one right edge throughout. */
+.app-settings-tabs .app-settings-group .ant-form-item.app-field-switch .ant-form-item-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+/* The whole row toggles the switch (see RowSwitch), so it advertises itself as
+   a target: pointer cursor and a flat white wash on hover. A wash rather than
+   an accent tint — these rows sit among ordinary fields and should not read as
+   selected. The negative inline margin lets the highlight reach the plaque's
+   edges even though the row's own padding stops short of them. */
+.app-settings-tabs .app-settings-group .ant-form-item.app-field-switch {
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background-color 0.15s ease;
+}
+.app-settings-tabs .app-settings-group .ant-form-item.app-field-switch:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+[data-theme='light'] .app-settings-tabs .app-settings-group .ant-form-item.app-field-switch:hover {
+  background: rgba(15, 23, 42, 0.04);
+}
+/* The label inside already carries antd's own pointer/`for` behaviour; keep the
+   text selectable-looking cursor off so the whole row reads as one control. */
+.app-settings-tabs .app-settings-group .app-field-switch .ant-form-item-label > label {
+  cursor: pointer;
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-settings-tabs .app-settings-group .ant-form-item.app-field-switch {
+    transition: none;
+  }
+}
+/* ...but the text must not cash in all that width: a description running the
+   full ~990px is ~120 characters per line, well past a comfortable measure.
+   Cap it at a readable line and let the rest of the row stay air. 86ch lands
+   at ~575px, matching the measure the description already had inside the old
+   label track — so the fix removes the dead space WITHOUT costing a line of
+   wrap or a taller row. */
+.app-settings-tabs .app-settings-group .app-field-switch .app-field-desc {
+  max-width: 86ch;
+}
+/* Antd anchors the required asterisk (label::before) and the trailing colon
+   (label::after) to the whole label box, so against a two-line
+   title+description they float off to the side, between the lines. The
+   reference design has neither — drop both; the field still validates and
+   reports an empty value the normal way. */
+.app-settings-tabs label.ant-form-item-required::before,
+.app-settings-tabs .ant-form-item-label > label::after {
+  content: none !important;
+  display: none !important;
+}
+.app-field-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.app-field-title {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--text, #e7ecf5);
+}
+.app-field-desc {
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.5;
+  white-space: normal;
+  color: var(--text-2, #94a3b8);
+}
+.app-settings-tabs .app-settings-group .ant-form-item-control-input-content,
+.app-settings-tabs .app-settings-group .app-settings-plaque-control {
+  justify-content: flex-start;
+}
+.app-settings-tabs .app-settings-group .ant-input:not(textarea),
+.app-settings-tabs .app-settings-group .ant-input-affix-wrapper,
+.app-settings-tabs .app-settings-group .ant-input-number,
+.app-settings-tabs .app-settings-group .ant-select {
+  width: 100% !important;
+  max-width: none !important;
+}
+/* Egress-test field: the select's suffix holds BOTH the run-test button and a
+   chevron. This antd build already lets the suffix take clicks, but say so
+   explicitly — the button is the only way to run the test, and it should not
+   quietly stop working if a future version makes suffixes click-through again.
+   The chevron opts back out below, so clicking it still opens the list. */
+.app-field-testurl .ant-select-suffix {
+  pointer-events: auto;
+}
+.app-testurl-suffix {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.app-testurl-chevron {
+  pointer-events: none;
+  font-size: 11px;
+  opacity: 0.5;
+}
+/* Group heading: enough to structure the page, quiet enough not to compete with
+   the tab labels right above it. */
+.app-settings-tabs .app-settings-fieldgroup-title {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--text-3, #8a94a6);
+  /* Heading tracks the row text it labels — same 18px inset as the rows, and
+     nothing more: the base rule's `padding-left: 4px` is additive to this
+     margin and pushed every heading right of its own rows, leaving a ragged
+     left edge down the tab. */
+  margin: 0 0 10px 18px;
+  padding-left: 0;
+}
+/* Rhythm comes from the spacing; the hairline is felt more than seen. */
+.app-settings-tabs .app-settings-group > * + * {
+  border-top-color: rgba(255, 255, 255, 0.045);
+}
+/* The tab strip (or the sidebar, for the Xray page) already names the category,
+   so printing the section's H1 inside the panel again was pure repetition. It
+   is taken off the screen rather than out of the document: `display: none`
+   would also drop it from the accessibility tree, leaving the page with no
+   heading at all for anyone navigating by headings. */
+.app-settings-page .app-settings-section-title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 /* ── Card-per-group settings layout ──────────────────────────────────────
    A section is a stack of groups. Each group is one flat, borderless card
@@ -727,6 +1251,13 @@ button {
    purely from a fill a touch lighter than the page — a hard outline looked
    dated. Fields inside are rows divided by hairlines. */
 .app-settings-group {
+  /* The row inset, defined once. Contexts that want a different rhythm move
+     the variable (the tabbed layout runs 13px, a narrow viewport 15px); they
+     do NOT re-declare the padding, which is how three competing `padding`
+     rules for the same rows came about — whichever happened to be last in the
+     file won, and a rule that changed one axis silently reset the other. */
+  --settings-row-block: 11px;
+  --settings-row-inline: 18px;
   background: var(--surface-2, #1a2438);
   border-radius: 14px;
   /* Clip the row hairlines to the rounded corners. */
@@ -737,13 +1268,17 @@ button {
 [data-theme='darker'] .app-settings-group {
   background: #1e1e1e;
 }
-/* Rows inside a group: each field's own padding; the divider rule below
-   draws a hairline above every row but the first. `margin: 0 !important`
-   kills antd's vertical-form item margin so rows sit flush. */
-.app-settings-group > .ant-form-item,
-.app-settings-group > .app-settings-plaque {
+/* Rows inside a group: the inset above, and the divider rule below draws a
+   hairline over every row but the first. `margin: 0 !important` kills antd's
+   vertical-form item margin so rows sit flush.
+   This matches whatever the group contains rather than naming the row types.
+   Naming them is what let the revealed TLS pair escape: it was on neither list,
+   so it spanned the full width with its icon on the container's edge and had no
+   vertical padding at all — its name sat on the hairline above and its hint on
+   the one below, while every neighbour breathed. */
+.app-settings-group > * {
   margin: 0 !important;
-  padding: 11px 18px;
+  padding: var(--settings-row-block) var(--settings-row-inline);
 }
 .app-settings-group > * + * {
   border-top: 1px solid rgba(255, 255, 255, 0.06);
@@ -793,23 +1328,448 @@ button {
   width: 100% !important;
   max-width: none !important;
 }
-/* Wide multi-line fields (PEM cert/key): stack the label on top and give the
-   textarea the full card width, instead of the 200px-label / control split
-   that cramps a tall textarea. Mirrors the narrow-viewport collapse below. */
-.app-settings-group .ant-form-item.app-field-stacked .ant-form-item-row {
-  grid-template-columns: minmax(0, 1fr);
-  row-gap: 6px;
-  align-items: stretch;
-  min-height: 0;
+
+/* ====================================================================
+   HTTPS tab — compact PEM "drop rows". Each field is a short dashed drop
+   target that grows on focus/content, with an upload invitation that
+   fades once the field is focused or filled. Colours come from theme
+   tokens (never hardcoded per-theme); the indigo accent is theme-stable
+   (--accent is #6366f1 in every theme) so its rgba tints are used raw.
+   ==================================================================== */
+/* One-line status ribbon: cert stored / key stored / HTTPS active. */
+.app-tls-ribbon {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-top: 14px;
+  padding: 10px 14px;
+  background: var(--surface-2, #1a2438);
+  border: 1px solid var(--border, #1e2a44);
+  border-radius: 12px;
+  font-size: 12.5px;
+  color: var(--text-2, #94a3b8);
 }
-.app-settings-group .ant-form-item.app-field-stacked .ant-form-item-control-input-content {
+.app-tls-live {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  margin-right: 2px;
+  border-radius: 50%;
+  background: var(--text-3, #64748b);
+}
+.app-tls-live[data-on='true'] {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.16);
+}
+.app-tls-rb-main {
+  font-weight: 500;
+  color: var(--text, #f1f5f9);
+}
+.app-tls-sep {
+  color: var(--text-3, #64748b);
+}
+.app-tls-rb-badge {
+  margin-left: auto;
+  padding: 2px 9px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+/* Section divider above the drop pair. */
+.app-tls-sec {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+.app-tls-sec-title {
+  flex: none;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text, #f1f5f9);
+}
+.app-tls-sec-sub {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--text-3, #64748b);
+}
+.app-tls-sec-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border, #1e2a44);
+}
+/* The pair. */
+.app-tls-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-top: 12px;
+}
+/* A block that is revealed by a choice elsewhere in the form (the
+   subscription's own cert/key pair, shown when "custom" is picked). It stays
+   mounted and collapses here, which is what lets it animate BOTH ways — a
+   conditionally rendered node is gone before an exit could play. Same
+   max-height technique as the unsaved-changes bar; the cap only has to exceed
+   the pair's real height, it is not a layout size. */
+.app-reveal {
+  /* A grid row from 0fr to 1fr, not a max-height cap. The cap has to be picked
+     larger than the content can ever be, and the transition then spends the
+     difference travelling through empty space: the pair is 202px inside a 460px
+     cap, so 56% of the duration moved nothing. Opening looked like it stalled
+     at the end, closing like it hung before it started. `1fr` resolves to the
+     content's real height, so the whole duration is spent on visible motion and
+     the block no longer has to be re-measured when the fields inside change. */
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  overflow: hidden;
+  /* The block's breathing room belongs to the block itself, not to the child:
+     a child's margin sits outside the animated row, and a child's padding does
+     not collapse with it — measured, 26px of it survives and leaves a sliver of
+     the block standing while it is shut. On the block it is padding rather than
+     margin so that the hairline above (drawn on this element's border-top)
+     lands flush against the previous row like every other separator, instead of
+     floating 12px below it, and so the pair clears the hairlines by the same
+     13px every other row does. Zero here, the row's inset when open — see the
+     two overrides under the group rules. */
+  transform: translateY(-6px);
+  transition:
+    grid-template-rows 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+    padding-top 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+    padding-bottom 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.22s ease,
+    transform 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* Grid children carry an automatic minimum size; without this the row cannot
+   actually shrink to 0fr. The spacing above the pair has to move inside the row
+   too: a child's margin sits OUTSIDE the row and does not collapse with it,
+   which left 12px of the block standing while it was supposed to be shut. */
+.app-reveal > * {
+  min-height: 0;
+  margin-top: 0;
+}
+.app-reveal.is-in {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transform: translateY(0);
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-reveal {
+    transition: none;
+  }
+}
+.app-tls-fitem.ant-form-item {
+  margin-bottom: 0;
+}
+/* A drop field carries its own name, chip and hint INSIDE the control, so it
+   must not be split by the group's label/control grid. Inside a FieldGroup (the
+   Subscription tab) that grid squeezed the field into the 460px control track
+   and forced its name to wrap over three lines, while the Security tab looked
+   right only because its pair happens to sit outside any group. Opt out
+   explicitly so placement stops deciding whether the field renders correctly. */
+.app-settings-tabs .app-settings-group .ant-form-item.app-tls-fitem .ant-form-item-row {
+  /* Column, not the group's two-track grid — and a column rather than `block`
+     so the equal-height chain below can run through it. */
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+.app-settings-tabs .app-settings-group .ant-form-item.app-tls-fitem .ant-form-item-control {
+  max-width: none;
+}
+.app-settings-tabs
+  .app-settings-group
+  .app-tls-fitem
+  .ant-form-item-control-input-content {
   justify-content: flex-start;
 }
-/* Cap the textarea width: a PEM line is 64 base64 chars (~500px at 12px mono),
-   so on a wide desktop the full-card stretch is wasted space. Left-aligned via
-   flex-start above; shrinks to fit on narrower viewports. */
-.app-settings-group .ant-form-item.app-field-stacked .ant-input {
-  max-width: 620px !important;
+/* That content box is a flex container, so the field would otherwise shrink to
+   its text and sit at ~315px inside a 462px column. */
+.app-tls-fitem .app-tls-field-inner {
+  width: 100%;
+}
+/* The group aligns help text to the right, under a right-hand control. These
+   fields fill the row, so their hint belongs on the left with everything else.
+   Carries the group class to outrank that rule, which is equally specific but
+   declared later in this file. */
+.app-settings-group .ant-form-item.app-tls-fitem .ant-form-item-extra,
+.app-settings-group .ant-form-item.app-tls-fitem .ant-form-item-explain {
+  text-align: left;
+}
+.app-tls-pair > .app-tls-fitem,
+.app-settings-group .app-tls-fitem .ant-form-item-control,
+.app-settings-group .app-tls-fitem .ant-form-item-control-input,
+.app-settings-group .app-tls-fitem .ant-form-item-control-input-content,
+.app-tls-fitem .app-tls-field-inner {
+  display: flex;
+  flex-direction: column;
+  /* The group centres control content, which in a column axis means "shrink to
+     the text" — that is what left the field at 315px inside a 462px cell. */
+  align-items: stretch;
+}
+/* The two halves of a pair used to be forced to share a height, so that a box
+   holding a stored certificate wouldn't tower over its empty neighbour. That
+   is gone, and deliberately: every version of it — `:focus`, `.is-open`, or
+   just the filled state — worked by growing a field nobody had touched.
+   The cost was worse than the ragged bottoms it avoided. A panel with TLS
+   already configured has a filled certificate box, which pinned the EMPTY key
+   box open too: a tall blank rectangle with one line of hint floating in its
+   middle, unable to collapse or to animate, because a box that is already at
+   its open height has no height left to travel. Each field now reflects its own
+   content: a stored certificate is tall, an empty key is a strip, and both
+   still open and close under their own steam. */
+.app-tls-fitem .ant-form-item-extra {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-3, #64748b);
+}
+.app-tls-field-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+/* Always-visible name row (the concept kept the name inside the fading
+   hint; a real cert field can be pre-filled, so the name stays put). */
+.app-tls-flabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.app-tls-tile-sm {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.26);
+  color: var(--accent, #6366f1);
+  font-size: 12px;
+}
+.app-tls-fname {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text, #f1f5f9);
+}
+.app-tls-chip {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 11px;
+  white-space: nowrap;
+  color: var(--text-3, #64748b);
+  background: var(--bg, rgba(11, 18, 32, 0.5));
+  border: 1px solid var(--border, #1e2a44);
+}
+.app-tls-chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22c55e;
+  flex: none;
+}
+/* The drop target. */
+.app-tls-drop {
+  position: relative;
+}
+.app-tls-ta {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  /* One strip at rest. It was 66px, which left a band of empty field under a
+     single line of hint — two of them side by side read as a hole in the page.
+     Everything the resting state has to say now fits on one row (see
+     .app-tls-hint), and the field still opens to 128px the moment it is
+     focused or filled — see the two rules below, which set `height` outright.
+     It has to be `height`, not `min-height`, for two reasons: a textarea is two
+     rows tall by default, so a 44px floor does nothing to shrink it; and the
+     open/close has to animate, which means both ends of the transition must be
+     the SAME property, set to an explicit length. Expanding via `min-height`
+     against a fixed `height` leaves the transition with nothing to interpolate
+     that the layout follows, and the field snapped open. */
+  height: 44px;
+  resize: vertical;
+  /* Vertical padding has to leave one whole line inside the resting strip:
+     44 − 2 borders − 2×11 = 20 against a 19.2px line box (12px × 1.6, both
+     literal just below). At 12px it came to 18.4 — one pixel short, which is
+     enough for the textarea to decide it is scrollable and take a permanent
+     12px scrollbar gutter out of an EMPTY field. That gutter was visible as a
+     stray track down the right edge of the closed strip, and it squeezed the
+     hint text sitting over it. */
+  padding: 11px 13px;
+  /* At rest the box shows a one-line summary, never content — so it must not
+     be scrollable. A closed field holding a stored certificate would otherwise
+     take a 12px scrollbar gutter for 1000+ characters nobody can read at this
+     height, and the wheel would scroll them invisibly behind the strip.
+     Restored to `auto` the moment it opens, below. */
+  overflow: hidden;
+  border: 1px dashed var(--border-strong, #2a3a5c);
+  border-radius: 10px;
+  background: var(--bg, rgba(11, 18, 32, 0.45));
+  color: var(--text, #f1f5f9);
+  font-family: ui-monospace, 'JetBrains Mono', Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  outline: none;
+  transition:
+    height 0.16s ease,
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+/* Placeholder hidden at rest (the hint speaks for the empty field), shown
+   on focus as the field takes over. */
+.app-tls-ta::placeholder {
+  color: transparent;
+}
+.app-tls-ta:hover {
+  border-color: var(--text-3, rgba(148, 163, 184, 0.4));
+}
+/* Open state, driven by a class from the component rather than by `:focus`.
+   Chrome creates the height transition for the `:focus` trigger too —
+   `transitionrun` fires and `transitionend` arrives on schedule — but the used
+   height never interpolates, so the field jumped straight to 128px. The very
+   same declarations reached through an ordinary class animate normally
+   (measured side by side: 11 intermediate frames against none). */
+/* `--open-h` is set on the wrapper when the operator drags the resize grip, so
+   the box reopens at the size they chose; 128px until then. */
+.app-tls-drop.is-open .app-tls-ta,
+.app-tls-ta:focus {
+  height: var(--open-h, 128px);
+  overflow: auto;
+  border-style: solid;
+  border-color: var(--accent, #6366f1);
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.35);
+}
+.app-tls-drop.is-open .app-tls-ta::placeholder,
+.app-tls-ta:focus::placeholder {
+  color: var(--text-3, rgba(100, 116, 139, 0.85));
+}
+/* A filled field rests as the same strip an empty one does — it only trades
+   the dashed edge for a solid one. It used to stay expanded, which is what made
+   a configured pair look broken: a stored certificate towered at 128px beside
+   its untouched key at 44px, and the two hints under them ended up 84px apart.
+   Growing the empty half to match was tried first and is worse (see the note
+   above .app-tls-fitem). Shrinking the filled half costs one click to read the
+   certificate back, and the click opens it on the same animation as everything
+   else here. */
+.app-tls-ta:not(:placeholder-shown) {
+  border-style: solid;
+  border-color: var(--border-strong, #2a3a5c);
+}
+/* While the grip is being dragged the height must follow the pointer exactly.
+   The open/close easing turns a drag into a rubber band. */
+.app-tls-drop.is-resizing .app-tls-ta {
+  transition: none;
+}
+.app-tls-drop.is-drag .app-tls-ta {
+  border-style: solid;
+  border-color: var(--accent, #6366f1);
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.35);
+}
+/* Upload invitation overlaid on the empty field; click-through, and fades
+   the moment the field is focused or has content. */
+/* The resting strip, read left to right: mark, what goes here, how to put it
+   there. Nothing is centred any more and nothing needs to be — the row spans
+   the field, so there is no empty half left over to look like a mistake. */
+.app-tls-hint {
+  position: absolute;
+  /* The strip must cover exactly what the field can paint — its padding box,
+     which is where `overflow` clips. Insetting by a flat 1px does not: the
+     field's border is 1px of CSS and scales with page zoom and with a
+     fractional device pixel ratio, while the inset stays 1 device pixel. At
+     150% the overlay finished 0.7px short of the clip edge, at 200% a full
+     pixel — and through that hairline came the top row of pixels of the
+     certificate's SECOND line, reading as a row of dashes under the strip.
+     A transparent border of the same 1px, with the fill clipped to the padding
+     box, puts the two boundaries on the same arithmetic at any scale. */
+  inset: 0;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border-radius: 10px;
+  /* Opaque, and the same fill the field itself uses, so it covers a stored
+     certificate's first line instead of letting it read through the strip.
+     Over an empty field it is invisible — same colour, same place. */
+  background-color: var(--bg, #0b1220);
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+.app-tls-hint-ic {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  /* Filled, no dashed outline: at 24px a dashed edge inside a dashed field is
+     just noise, and the field's own border already carries "drop here". */
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--accent, #6366f1);
+  font-size: 13px;
+}
+/* The PEM header the field expects, in the same monospace the field itself
+   uses — so the resting state looks like a preview of its own content. */
+.app-tls-hint-ghost {
+  min-width: 0;
+  font-family: ui-monospace, 'JetBrains Mono', Consolas, monospace;
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  color: var(--text-2, #94a3b8);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-tls-hint-sub {
+  /* Pushed to the far edge: the two halves are different kinds of information
+     and shouldn't read as one run-on sentence. */
+  margin-left: auto;
+  flex: none;
+  font-size: 11.5px;
+  color: var(--text-3, #64748b);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Both keys, for the same reason as the height above: the class covers the
+   animation window before the caret lands, `:focus` covers everything after.
+   A filled field is NOT in this list: at rest it shows the strip like any
+   other, and the strip's opaque fill is what hides the content behind it. */
+.app-tls-drop.is-open .app-tls-hint,
+.app-tls-ta:focus ~ .app-tls-hint {
+  opacity: 0;
+}
+@media (max-width: 760px) {
+  .app-tls-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .app-tls-rb-badge {
+    margin-left: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-tls-ta {
+    transition: none;
+  }
+  .app-tls-hint {
+    transition: none;
+  }
 }
 /* 2-letter country/category code shown before a geo preset's name, both in
    the dropdown option and on the selected chip (e.g. "RU Russia"). */
@@ -825,17 +1785,51 @@ button {
   vertical-align: middle;
 }
 /* Multi-select tag lists (routing match lists) collect many chips — cap the
-   chip container at ~2.5 rows and scroll inside, instead of growing the
-   settings row unbounded. (This antd v6 build holds the chips in
-   `.ant-select-content`, not the older `.ant-select-selector`.) Single
-   strategy selects are one line and unaffected. */
+   chip container and scroll inside, instead of growing the settings row
+   unbounded. (This antd v6 build holds the chips in `.ant-select-content`, not
+   the older `.ant-select-selector`.) Single strategy selects are one line and
+   unaffected.
+   The cap MUST come out to a whole number of chip rows. It used to be a flat
+   84px, which is 3.65 rows of the 23px pitch below — so once the chips needed a
+   fourth row, that row sat sliced through the middle at the bottom edge of the
+   field. That is what "a lot of countries" looked like. Deriving it from the
+   chip metrics keeps it exact: four chips plus the three gaps between them. */
+.app-settings-group .ant-select-multiple {
+  /* Declared here and imposed on the chips further down, so the height the cap
+     is computed from and the height the chips actually get cannot drift apart.
+     It has to be imposed rather than inferred: antd's border token is 0.8px in
+     this build, so a chip left to size itself came out 20.6px — and a cap
+     computed from a guessed 21px sliced 1.6px off the last row again. */
+  --geo-chip-h: 21px;
+  --geo-chip-gap: 2px;
+  /* The height antd gives the search input — and therefore the height an empty
+     control has to keep, so these fields still line up with every other input
+     on the page once the input itself is chip-sized below. */
+  --geo-control-h: 32px;
+}
+/* The search input shares a wrap line with the chips, and antd sizes it to the
+   full control height — 11px taller than a chip. That line was therefore 11px
+   taller than every other line: the chips sitting on it dropped 5.5px below the
+   rhythm of the rows above, with the same slack left underneath them. That
+   uneven last row is what "everything inside looks crooked" was. Chip-sized,
+   every wrap line has the same pitch. */
+.app-settings-group .ant-select-multiple .ant-select-content-item-suffix,
+.app-settings-group .ant-select-multiple .ant-select-content-item-suffix input {
+  height: var(--geo-chip-h);
+  line-height: var(--geo-chip-h);
+}
 .app-settings-group .ant-select-multiple .ant-select-content {
-  max-height: 84px;
+  max-height: calc(
+    4 * var(--geo-chip-h) + 3 * var(--geo-chip-gap) + var(--geo-control-h) - var(--geo-chip-h)
+  );
+  /* Symmetric slack, so an empty or single-row field still measures the full
+     control height even though nothing inside it is that tall any more. */
+  padding: calc((var(--geo-control-h) - var(--geo-chip-h)) / 2) 0;
   overflow-y: auto;
   justify-content: flex-start !important;
   align-content: flex-start !important;
   margin-right: 0 !important;
-  gap: 2px 2px !important;
+  gap: var(--geo-chip-gap) var(--geo-chip-gap) !important;
 }
 /* Chips don't grow and carry no margin of their own — the container `gap`
    above is the single, tight source of spacing, so the chips read as one
@@ -848,6 +1842,12 @@ button {
   margin: 0 !important;
   padding: 0 5px;
   font-size: 12px;
+  /* The other half of the row pitch the container's max-height is built from.
+     `box-sizing` is border-box (antd's reset), so this is the whole chip,
+     border included — which is the point: it no longer depends on whatever the
+     border token happens to be. Change this without changing the cap above and
+     a partial row of chips reappears at the bottom edge. */
+  height: var(--geo-chip-h);
   line-height: 19px;
   border-radius: 5px;
   display: inline-flex;
@@ -892,11 +1892,6 @@ button {
   column-gap: 18px;
   min-height: 38px;
 }
-.app-settings-plaque-label {
-  font-size: 13.5px;
-  font-weight: 450;
-  color: var(--text-2, #aab4c5);
-}
 .app-settings-plaque-control {
   display: flex;
   justify-content: flex-end;
@@ -918,10 +1913,8 @@ button {
   /* Stacked rows are taller than the side-by-side ones, so the 11px the
      desktop layout uses reads as cramped — give the label/control a touch
      more vertical breathing room. */
-  .app-settings-group > .ant-form-item,
-  .app-settings-group > .app-settings-plaque {
-    padding-top: 15px;
-    padding-bottom: 15px;
+  .app-settings-group {
+    --settings-row-block: 15px;
   }
   .app-settings-group .ant-form-item-control-input-content,
   .app-settings-plaque-control {
@@ -973,7 +1966,39 @@ button {
 .ant-layout-sider .sidebar-account,
 .ant-layout-sider .sidebar-footer {
   max-width: 184px;
-  transition: max-width 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+  transition:
+    max-width 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+    padding 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+    height 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* The footer's two buttons sit side by side while the rail is wide and stack
+   once it is narrow, which added 36px of plaque height in a single frame — the
+   rail was still 208px wide and the bottom had already grown. Pinning both
+   heights puts that growth on the same curve as the width, so the second button
+   is revealed from under the clipped edge instead of shoving the plaque open.
+   42 = 32px button + 2×5 padding; 78 = 2×32 + 4 gap + 2×5. */
+.ant-layout-sider .sidebar-footer {
+  height: 42px;
+}
+.ant-layout-sider .sidebar-footer--collapsed {
+  height: 78px;
+}
+/* Pin the plaques' contents to the width they occupy while expanded, so the row
+   inside never re-lays-out as the plaque shrinks. Collapsing used to hide the
+   label / name / buttons with `display: none`, which deleted them in the very
+   first frame while the rail was still 208px wide — the text vanished and left
+   a wide empty rail behind for the whole 260ms of the width animation. With the
+   contents pinned, nothing is removed: the plaque's own edge wipes across them
+   (they are clipped by `overflow: hidden`), so the rail always looks full right
+   up to its edge. 160 = 184 plaque − 24 padding; 120 = 162 content − 32 avatar
+   − 10 gap. Scoped to the Sider, so the mobile drawer's wider plaques still lay
+   out fluidly. */
+.ant-layout-sider .sidebar-status-head {
+  width: 160px;
+}
+.ant-layout-sider .sidebar-account-main {
+  width: 120px;
+  flex: 0 0 auto;
 }
 .ant-layout-sider .sidebar-status--collapsed,
 .ant-layout-sider .sidebar-account--collapsed,
@@ -991,12 +2016,41 @@ button {
 .ant-layout-sider .ant-menu-submenu-title * {
   transition: none !important;
 }
+/* …and don't delete the labels either. Collapsing flips antd's menu from
+   `inline` to `vertical` mode, and two things happen in that same frame, long
+   before the rail has moved: the label drops to `opacity: 0`, and it loses the
+   `flex: 1 1 auto` that gave it its width, so it snaps from 132px to 0. The
+   text was gone while the rail was still 208px wide — that is the "text just
+   disappears and leaves empty space".
+   Keep both: opaque, and sized as it is when expanded. The label then simply
+   shares the item's box, which narrows with the rail, so it is wiped away by
+   the moving edge and is fully clipped by the time the rail reaches 64px
+   (the item is 40px there — 16px of icon and nothing left over). `min-width: 0`
+   is what lets it shrink past its own text instead of shoving the icon.
+   The child combinators mirror antd's own selectors one class deeper, which is
+   what wins the tie — its styles are injected after this sheet. */
+.ant-layout-sider .ant-menu-inline-collapsed > .ant-menu-item > .ant-menu-title-content,
+.ant-layout-sider
+  .ant-menu-inline-collapsed
+  > .ant-menu-submenu
+  > .ant-menu-submenu-title
+  > .ant-menu-title-content {
+  opacity: 1;
+  flex: 1 1 auto;
+  min-width: 0;
+}
 /* Xray status + server load, pinned above the account card — turns the empty
    stretch of the rail into a glanceable health readout. */
 .sidebar-status {
   margin: 0 12px 7px;
   padding: 11px 12px;
   flex-shrink: 0;
+  /* One head row (22px) plus the padding. Fixed so the placeholder rendered
+     before the first payload occupies exactly the same box as the loaded
+     plaque — otherwise the block appears out of nowhere and pushes the account
+     card and footer down on every reload. */
+  min-height: 44px;
+  box-sizing: border-box;
   background: rgba(255, 255, 255, 0.045);
   border-radius: 12px;
   /* Clip the content to the plaque so it reveals/hides cleanly as the rail
@@ -1016,6 +2070,11 @@ button {
   height: 7px;
   border-radius: 50%;
   flex: 0 0 auto;
+  /* Grows to 9px when the rail collapses; ride the same curve as the plaque so
+     the two read as one motion instead of a resize on top of a resize. */
+  transition:
+    width 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+    height 0.26s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .sidebar-status-dot.is-up {
   background: #22c55e;
@@ -1051,7 +2110,10 @@ button {
   color: var(--text-2, #a8a8a8);
   font-size: 12px;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    opacity 0.12s ease 0.14s;
 }
 .sidebar-status-restart:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.1);
@@ -1061,25 +2123,35 @@ button {
   opacity: 0.4;
   cursor: default;
 }
-/* Collapsed rail: just the status dot, centered. */
-/* Collapsed: hide everything but the status dot (kept in the DOM so the width
-   can animate), and centre it. */
+/* Collapsed rail: just the status dot, centred. Nothing is taken out of the
+   layout — the label, version chip and restart button stay exactly where they
+   are and are wiped away by the plaque's shrinking edge. Only the left padding
+   travels, from 12 to 15.5, which is what lands the dot in the middle of the
+   40px plaque: (40 − 9) / 2 = 15.5. */
 .sidebar-status--collapsed {
-  padding-left: 0;
+  padding-left: 15.5px;
   padding-right: 0;
-  overflow: hidden;
-}
-.sidebar-status--collapsed .sidebar-status-head {
-  justify-content: center;
-}
-.sidebar-status--collapsed .sidebar-status-label,
-.sidebar-status--collapsed .sidebar-status-ver,
-.sidebar-status--collapsed .sidebar-status-restart {
-  display: none;
 }
 .sidebar-status--collapsed .sidebar-status-dot {
   width: 9px;
   height: 9px;
+}
+/* The wipe does the work; the fade only clears what the wipe cannot. Centring a
+   9px dot in a 40px plaque leaves ~8px of the label still inside the clip box,
+   which would sit there permanently as a sliver of cut-off text. The delay is
+   deliberate: the label stays crisp while the edge sweeps across it and only
+   dissolves over the last stretch — and on the way back out the rail widens
+   before the text reappears. */
+.sidebar-status-label,
+.sidebar-status-ver,
+.sidebar-account-main {
+  transition: opacity 0.12s ease 0.14s;
+}
+.sidebar-status--collapsed .sidebar-status-label,
+.sidebar-status--collapsed .sidebar-status-ver,
+.sidebar-status--collapsed .sidebar-status-restart,
+.sidebar-account--collapsed .sidebar-account-main {
+  opacity: 0;
 }
 [data-theme='light'] .sidebar-status {
   background: rgba(0, 0, 0, 0.04);
@@ -1103,12 +2175,11 @@ button {
   border-radius: 12px;
   overflow: hidden;
 }
+/* 4px on each side of the 32px avatar fills the 40px collapsed card exactly.
+   The name and role are not hidden — like the status plaque, they are wiped by
+   the card's shrinking edge. */
 .sidebar-account--collapsed {
-  justify-content: center;
-  padding: 8px;
-}
-.sidebar-account--collapsed .sidebar-account-main {
-  display: none;
+  padding: 4px;
 }
 .sidebar-account-avatar {
   width: 32px;
@@ -1256,20 +2327,80 @@ button {
   top: 0;
   z-index: 10;
   max-height: 0;
-  opacity: 0;
   overflow: hidden;
+  /* Reveal the row height (and its bottom margin) smoothly; the fade + slide
+     lives on the inner element below so the entrance eases in instead of
+     snapping open with the height clip. */
   transition:
-    max-height 0.24s cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 0.18s ease,
-    margin-bottom 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+    max-height 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    margin-bottom 0.32s cubic-bezier(0.22, 1, 0.36, 1);
   margin-bottom: 0;
   pointer-events: none;
 }
+/* The entrance is an ANIMATION, not a transition, on purpose. A transition only
+   fires when a property changes on an already-painted element — so returning to
+   the settings page with unsaved edits (the page un-hides with the bar already
+   in its visible state) snapped it in with no motion at all. An animation
+   replays whenever the element gets displayed, which covers that case too. The
+   base rule keeps a transition for the EXIT, where there is a real state
+   change. */
 .app-settings-dirtybar.is-visible {
   max-height: 88px;
-  opacity: 1;
   margin-bottom: 20px;
   pointer-events: auto;
+  animation: app-settings-dirtybar-in 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* The exit mirrors the entrance, and for the same reason: an animation replays
+   from a known start value, while a transition would have started from whatever
+   the entrance animation was showing at that instant — discarding a moment
+   after the bar appeared collapsed it with no motion at all. `forwards` holds
+   the collapsed end state for the ~40ms between the animation finishing and the
+   node unmounting, so it cannot flash back open. */
+.app-settings-dirtybar.is-out {
+  animation: app-settings-dirtybar-out 0.3s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+.app-settings-dirtybar.is-out .app-settings-dirtybar-inner {
+  animation: app-settings-dirtybar-inner-out 0.24s ease forwards;
+}
+@keyframes app-settings-dirtybar-out {
+  from {
+    max-height: 88px;
+    margin-bottom: 20px;
+  }
+  to {
+    max-height: 0;
+    margin-bottom: 0;
+  }
+}
+@keyframes app-settings-dirtybar-inner-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+@keyframes app-settings-dirtybar-in {
+  from {
+    max-height: 0;
+    margin-bottom: 0;
+  }
+  to {
+    max-height: 88px;
+    margin-bottom: 20px;
+  }
+}
+@keyframes app-settings-dirtybar-inner-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 .app-settings-dirtybar-inner {
   display: flex;
@@ -1289,6 +2420,18 @@ button {
   border-left: 3px solid var(--accent, rgb(87, 90, 208));
   border-radius: 12px;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  /* Eases in (fade + small drop) so the bar glides into place rather than
+     appearing abruptly with the parent's height reveal. */
+  opacity: 0;
+  transform: translateY(-8px);
+  transition:
+    opacity 0.3s ease,
+    transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.app-settings-dirtybar.is-visible .app-settings-dirtybar-inner {
+  opacity: 1;
+  transform: translateY(0);
+  animation: app-settings-dirtybar-inner-in 0.34s cubic-bezier(0.22, 1, 0.36, 1);
 }
 [data-theme='light'] .app-settings-dirtybar-inner {
   box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
@@ -1311,7 +2454,12 @@ button {
   100% { box-shadow: 0 0 0 0 rgba(87, 90, 208, 0); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .app-settings-dirtybar { transition: none; }
+  .app-settings-dirtybar,
+  .app-settings-dirtybar.is-visible,
+  .app-settings-dirtybar.is-out { transition: none; animation: none; }
+  .app-settings-dirtybar-inner,
+  .app-settings-dirtybar.is-visible .app-settings-dirtybar-inner,
+  .app-settings-dirtybar.is-out .app-settings-dirtybar-inner { transition: none; animation: none; }
   .app-settings-dirtybar-dot { animation: none; }
 }
 /* The "unsaved changes" label: keep it on one line, ellipsized — never let the
@@ -1333,171 +2481,69 @@ button {
   }
 }
 
-/* ====================================================================
-   Settings modal — full-window overlay with a categorized
-   left nav and a scrollable content column. Always mounted; revealed by
-   the `is-open` class so form state + the dirty registry survive
-   close/reopen.
-   ==================================================================== */
-.app-settings-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1100;
-  display: none;
-  /* Right-anchored, full height: settings slide in as a drawer over the
-     dimmed current screen rather than a centered full-window modal. */
-  align-items: stretch;
-  justify-content: flex-end;
-}
-.app-settings-overlay.is-open,
-.app-settings-overlay.is-closing {
-  display: flex;
-}
-.app-settings-backdrop {
-  position: absolute;
-  inset: 0;
-  /* Neutral black dim — NOT a blue-tinted slate. The "очень тёмная" theme
-     is pure grayscale, so any blue here (the old rgba(2,6,23,…) is slate-950)
-     casts a blue ring around the modal that the eye reads as "синит". */
-  background: rgba(0, 0, 0, 0.55);
-  -webkit-backdrop-filter: blur(3px);
-  backdrop-filter: blur(3px);
-}
-.app-settings-overlay.is-open .app-settings-backdrop {
-  animation: app-settings-fade 0.2s ease;
-}
-.app-settings-modal {
-  position: relative;
-  display: flex;
-  /* Single-column drill-in reads best in a narrower panel. */
-  flex-direction: column;
-  width: min(600px, 100vw);
-  height: 100vh;
-  background: var(--surface, #131a2b);
-  border-left: 1px solid var(--border, rgba(148, 163, 184, 0.14));
-  /* Rounded on the left only — the right edge is flush with the viewport. */
-  border-radius: 18px 0 0 18px;
-  overflow: hidden;
-  box-shadow: -24px 0 70px rgba(0, 0, 0, 0.5);
-}
-.app-settings-overlay.is-open .app-settings-modal {
-  /* Slide in from the right edge. */
-  animation: app-settings-drawer-in 0.26s cubic-bezier(0.16, 1, 0.3, 1);
-}
-/* Reverse on close: slide back out to the right. `forwards` holds the final
-   (off-screen) state until React drops the node a moment later, so it
-   doesn't flash back into view in the gap before unmount. */
-.app-settings-overlay.is-closing .app-settings-backdrop {
-  animation: app-settings-fade-out 0.18s ease forwards;
-}
-.app-settings-overlay.is-closing .app-settings-modal {
-  animation: app-settings-drawer-out 0.2s cubic-bezier(0.4, 0, 1, 1) forwards;
-}
-@keyframes app-settings-fade {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-@keyframes app-settings-fade-out {
-  from { opacity: 1; }
-  to { opacity: 0; }
-}
-@keyframes app-settings-drawer-in {
-  from { transform: translateX(100%); }
-  to { transform: translateX(0); }
-}
-@keyframes app-settings-drawer-out {
-  from { transform: translateX(0); }
-  to { transform: translateX(100%); }
-}
-
-/* Fixed top bar — title (root) or back control (detail) on the left, close on
-   the right. Sits above the sliding panels (z over the drill) so the push
-   animation never travels under the close button. */
-.app-settings-header {
-  flex: 0 0 auto;
-  position: relative;
-  z-index: 5;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 56px;
-  padding: 8px 16px 8px 26px;
-  background: var(--surface, #131a2b);
-}
-.app-settings-header-title {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  color: var(--text, #e7ecf5);
-}
-.app-settings-header-back {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  border: 0;
-  background: transparent;
-  padding: 6px 4px 6px 0;
-  font-size: 15px;
-  font-weight: 500;
-  color: var(--text-2, #aab4c5);
-  cursor: pointer;
-  text-align: left;
-  transition: color 0.14s ease;
-}
-.app-settings-header-back:hover {
-  color: var(--text, #e7ecf5);
-}
-.app-settings-header-back .anticon {
-  font-size: 15px;
-}
-.app-settings-close {
-  flex: 0 0 auto;
-  width: 34px;
-  height: 34px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--border, rgba(148, 163, 184, 0.16));
-  border-radius: 50%;
-  background: var(--surface-2, #1a2438);
-  color: var(--text-2, #aab4c5);
-  cursor: pointer;
-  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
-}
-.app-settings-close:hover {
-  background: var(--border-strong, #2d2d2d);
-  color: var(--text, #fff);
-  border-color: var(--border-strong, rgba(148, 163, 184, 0.3));
-}
-/* Account rows: label/value stack on the left, action button flush right —
-   inside the per-row plaque (chrome defined above with the form-item card). */
+/* Account rows ride the same two-column grid as the form rows on the other
+   tabs — the tracks are repeated here rather than shared, because those rows
+   are antd-generated (.ant-form-item-row) and this markup is ours; keep the
+   two in step by hand. Name on the left, value + action together on the
+   right. Keeping the action beside its value instead of flush with the row's
+   far edge is what closes the ~700px void that made the tab look unfinished
+   at panel width. */
 .app-settings-inforow {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(200px, 460px);
+  column-gap: 36px;
   align-items: center;
-  gap: 16px;
   padding: 13px 18px;
 }
-/* Field name + current value stacked together on the left so the eye
-   reads them as one unit. (The old far-left-label / far-right-value
-   split stretched a void between them that was hard to scan.) The
-   action control sits at the right edge. */
-.app-settings-inforow-main {
-  flex: 1 1 auto;
+/* Left column: an icon tile, then the name with its description — the same
+   two-line block the form rows carry, so this tab stops reading thinner than
+   the ones next to it. The tile repeats the icon language already used by the
+   tab strip above. */
+.app-settings-inforow-id {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   min-width: 0;
 }
-.app-settings-inforow-label {
-  font-size: 12.5px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
+.app-settings-inforow-icon {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  /* A wash over whatever the group fill is, so the tile tracks the theme
+     instead of pinning a colour per theme. */
+  background: rgba(255, 255, 255, 0.05);
   color: var(--text-3, #8a94a6);
-  margin-bottom: 3px;
+  font-size: 15px;
+}
+[data-theme='light'] .app-settings-inforow-icon {
+  background: rgba(15, 23, 42, 0.05);
+}
+/* The session is the only row whose value is a live STATE, so it gets a
+   status marker; the stored settings above it don't need one. */
+.app-settings-inforow-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--success, #22c55e);
+  vertical-align: 1px;
+}
+/* Value and action share the right column: value against the column's left
+   edge, action against its right, so every action in the tab lines up with
+   the inputs and switches on the other tabs. */
+.app-settings-inforow-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
 }
 .app-settings-inforow-value {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--text, #e7ecf5);
   overflow: hidden;
@@ -1523,159 +2569,6 @@ button {
 }
 .app-settings-logout.ant-btn:hover .anticon {
   color: #ef4444;
-}
-/* DirtyBar relocated to a modal footer (overrides the page sticky-top
-   variant defined above). */
-/* DirtyBar pinned to the drawer's own bottom (it's a direct child of the
-   modal in the drill-in layout). Shows in either view whenever there are
-   unsaved changes. */
-.app-settings-modal > .app-settings-dirtybar {
-  position: static;
-  top: auto;
-  flex: 0 0 auto;
-}
-.app-settings-modal > .app-settings-dirtybar.is-visible {
-  max-height: 96px;
-  margin-bottom: 0;
-}
-.app-settings-modal > .app-settings-dirtybar .app-settings-dirtybar-inner {
-  margin: 0 22px 18px;
-  box-shadow: 0 -4px 18px rgba(0, 0, 0, 0.22);
-}
-
-/* ====================================================================
-   Drill-in (push) navigation — root list of section rows; tapping one
-   pushes into its detail screen with a back bar. Replaces the old
-   persistent left rail.
-   ==================================================================== */
-/* Wrapper clips the two sliding panels. */
-.app-settings-drill {
-  position: relative;
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: hidden;
-}
-/* Both panels fill the wrapper and slide horizontally via transform — a real
-   push, not a display swap. Opaque bg so the panel on top fully covers the
-   one sliding underneath it. */
-.app-settings-drill-list,
-.app-settings-drill-detail {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  overflow-y: auto;
-  background: var(--surface, #131a2b);
-  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
-}
-/* Detail rests off-screen to the right; pushes in over the list. */
-.app-settings-drill-detail {
-  transform: translateX(100%);
-  pointer-events: none;
-}
-/* Entering a section: detail glides to 0, the list drifts left (parallax). */
-.app-settings-modal[data-view='detail'] .app-settings-drill-list {
-  transform: translateX(-22%);
-  pointer-events: none;
-}
-.app-settings-modal[data-view='detail'] .app-settings-drill-detail {
-  transform: translateX(0);
-  pointer-events: auto;
-}
-.app-settings-drill-list {
-  padding: 14px 26px 22px;
-}
-@media (prefers-reduced-motion: reduce) {
-  .app-settings-drill-list,
-  .app-settings-drill-detail {
-    transition: none;
-  }
-}
-.app-settings-drill-group {
-  margin-bottom: 22px;
-}
-.app-settings-drill-grouptitle {
-  margin: 0 0 8px;
-  padding-left: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--text-3, #8a94a6);
-}
-/* Each section as a tappable card-row: accent icon, label, chevron. Flat and
-   borderless — it reads as a row purely from a fill lighter than the page;
-   hover lifts that fill rather than flashing an outline. */
-.app-settings-drill-row {
-  display: flex;
-  align-items: center;
-  gap: 13px;
-  width: 100%;
-  margin: 8px 0;
-  padding: 16px 18px;
-  border: 0;
-  border-radius: 14px;
-  background: var(--surface-2, #1a2438);
-  color: var(--text, #e7ecf5);
-  font-size: 15px;
-  font-weight: 500;
-  text-align: left;
-  cursor: pointer;
-  transition: box-shadow 0.14s ease, background-color 0.14s ease, transform 0.08s ease;
-}
-[data-theme='darker'] .app-settings-drill-row {
-  background: #1e1e1e;
-}
-[data-theme='light'] .app-settings-drill-row {
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
-}
-.app-settings-drill-row:hover {
-  /* Lighten the fill on hover via a flat white overlay (sits above the bg,
-     below the icon/label) instead of an accent outline. */
-  box-shadow: inset 0 0 0 200px rgba(255, 255, 255, 0.05);
-}
-[data-theme='light'] .app-settings-drill-row:hover {
-  background: #f7f9fc;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
-}
-.app-settings-drill-row:active {
-  transform: scale(0.992);
-}
-.app-settings-drill-row-icon {
-  flex: 0 0 auto;
-  display: inline-flex;
-  font-size: 18px;
-  color: var(--accent, #6366f1);
-}
-.app-settings-drill-row-label {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.app-settings-drill-row-go {
-  flex: 0 0 auto;
-  font-size: 13px;
-  color: var(--text-3, #717171);
-}
-/* Detail screen: sticky back bar + the section body. */
-.app-settings-drill-body {
-  padding: 18px 26px 16px;
-}
-
-@media (max-width: 640px) {
-  .app-settings-overlay { padding: 0; }
-  .app-settings-modal {
-    width: 100vw;
-    height: 100vh;
-    border-radius: 0;
-    border: 0;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .app-settings-overlay.is-open .app-settings-modal,
-  .app-settings-overlay.is-open .app-settings-backdrop,
-  .app-settings-overlay.is-closing .app-settings-modal,
-  .app-settings-overlay.is-closing .app-settings-backdrop { animation: none; }
 }
 
 /* ====================================================================
