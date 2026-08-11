@@ -38,7 +38,17 @@ import { OUTBOUND_DEFAULTS, formToOutbound, type OutboundFormValues } from './fo
 type Role = 'portal' | 'bridge';
 type TunnelMode = 'all' | 'domain' | 'none';
 
-export function ReverseWizard({ onClose }: { onClose: () => void }) {
+export function ReverseWizard({
+  open,
+  onClose,
+  afterClose,
+}: {
+  /** Drives the Modal so antd can animate the dismissal. */
+  open: boolean;
+  onClose: () => void;
+  /** Fires once the close animation has finished — the parent unmounts here. */
+  afterClose: () => void;
+}) {
   const { t } = useTranslation();
   const { message } = App.useApp();
   const { token } = theme.useToken();
@@ -428,7 +438,8 @@ export function ReverseWizard({ onClose }: { onClose: () => void }) {
 
   return (
     <Modal
-      open
+      open={open}
+      afterClose={afterClose}
       onCancel={onClose}
       title={t('reverse.title')}
       width={isMobile ? '100%' : 720}
@@ -436,7 +447,15 @@ export function ReverseWizard({ onClose }: { onClose: () => void }) {
       styles={{
         body: isMobile ? { maxHeight: 'calc(100dvh - 180px)', overflowY: 'auto' } : undefined,
       }}
-      mask={{ closable: false }}
+      // Every other modal in the panel dismisses on an outside click, and the
+      // role step should too — nothing has been entered yet. From step 1 on
+      // there is real work to lose: the typed setup, and on step 2 the invite
+      // string that has to be pasted on the bridge server and is not shown
+      // again anywhere. Esc is gated the same way; leaving it open while
+      // blocking the mask (as before) protected nothing, since Esc discarded
+      // the invite just as easily.
+      mask={{ closable: step === 0 }}
+      keyboard={step === 0}
       footer={footer}
     >
       {isMobile ? (

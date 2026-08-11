@@ -87,7 +87,15 @@ export function Outbounds() {
   const screens = Grid.useBreakpoint();
   const isMobile = !screens.md;
   const [editOpen, setEditOpen] = useState(false);
+  // Two flags, not one. `wizardOpen` drives the Modal's `open` prop so antd can
+  // play its close animation; `wizardMounted` keeps the component alive until
+  // that animation has finished (`afterClose`). Rendering the wizard as
+  // `{wizardOpen && <ReverseWizard/>}` tore it out of the tree the instant it
+  // was dismissed, so the modal vanished with no exit animation at all.
+  // Unmounting afterwards (rather than leaving it mounted) is what keeps the
+  // wizard's dozen useState fields fresh on the next open.
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardMounted, setWizardMounted] = useState(false);
   const [editing, setEditing] = useState<CustomOutbound | null>(null);
   const [formKey, setFormKey] = useState(0);
   const [testingId, setTestingId] = useState<string | null>(null);
@@ -263,7 +271,13 @@ export function Outbounds() {
         }}
       >
         <Space>
-          <Button icon={<SwapOutlined />} onClick={() => setWizardOpen(true)}>
+          <Button
+            icon={<SwapOutlined />}
+            onClick={() => {
+              setWizardMounted(true);
+              setWizardOpen(true);
+            }}
+          >
             {t('reverse.button')}
           </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
@@ -272,7 +286,13 @@ export function Outbounds() {
         </Space>
       </div>
 
-      {wizardOpen && <ReverseWizard onClose={() => setWizardOpen(false)} />}
+      {wizardMounted && (
+        <ReverseWizard
+          open={wizardOpen}
+          onClose={() => setWizardOpen(false)}
+          afterClose={() => setWizardMounted(false)}
+        />
+      )}
 
       <Table<Row>
         rowKey={(r) => (r.rowKind === 'system' ? `sys-${r.tag}` : r.ob.id)}
