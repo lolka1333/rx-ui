@@ -241,6 +241,9 @@ async fn test_outbound(
     Json(req): Json<TestOutboundRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
     const ATTEMPTS: usize = 4;
+    /// Enough for a Cloudflare trace block; anything longer isn't a probe
+    /// endpoint and its body is of no use to us.
+    const BODY_KEEP: usize = 512;
 
     let url = req.url.trim();
     if !(url.starts_with("http://") || url.starts_with("https://")) {
@@ -259,6 +262,10 @@ async fn test_outbound(
     // the warm requests skip the handshake, and the min also drops the occasional
     // first packet that upstream filtering holds up.
     let mut best: Option<(u128, reqwest::StatusCode)> = None;
+    // Body of the *best* attempt, so the exit IP reported matches the timing
+    // reported. Kept short: the endpoints this field offers answer with a trace
+    // block or a bare IP, and an unexpected URL shouldn't park a page in memory.
+    let mut best_body = String::new();
     let mut last_error: Option<String> = None;
     for _ in 0..ATTEMPTS {
         let started = Instant::now();
@@ -268,11 +275,12 @@ async fn test_outbound(
                 // round-trip time, not the body download.
                 let ms = started.elapsed().as_millis();
                 let status = resp.status();
-                // Drain the body so the connection returns to the pool and the
-                // next attempt reuses it instead of doing a fresh handshake.
-                let _ = resp.bytes().await;
+                // Draining the body also returns the connection to the pool so
+                // the next attempt reuses it instead of doing a fresh handshake.
+                let body = resp.text().await.unwrap_or_default();
                 if best.is_none_or(|(b, _)| ms < b) {
                     best = Some((ms, status));
+                    best_body = body.chars().take(BODY_KEEP).collect();
                 }
             }
             Err(e) => last_error = Some(e.to_string()),
@@ -280,11 +288,18 @@ async fn test_outbound(
     }
 
     match best {
-        Some((ms, status)) => Ok(Json(serde_json::json!({
-            "ok": status.is_success() || status.is_redirection(),
-            "status": status.as_u16(),
-            "latency_ms": ms,
-        }))),
+        Some((ms, status)) => {
+            // Same parser the per-outbound test uses, so a Cloudflare trace URL
+            // yields IP + country and a bare-IP endpoint yields the IP.
+            let (exit_ip, exit_loc) = crate::xray::outbound_test::parse_trace(&best_body);
+            Ok(Json(serde_json::json!({
+                "ok": status.is_success() || status.is_redirection(),
+                "status": status.as_u16(),
+                "latency_ms": ms,
+                "exit_ip": exit_ip,
+                "exit_loc": exit_loc,
+            })))
+        }
         None => Ok(Json(serde_json::json!({
             "ok": false,
             "status": 0,

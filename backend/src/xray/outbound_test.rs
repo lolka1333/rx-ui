@@ -245,7 +245,7 @@ async fn measure(http: &reqwest::Client, test_url: &str) -> anyhow::Result<Outbo
 /// treating a bare single-line IP as the exit IP, so plain "what's my IP"
 /// endpoints (`ifconfig.me/ip`, `api.ipify.org`, ...) also report the exit
 /// address when set as `xray_test_url`. `loc` (country) stays trace-only.
-fn parse_trace(body: &str) -> (Option<String>, Option<String>) {
+pub fn parse_trace(body: &str) -> (Option<String>, Option<String>) {
     let mut ip = None;
     let mut loc = None;
     for line in body.lines() {
