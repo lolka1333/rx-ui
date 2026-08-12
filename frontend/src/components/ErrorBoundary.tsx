@@ -17,17 +17,31 @@ interface Props {
 }
 
 interface State {
-  error: Error | null;
+  /** `unknown`, not `Error`: a throw carries whatever was thrown, and the very
+   *  crash this exists for — `qrcode-generator` refusing an oversized payload —
+   *  throws a bare string. Reading `.message` off that renders nothing. */
+  error: unknown;
+}
+
+/** Whatever was thrown, as something printable. */
+function describe(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === 'string' && error) return error;
+  try {
+    return JSON.stringify(error) ?? 'unknown error';
+  } catch {
+    return String(error);
+  }
 }
 
 export class ErrorBoundary extends Component<Props, State> {
   state: State = { error: null };
 
-  static getDerivedStateFromError(error: Error): State {
+  static getDerivedStateFromError(error: unknown): State {
     return { error };
   }
 
-  componentDidCatch(error: Error, info: ErrorInfo) {
+  componentDidCatch(error: unknown, info: ErrorInfo) {
     // The message the operator can quote and the component path that produced
     // it — the browser console keeps both after the reload button is pressed.
     console.error('unhandled render error', error, info.componentStack);
@@ -35,7 +49,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render() {
     const { error } = this.state;
-    if (!error) return this.props.children;
+    if (error === null) return this.props.children;
     return (
       <div
         role="alert"
@@ -70,7 +84,7 @@ export class ErrorBoundary extends Component<Props, State> {
               wordBreak: 'break-word',
             }}
           >
-            {error.message}
+            {describe(error)}
           </pre>
           <button
             type="button"

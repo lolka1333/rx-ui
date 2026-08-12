@@ -56,16 +56,8 @@ pub fn generate_token() -> String {
     hex_lower(&os_random_bytes::<16>())
 }
 
-/// Generate a `sub_token` that's verified not to collide with any existing
-/// row. 2^128 space makes collisions astronomically unlikely, but the
-/// `sub_token` column carries a UNIQUE index — without this pre-check
-/// a one-in-a-quintillion collision would bubble as a generic
-/// "client already exists" Conflict from the INSERT's unique-violation
-/// mapper (which actually catches the `(email, inbound_id)` constraint
-/// — wrong message to surface to the operator). Three attempts is
-/// vastly more than statistically necessary; if it ever fires, the DB
-/// is in trouble and propagating Internal is the right outcome.
-///
+/// Generate a `sub_token` verified not to collide with any existing row, on a
+/// connection of its own.
 pub async fn generate_unique_token(db: &SqlitePool) -> AppResult<String> {
     let mut conn = db.acquire().await?;
     generate_unique_token_on(&mut conn).await
@@ -76,6 +68,13 @@ pub async fn generate_unique_token(db: &SqlitePool) -> AppResult<String> {
 /// competes with that same small pool for no reason, and under concurrent
 /// writers it waits out the acquire timeout instead of proceeding on the
 /// connection already in hand.
+///
+/// The pre-check exists because `sub_token` carries a UNIQUE index: a
+/// one-in-2^128 collision would otherwise surface as the INSERT's
+/// unique-violation mapper firing with its `(email, inbound_id)` message —
+/// the wrong sentence entirely. Three attempts is far more than statistically
+/// necessary; if it ever runs out, the DB is in trouble and `Internal` is the
+/// right outcome.
 pub async fn generate_unique_token_on(conn: &mut sqlx::SqliteConnection) -> AppResult<String> {
     for _ in 0..3 {
         let candidate = generate_token();

@@ -11,7 +11,13 @@
 //!   and a blocked tokio worker on a single-vCPU VPS is the whole runtime — so
 //!   the work goes to `spawn_blocking`.
 //! * A child that never exits would hold the request open forever. Every call
-//!   gets a deadline; the message says which invocation stalled.
+//!   gets a deadline, which frees the REQUEST — not the child: `timeout` around
+//!   a `spawn_blocking` handle can only stop waiting, so a wedged xray keeps
+//!   its process and its blocking thread until it exits on its own. That is the
+//!   accepted trade: these are parse/derive commands that either finish in
+//!   milliseconds or indicate something badly wrong, and killing a child from
+//!   another thread would need a process handle this API deliberately does not
+//!   hand out.
 
 use anyhow::{Context, bail};
 use std::ffi::OsStr;
@@ -19,9 +25,10 @@ use std::path::Path;
 use std::process::Output;
 use std::time::Duration;
 
-/// Wall-clock budget for one CLI invocation. These are parse/derive commands
-/// measured in the low hundreds of milliseconds, most of it process start —
-/// ten seconds means something is wrong, not that we should keep waiting.
+/// Wall-clock budget for one CLI invocation, from the caller's point of view.
+/// These are parse/derive commands measured in the low hundreds of
+/// milliseconds, most of it process start — ten seconds means something is
+/// wrong, not that we should keep waiting.
 pub const CLI_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Run `xray <args>` off the async runtime and return its stdout.

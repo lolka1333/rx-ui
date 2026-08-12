@@ -38,7 +38,7 @@ import type {
 import { TRANSPORT_LABEL } from '@/pages/Inbounds/helpers';
 import { TrafficCell } from '@/components/TrafficCell';
 import { useNav } from '@/stores/nav';
-import { needsIpv4 } from '@/lib/builtinOutbounds';
+import { needsIpv4, type BuiltinOutboundTag } from '@/lib/builtinOutbounds';
 import { fmtBytes } from '@/lib/format';
 import { OutboundForm } from './OutboundForm';
 import { ReverseWizard } from './ReverseWizard';
@@ -57,7 +57,7 @@ function endpointOf(ob: CustomOutbound): string {
  *  separately because it's conditional (see `needsIpv4`). Keep in sync with
  *  the backend's `BUILTIN_OUTBOUND_TAGS`. */
 interface SystemOutbound {
-  tag: string;
+  tag: BuiltinOutboundTag;
   protocol: string;
   noteKey: string;
   /** `blocked` is a blackhole — dropping is its job, so there's nothing to test. */

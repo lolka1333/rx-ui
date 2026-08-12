@@ -43,7 +43,11 @@ import { useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'r
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/api/client';
-import { needsIpv4 } from '@/lib/builtinOutbounds';
+import {
+  BUILTIN_OUTBOUND_TAGS,
+  needsIpv4,
+  type BuiltinOutboundTag,
+} from '@/lib/builtinOutbounds';
 import { GEOIP_PRESETS, GEOSITE_PRESETS } from '@/lib/geoPresets';
 import { uuid } from '@/lib/id';
 import type { Client, CustomOutbound, Inbound, RoutingRule } from '@/api/types';
@@ -52,17 +56,23 @@ import type { Client, CustomOutbound, Inbound, RoutingRule } from '@/api/types';
 // Section header used across the app's forms.
 import { ChipGroup, Section } from '@/pages/Inbounds/widgets';
 
-/** Targets a rule can route to. Mirrors the outbound tags the backend's
- *  `build_bootstrap_config` emits — `direct-ipv4` only exists when at least
- *  one IPv4-force domain (or one rule targeting it) is configured, so the
- *  backend grows the outbound on demand. Tag colour maps to antd's themed
- *  success/error/processing families (the same green/red/blue as elsewhere).
+/** Colour per built-in target — antd's themed success/error/processing
+ *  families, the same green/red/blue as elsewhere. Keyed by the shared tag
+ *  union, so a built-in added there fails the build until it gets a colour. */
+const TARGET_COLORS: Record<BuiltinOutboundTag, string> = {
+  direct: 'success',
+  blocked: 'error',
+  'direct-ipv4': 'processing',
+};
+
+/** Targets a rule can route to, in the order the backend emits them.
+ *  `direct-ipv4` only exists once an IPv4-force domain (or a rule targeting it)
+ *  is configured — the backend grows that outbound on demand.
  *  Keep in sync with the backend's `VALID_RULE_TARGETS` (api/settings.rs). */
-const TARGETS: { value: string; color: string }[] = [
-  { value: 'direct', color: 'success' },
-  { value: 'blocked', color: 'error' },
-  { value: 'direct-ipv4', color: 'processing' },
-];
+const TARGETS = BUILTIN_OUTBOUND_TAGS.map((value) => ({
+  value,
+  color: TARGET_COLORS[value],
+}));
 
 const targetColor = (tag: string): string =>
   TARGETS.find((tg) => tg.value === tag)?.color ?? 'default';

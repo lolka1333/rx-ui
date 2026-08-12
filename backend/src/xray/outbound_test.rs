@@ -121,7 +121,12 @@ async fn run(
     // user can guess is a path they can pre-create as a symlink. The directory
     // removes itself on drop; the file is still unlinked explicitly on every
     // exit path below, including a spawn failure.
-    let dir = crate::xray::scratch::ScratchDir::new("obtest")?;
+    // Created off the runtime: making the directory also sweeps abandoned ones,
+    // which is a readdir + stat per entry over the whole system temp dir — not
+    // something to run on the async worker.
+    let dir = tokio::task::spawn_blocking(|| crate::xray::scratch::ScratchDir::new("obtest"))
+        .await
+        .map_err(|e| anyhow::anyhow!("scratch dir task failed: {e}"))??;
     let cfg_path = dir.path().join("probe.json");
     tokio::fs::write(&cfg_path, serde_json::to_vec(&cfg)?).await?;
     let spawned = tokio::process::Command::new(binary)

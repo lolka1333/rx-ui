@@ -20,9 +20,10 @@ use std::time::Duration;
 /// belong to a run happening right now, in this process or another instance.
 const STALE_AGE: Duration = Duration::from_hours(1);
 
-/// Every directory this module creates starts with it, which is also what the
-/// sweeper matches on — so a stray entry is always ours.
-const PREFIX: &str = "rx-";
+/// Every directory this module creates starts with this, and the sweeper
+/// matches on it exactly — narrow enough that an unrelated `rx-*` temp entry
+/// from some other program is never touched.
+const PREFIX: &str = "rx-scratch-";
 
 pub struct ScratchDir(PathBuf);
 
@@ -36,6 +37,9 @@ impl ScratchDir {
             .map(|d| d.as_nanos())
             .unwrap_or_default();
         let path = temp.join(format!("{PREFIX}{kind}-{}-{stamp}", std::process::id()));
+        // `create_new` rather than `create_dir_all`: the name already carries a
+        // pid and a nanosecond stamp, so an existing entry means someone else
+        // put it there — adopting it would hand them the probe config.
         #[cfg(unix)]
         {
             use std::os::unix::fs::DirBuilderExt as _;
