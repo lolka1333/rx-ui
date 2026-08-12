@@ -71,10 +71,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         //                  hysteria2 share-link ships it as the standard
         //                  `obfs=salamander&obfs-password=` so native clients
         //                  pick it up too
+        //   * xmc      — TCP-side Minecraft masquerade: a real vanilla login
+        //                 in the clear, then AES-CFB8 and the payload sliced
+        //                 into `xmc:data` custom-payload packets. Its Config
+        //                 carries an RSA-1024 keypair DERIVED FROM THE
+        //                 PASSWORD; the runtime does NOT derive it (it hard
+        //                 fails on empty keys), only xray's own JSON parser
+        //                 does — see `xray::xmc` for how we get the bytes.
         "proto/transport/internet/finalmask/sudoku/config.proto",
         "proto/transport/internet/finalmask/fragment/config.proto",
         "proto/transport/internet/finalmask/noise/config.proto",
         "proto/transport/internet/finalmask/salamander/config.proto",
+        "proto/transport/internet/finalmask/xmc/config.proto",
         // RoutingService — live routing-rule mutation (AddRule/RemoveRule)
         // so rule changes apply without an xray restart. `config.proto`
         // carries the RoutingRule / router Config shapes we build and push;

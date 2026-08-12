@@ -744,6 +744,32 @@ export const en: Dict = {
     finalmaskSalamanderPassword: 'Obfs password',
     finalmaskSalamanderPasswordTooltip: "Hysteria 2's native obfuscation. Shared between server and client; the subscription carries it as the standard obfs=salamander&obfs-password=…, so any Hysteria 2 client (not only xray) picks it up.",
     finalmaskSalamanderPasswordPlaceholder: 'shared obfs password',
+    finalmaskKindXmc: 'XMC — Minecraft masquerade (TCP)',
+    finalmaskKindScopeHint:
+      'Only masks xray will actually apply to the chosen transport and security are listed.',
+    finalmaskXmcSection: 'XMC — Minecraft masquerade',
+    finalmaskXmcPrivacyNotice:
+      'Profiles come from Mojang: the panel makes an outbound request when you press the button.',
+    finalmaskXmcHostname: 'Server address',
+    finalmaskXmcHostnameTooltip:
+      "What the fake handshake claims the server address is. Blank means the host the client actually dialled — which is what a real client would send.",
+    finalmaskXmcHostnamePlaceholder: 'mc.example.org',
+    finalmaskXmcPassword: 'Password',
+    finalmaskXmcPasswordTooltip:
+      'Shared secret. The RSA key is derived from it, so changing it cuts off every client still holding the old one.',
+    finalmaskXmcPasswordPlaceholder: 'shared password',
+    finalmaskXmcPasswordRequired: 'A password is required',
+    finalmaskXmcPasswordTooLong:
+      'Password is {{bytes}} bytes; the RSA-1024 handshake fits at most {{max}}',
+    finalmaskXmcProfilesHint:
+      'Accounts the client logs in as. Type a nickname and press Resolve — the panel fetches the UUID and the signed textures from Mojang. Made-up values still connect, but the signature will not check out.',
+    finalmaskXmcUsernamePlaceholder: 'nickname',
+    finalmaskXmcUuidPlaceholder: 'UUID is filled in for you',
+    finalmaskXmcResolve: 'Resolve',
+    finalmaskXmcResolved: 'Got the profile for {{name}}',
+    finalmaskXmcResolveNeedsName: 'Enter a nickname first',
+    finalmaskXmcResolveFailed: 'Could not fetch the profile',
+    finalmaskXmcAddProfile: 'Add profile',
     finalmaskSalamanderPasswordRequired: 'Password is required for salamander',
     finalmaskSudokuSection: 'Sudoku',
     finalmaskSudokuPassword: 'Password',

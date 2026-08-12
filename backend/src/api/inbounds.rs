@@ -47,6 +47,7 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/", get(list).post(create))
         .route("/stats", get(stats))
+        .route("/finalmask-support", get(finalmask_support))
         .route("/{id}", get(get_one).patch(update).delete(delete))
         .route("/{id}/rotate-reality-keypair", post(rotate_reality_keypair))
         .route(
@@ -174,20 +175,85 @@ fn row_to_inbound(r: Row) -> AppResult<Inbound> {
 
 /// `FinalMask` cross-checks against the chosen security layer. Split out of
 /// `validate_layers` to keep that function readable.
-fn validate_finalmask(security: &SecurityConfig, finalmask: &FinalMask) -> AppResult<()> {
-    // Reality wraps the raw TCP socket and type-asserts the underlying conn
-    // implements `CloseWriteConn`. Sudoku's TCP wrapper doesn't — and, being
-    // a symmetric stateful cipher, it MUST run server-side — so Sudoku+Reality
-    // panics xray on the first handshake (`is not reality.CloseWriteConn`).
-    // Fragment is asymmetric (client-only via `fm=`, never wrapped
-    // server-side — see orchestrator), so Fragment+Reality is safe. Noise is
-    // UDP-only and never touches the TCP socket.
-    if matches!(security, SecurityConfig::Reality(_)) && matches!(finalmask, FinalMask::Sudoku(_)) {
+fn validate_finalmask(
+    transport: &TransportConfig,
+    security: &SecurityConfig,
+    finalmask: &FinalMask,
+) -> AppResult<()> {
+    // A mask outside the matrix is not an error in xray — it builds, the
+    // inbound starts, and the mask never runs, because the transport only ever
+    // consults the other registry. Refusing it here is the difference between
+    // "obfuscation you don't have" and "obfuscation you think you have".
+    if finalmask.is_active() {
+        let allowed = crate::transports::finalmask::supported_kinds(
+            transport.as_transport().kind(),
+            security.as_security().kind(),
+        );
+        if !allowed.contains(&finalmask.kind()) {
+            return Err(AppError::BadRequest(format!(
+                "FinalMask '{}' does not work with transport '{}' and security \
+                 '{}' — xray would build it and never apply it. Supported here: {}.",
+                finalmask.kind(),
+                transport.as_transport().kind().as_db_str(),
+                security.as_security().kind().as_db_str(),
+                if allowed.is_empty() {
+                    "none".to_owned()
+                } else {
+                    allowed.join(", ")
+                },
+            )));
+        }
+    }
+
+    // Same trap one level down. XHTTP negotiating HTTP/3 is QUIC underneath:
+    // the listener gates the wrapper on `!l.isH3` (`splithttp/hub.go:540`) and
+    // the dialer goes through `http3.Transport`, which never calls the
+    // masking dialer at all. `isH3` is decided by ALPN being exactly `h3`.
+    if matches!(finalmask, FinalMask::Xmc(_))
+        && matches!(transport, TransportConfig::Xhttp(_))
+        && let SecurityConfig::Tls(tls) = security
+        && tls
+            .alpn
+            .as_ref()
+            .is_some_and(|a| a.iter().all(|p| p == "h3") && !a.is_empty())
+    {
         return Err(AppError::BadRequest(
-            "Reality is incompatible with Sudoku FinalMask: Sudoku must run \
+            "XMC FinalMask cannot be used with XHTTP over HTTP/3: with ALPN \
+             set to h3 only, xray runs the QUIC path and skips TCP masks on \
+             both ends. Add h2 / http1.1 to ALPN, or choose another transport."
+                .to_owned(),
+        ));
+    }
+
+    validate_finalmask_security(security, finalmask)
+}
+
+fn validate_finalmask_security(security: &SecurityConfig, finalmask: &FinalMask) -> AppResult<()> {
+    // Reality wraps the raw TCP socket and type-asserts the underlying conn to
+    // `CloseWriteConn` WITHOUT checking (xtls/reality `tls.go:186`), so a
+    // server-side mask that lacks `CloseWrite` panics the accept goroutine —
+    // which `tcp/hub.go:116` starts with no recover, taking the whole xray
+    // process down on the first connection.
+    //
+    // `xmc.serverConn` has Read/Write/Close/addrs/deadlines and nothing else.
+    // Verified rather than reasoned: a vless+reality inbound carrying an XMC
+    // mask, one TCP connection, and xray was gone —
+    //   panic: interface conversion: *xmc.serverConn is not
+    //          reality.CloseWriteConn: missing method CloseWrite
+    //
+    // Sudoku used to be refused here for the same stated reason. That reason
+    // was wrong: `sudoku.wrappedConn` has implemented `CloseWrite` since the
+    // commit that introduced it, and the same experiment (reality + sudoku,
+    // four connections) left the process running with a clean log. The block
+    // denied a working combination, so it is gone.
+    //
+    // Fragment never runs server-side at all (client-only, via `fm=` — see the
+    // orchestrator), and Noise is UDP-only, so neither ever meets Reality.
+    if matches!(security, SecurityConfig::Reality(_)) && matches!(finalmask, FinalMask::Xmc(_)) {
+        return Err(AppError::BadRequest(
+            "Reality is incompatible with XMC FinalMask: XMC must run \
              server-side and Reality can't wrap its socket (xray-core panics). \
-             Use Fragment (client-side, Reality-safe) or Noise, or switch \
-             security to TLS / none."
+             Switch security to TLS / none, or pick another mask."
                 .to_owned(),
         ));
     }
@@ -237,6 +303,13 @@ fn validate_finalmask(security: &SecurityConfig, finalmask: &FinalMask) -> AppRe
     // rand/delay/reset). Shared with the outbound write path so the same xray
     // process can't be crashed from either — see `FinalMask::validate_noise`.
     finalmask.validate_noise().map_err(AppError::BadRequest)?;
+
+    // XMC profile/password invariants, mirrored from xray's own conf parser so
+    // the operator gets a field-level message instead of an inbound that comes
+    // up and then drops every connection.
+    if let FinalMask::Xmc(p) = finalmask {
+        p.validate().map_err(AppError::BadRequest)?;
+    }
 
     Ok(())
 }
@@ -330,9 +403,10 @@ fn validate_layers(
     // helper to keep this function readable).
     validate_xhttp_mode(transport)?;
 
-    // FinalMask compatibility with the security layer (Reality panics on
-    // Sudoku; zero-length fragment) — grouped in `validate_finalmask`.
-    validate_finalmask(security, finalmask)?;
+    // FinalMask compatibility with the transport and the security layer
+    // (Reality panics on Sudoku/XMC; XMC needs a TCP path; zero-length
+    // fragment) — grouped in `validate_finalmask`.
+    validate_finalmask(transport, security, finalmask)?;
 
     // VLESS fallbacks — xray-core rejects two combos at startup:
     //   * `fallbacks` + `decryption != "none"` (VLESS Encryption) — they
@@ -444,6 +518,39 @@ where
 /// Mutates the typed configs in place so the resulting JSON blobs
 /// carry the completed values. Returns Err if the keygen subprocess
 /// fails (the operator sees the underlying message).
+/// Server-derived material inside the `FinalMask`.
+///
+/// Only XMC has any: an RSA-1024 keypair seeded by the password. It is
+/// re-derived on every save rather than kept, so changing the password can
+/// never leave a stale key behind — that failure is invisible in the form and
+/// breaks the handshake for every client at once.
+///
+/// Runs xray's own derivation (`xray convert pb`, see `xray::xmc`) instead of
+/// a second implementation: the client derives its half from the same password
+/// with the same function, and two implementations that agree today are two
+/// that can disagree tomorrow.
+fn complete_finalmask_material(state: &AppState, finalmask: &mut FinalMask) -> AppResult<()> {
+    use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
+
+    let FinalMask::Xmc(p) = finalmask else {
+        return Ok(());
+    };
+    let password = p.password.trim().to_owned();
+    if password.is_empty() {
+        // An empty password is a half-filled form, not a request to derive
+        // from nothing. `is_active` will keep this mask out of the config.
+        p.rsa_private_key.clear();
+        p.rsa_public_key.clear();
+        return Ok(());
+    }
+    let keys = crate::xray::xmc::derive_keypair(&state.xray.binary, &password)
+        .map_err(AppError::Internal)?;
+    p.password = password;
+    p.rsa_private_key = B64.encode(&keys.private_der);
+    p.rsa_public_key = B64.encode(&keys.public_der);
+    Ok(())
+}
+
 fn complete_server_managed_fields(
     state: &AppState,
     protocol: &mut ProtocolConfig,
@@ -511,6 +618,39 @@ fn complete_server_managed_fields(
 // Handlers
 // =============================================================================
 
+/// Which `FinalMask` kinds actually run, per transport and security.
+///
+/// Served rather than duplicated in the frontend on purpose: the rule comes
+/// from xray's two mask registries, the API already refuses anything outside
+/// it, and a second copy in TypeScript is a copy that will disagree one day.
+/// The shape is `{ transport: { security: [kind, …] } }` — small enough to
+/// fetch once and keep.
+async fn finalmask_support(_user: AuthUser) -> Json<serde_json::Value> {
+    use crate::security::SecurityKind;
+    use crate::transports::{TransportKind, finalmask::supported_kinds};
+
+    let mut out = serde_json::Map::new();
+    for transport in [
+        TransportKind::Tcp,
+        TransportKind::Ws,
+        TransportKind::Xhttp,
+        TransportKind::Hysteria,
+    ] {
+        let mut per_security = serde_json::Map::new();
+        for security in [SecurityKind::None, SecurityKind::Tls, SecurityKind::Reality] {
+            per_security.insert(
+                security.as_db_str().to_owned(),
+                serde_json::json!(supported_kinds(transport, security)),
+            );
+        }
+        out.insert(
+            transport.as_db_str().to_owned(),
+            serde_json::Value::Object(per_security),
+        );
+    }
+    Json(serde_json::Value::Object(out))
+}
+
 async fn list(_user: AuthUser, State(state): State<AppState>) -> AppResult<Json<Vec<Inbound>>> {
     let rows = sqlx::query_as!(
         Row,
@@ -571,11 +711,12 @@ async fn create(
 
     validate_inbound_tag(&tag)?;
 
-    let finalmask = finalmask.unwrap_or_default();
+    let mut finalmask = finalmask.unwrap_or_default();
     let sockopt = sockopt.unwrap_or_default();
     validate_layers(&protocol, &transport, &security, &finalmask)?;
     ensure_port_free(&state.db, port, None).await?;
     complete_server_managed_fields(&state, &mut protocol, &mut security)?;
+    complete_finalmask_material(&state, &mut finalmask)?;
 
     let id = Uuid::new_v4().to_string();
     let listen = listen.unwrap_or_else(|| "0.0.0.0".to_owned());
@@ -669,9 +810,17 @@ async fn update(
     _user: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Json(body): Json<InboundUpdate>,
+    Json(mut body): Json<InboundUpdate>,
 ) -> AppResult<Json<Inbound>> {
     let before = row_to_inbound(read_row(&state, &id).await?)?;
+
+    // Derive before validating and before writing: the stored blob must carry
+    // the keypair for the password it is stored with. The form never sends the
+    // keys (they are not in the TS type), so an edit that touches nothing but
+    // the hostname would otherwise persist a mask with no key at all.
+    if let Some(finalmask) = body.finalmask.as_mut() {
+        complete_finalmask_material(&state, finalmask)?;
+    }
 
     // Validate the post-change combination *before* hitting the DB so
     // an illegal swap (Vision×WS, Reality×WS, …) doesn't leave the
@@ -1217,7 +1366,9 @@ mod validate_layers_tests {
     use crate::security::NoneSecurity;
     use crate::security::reality::RealitySecurity;
     use crate::security::tls::TlsSecurity;
-    use crate::transports::finalmask::{FragmentParams, NoiseItem, NoiseParams, SudokuParams};
+    use crate::transports::finalmask::{
+        FragmentParams, NoiseItem, NoiseParams, SudokuParams, XmcParams,
+    };
     use crate::transports::tcp::TcpTransport;
     use crate::transports::ws::WsTransport;
     use crate::transports::xhttp::{XhttpMode, XhttpTransport};
@@ -1278,7 +1429,7 @@ mod validate_layers_tests {
     fn noise_negative_rand_rejected() {
         // Reachable only via a direct API body (the UI pins min=0); a negative
         // rand would panic xray at runtime (`make([]byte, RandBetween(neg))`).
-        let err = validate_finalmask(
+        let err = validate_finalmask_security(
             &SecurityConfig::None(NoneSecurity {}),
             &noise(vec![NoiseItem {
                 rand_min: Some(-5),
@@ -1293,7 +1444,7 @@ mod validate_layers_tests {
 
     #[test]
     fn noise_oversized_rand_rejected() {
-        let err = validate_finalmask(
+        let err = validate_finalmask_security(
             &SecurityConfig::None(NoneSecurity {}),
             &noise(vec![NoiseItem {
                 rand_max: Some(5_000_000_000),
@@ -1311,7 +1462,7 @@ mod validate_layers_tests {
         // output and the default literal flow. "Packet wins" is applied at
         // build time (rand zeroed), matching the tooltip; a hard 400 here would
         // block editing legacy inbounds and the default literal flow.
-        validate_finalmask(
+        validate_finalmask_security(
             &SecurityConfig::None(NoneSecurity {}),
             &noise(vec![NoiseItem {
                 packet_hex: "dead".into(),
@@ -1328,7 +1479,7 @@ mod validate_layers_tests {
         // Odd-length / separator-only literals decode to junk or empty — the
         // operator gets an error, not a silent no-op mask.
         for bad in ["abc", "a", ",", "zz"] {
-            let err = validate_finalmask(
+            let err = validate_finalmask_security(
                 &SecurityConfig::None(NoneSecurity {}),
                 &noise(vec![NoiseItem {
                     packet_hex: bad.into(),
@@ -1343,7 +1494,7 @@ mod validate_layers_tests {
 
     #[test]
     fn noise_in_range_ok() {
-        validate_finalmask(
+        validate_finalmask_security(
             &SecurityConfig::None(NoneSecurity {}),
             &noise(vec![NoiseItem {
                 rand_min: Some(5),
@@ -1355,7 +1506,7 @@ mod validate_layers_tests {
         )
         .unwrap();
         // A clean literal with separators is accepted.
-        validate_finalmask(
+        validate_finalmask_security(
             &SecurityConfig::None(NoneSecurity {}),
             &noise(vec![NoiseItem {
                 packet_hex: "de:ad be,ef".into(),
@@ -1501,17 +1652,21 @@ mod validate_layers_tests {
     /// `*sudoku... is not reality.CloseWriteConn`. So Sudoku+Reality stays
     /// rejected.
     #[test]
-    fn reality_with_sudoku_err_xray_panic_combo() {
+    /// Reality + XMC is the combination that really does kill xray: reality
+    /// type-asserts the conn to `CloseWriteConn` unchecked and `xmc.serverConn`
+    /// has no `CloseWrite`, so the accept goroutine panics with no recover.
+    /// Confirmed by running it — one connection and the process was gone.
+    fn reality_with_xmc_err_kills_xray() {
         let err = validate_layers(
             &vless(VlessFlow::None),
             &TransportConfig::Tcp(TcpTransport {}),
             &reality_ok(),
-            &FinalMask::Sudoku(SudokuParams::default()),
+            &FinalMask::Xmc(XmcParams::default()),
         )
         .unwrap_err()
         .to_string();
         assert!(err.contains("Reality"), "got: {err}");
-        assert!(err.contains("Sudoku"), "got: {err}");
+        assert!(err.contains("XMC"), "got: {err}");
     }
 
     /// Fragment is asymmetric — the panel ships it to the client via `fm=` and
@@ -1711,17 +1866,22 @@ mod validate_layers_tests {
     }
 
     #[test]
-    fn reality_with_sudoku_err_same_root_cause() {
-        let err = validate_layers(
+    /// Sudoku under Reality used to be refused on the grounds that it panics
+    /// xray. It does not: `sudoku.wrappedConn` implements `CloseWrite`, and a
+    /// live reality+sudoku inbound took repeated connections with a clean log.
+    /// The combination is allowed, and this test is here so the old rule does
+    /// not come back on the strength of the story rather than the measurement.
+    fn reality_with_sudoku_ok() {
+        validate_layers(
             &vless(VlessFlow::None),
             &TransportConfig::Tcp(TcpTransport {}),
             &reality_ok(),
-            &FinalMask::Sudoku(SudokuParams::default()),
+            &FinalMask::Sudoku(SudokuParams {
+                password: "probe".to_owned(),
+                ..SudokuParams::default()
+            }),
         )
-        .unwrap_err()
-        .to_string();
-        assert!(err.contains("Reality"), "got: {err}");
-        assert!(err.contains("Sudoku"), "got: {err}");
+        .unwrap();
     }
 
     #[test]

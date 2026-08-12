@@ -4,6 +4,7 @@ pub mod dashboard;
 pub mod inbounds;
 pub mod keygen;
 pub mod logs;
+pub mod mojang;
 pub mod outbounds;
 pub mod settings;
 pub mod subscription;
@@ -33,6 +34,9 @@ pub fn router(state: AppState) -> Router {
         .nest("/api/inbounds/{inbound_id}/clients", clients::routes())
         .nest("/api/clients", clients::routes_global())
         .nest("/api/logs", logs::routes())
+        // Minecraft profile lookup for the XMC finalmask form. Operator-
+        // triggered only — see the module header on what it discloses.
+        .nest("/api/mojang", mojang::routes())
         .nest("/api/outbounds", outbounds::routes())
         .nest("/api/settings", settings::routes())
         .nest("/api/xray", xray::routes())

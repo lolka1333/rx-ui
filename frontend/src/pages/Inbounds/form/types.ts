@@ -17,6 +17,7 @@ import type {
   VlessFlow,
   VlessXorMode,
   XhttpMode,
+  XmcProfile,
 } from '@/api/types';
 
 /** Operator-facing transport label, derived from the typed transport.
@@ -259,6 +260,14 @@ export interface FormValues {
   finalmask_noise_items: NoiseItem[];
   // salamander (Hysteria 2 native obfs)
   finalmask_salamander_password: string;
+  // xmc — Minecraft masquerade. `hostname` is what the fake handshake claims
+  // the server is; blank means "whatever the client dialled", which is what a
+  // real client would send anyway. The profiles are Mojang session data, so
+  // the form resolves them by username rather than asking anyone to paste a
+  // signed textures blob by hand.
+  finalmask_xmc_hostname: string;
+  finalmask_xmc_password: string;
+  finalmask_xmc_profiles: XmcProfile[];
   sniffing_enabled: boolean;
   sniffing_dest_override: string[];
   // routeOnly — use the sniffed domain for routing only, without

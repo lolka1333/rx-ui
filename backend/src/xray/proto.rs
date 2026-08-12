@@ -100,6 +100,9 @@ pub mod xray {
                 pub mod salamander {
                     tonic::include_proto!("xray.transport.internet.finalmask.salamander");
                 }
+                pub mod xmc {
+                    tonic::include_proto!("xray.transport.internet.finalmask.xmc");
+                }
             }
             pub mod hysteria {
                 tonic::include_proto!("xray.transport.internet.hysteria");

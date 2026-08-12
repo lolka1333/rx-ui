@@ -12,18 +12,25 @@
 //! bootstrap clients automatically; old client builds that don't
 //! understand `fm=` will fail to connect — that's intentional.
 
-import { useMemo } from 'react';
-import { Alert, Button, Form, Input, InputNumber, Select, Typography } from 'antd';
+import { useEffect, useMemo, useState } from 'react';
+import { App, Alert, Button, Form, Input, InputNumber, Select, Typography } from 'antd';
 import type { FormListFieldData } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
+import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import type { FinalMask } from '@/api/types';
+import { apiClient } from '@/api/client';
+import { apiErrorMessage } from '@/api/errors';
+import type { FinalMask, XmcProfile } from '@/api/types';
 import { InputField, RangePair, Section, SelectField, SideBySide } from '../widgets';
 import type { FormValues, SudokuAscii } from '../form/types';
 
 /** Sudoku padding is `uint32` on the proto but xray rejects values above
  *  255 — same range the upstream docs document. */
 const SUDOKU_PADDING_MAX = 255;
+
+/** xray encrypts `verifyToken + password` under a 1024-bit RSA key with
+ *  PKCS#1 v1.5 padding: 128 bytes of block, 11 of padding, 4 of token. */
+const XMC_PASSWORD_MAX_BYTES = 113;
 
 /** Variant catalogue rendered into the kind-selector. Each maps to a
  *  translated label so the dropdown stays localised; the transport-scope
@@ -35,7 +42,29 @@ const VARIANT_LABEL_KEYS: Record<FinalMask['kind'], string> = {
   fragment: 'inbounds.finalmaskKindFragment',
   noise: 'inbounds.finalmaskKindNoise',
   salamander: 'inbounds.finalmaskKindSalamander',
+  xmc: 'inbounds.finalmaskKindXmc',
 };
+
+/** Which masks xray will actually run, keyed transport → security → kinds.
+ *
+ *  Fetched rather than hardcoded. xray keeps two mask registries and each
+ *  transport consults exactly one of them, so a mask offered on the wrong side
+ *  is not an error — it builds, the inbound starts, and nothing ever calls it.
+ *  The backend already refuses those combinations; asking it what it allows is
+ *  how the dropdown and the validator stay the same rule instead of two copies
+ *  that drift. */
+type SupportMatrix = Record<string, Record<string, FinalMask['kind'][]>>;
+
+function useFinalMaskSupport() {
+  return useQuery<SupportMatrix>({
+    queryKey: ['finalmask-support'],
+    queryFn: async () =>
+      (await apiClient.get<SupportMatrix>('/inbounds/finalmask-support')).data,
+    // Derived from the xray build, not from anything the operator can change
+    // while the form is open.
+    staleTime: Infinity,
+  });
+}
 
 /** Operator-selectable ASCII modes for Sudoku. `''` (empty) means
  *  "use xray's default" and is the form's resting state. */
@@ -47,13 +76,39 @@ export function FinalMaskTab() {
   const { t } = useTranslation();
   const form = Form.useFormInstance<FormValues>();
   const kind = Form.useWatch('finalmask_kind', form);
+  // The form has no single "transport" field: `network` covers the TCP family
+  // and Hysteria arrives as a protocol, taking its QUIC transport with it.
+  // The backend matrix is keyed by the transport, so fold them here.
+  const protocolKind = Form.useWatch('protocol_kind', form);
+  const network = Form.useWatch('network', form);
+  const security = Form.useWatch('security', form);
+  const transport = protocolKind === 'hysteria2' ? 'hysteria' : network;
+  const { data: support } = useFinalMaskSupport();
+
+  // `none` is always offered — it is the absence of a mask, not a mask.
+  const allowed = useMemo<FinalMask['kind'][]>(() => {
+    const kinds = support?.[transport]?.[security];
+    // Until the matrix arrives, show everything rather than an empty list:
+    // a dropdown with one entry would read as "this transport supports
+    // nothing", which is a worse lie than showing too much for a moment.
+    return kinds ? ['none', ...kinds] : (Object.keys(VARIANT_LABEL_KEYS) as FinalMask['kind'][]);
+  }, [support, transport, security]);
+
   const variantOptions = useMemo(
-    () =>
-      (Object.entries(VARIANT_LABEL_KEYS) as [FinalMask['kind'], string][]).map(
-        ([value, labelKey]) => ({ value, label: t(labelKey) }),
-      ),
-    [t],
+    () => allowed.map((value) => ({ value, label: t(VARIANT_LABEL_KEYS[value]) })),
+    [allowed, t],
   );
+
+  // Changing transport or security can strip the mask that was selected —
+  // switching a TCP inbound to Hysteria takes XMC away with it. Leaving the
+  // old value selected would show an empty tab and then fail on save with a
+  // message about a combination the operator can no longer see.
+  useEffect(() => {
+    if (kind && !allowed.includes(kind)) {
+      form.setFieldValue('finalmask_kind', 'none');
+    }
+  }, [allowed, kind, form]);
+
   return (
     <>
       <Alert
@@ -66,6 +121,7 @@ export function FinalMaskTab() {
         name="finalmask_kind"
         label={t('inbounds.finalmaskKind')}
         tooltip={t('inbounds.finalmaskKindTooltip')}
+        extra={t('inbounds.finalmaskKindScopeHint')}
         style={{ marginBottom: 16 }}
       >
         <Select options={variantOptions} />
@@ -75,7 +131,177 @@ export function FinalMaskTab() {
       {kind === 'fragment' && <FragmentFields />}
       {kind === 'noise' && <NoiseFields />}
       {kind === 'salamander' && <SalamanderFields />}
+      {kind === 'xmc' && <XmcFields />}
     </>
+  );
+}
+
+/** XMC — the inbound pretends to be a vanilla Minecraft server: a real login
+ *  in the clear, then AES-CFB8, then the tunnel sliced into `xmc:data`
+ *  custom-payload packets. Probing the port answers like a genuine server.
+ *
+ *  The profiles are real Mojang session data. Nothing in the protocol checks
+ *  them — but nothing stops an observer from checking either, and an invented
+ *  profile is the anomaly the mask exists to avoid. So the form resolves them
+ *  by nickname through the panel rather than asking anyone to paste a signed
+ *  textures blob by hand. */
+function XmcFields() {
+  const { t } = useTranslation();
+  const { message } = App.useApp();
+  const form = Form.useFormInstance<FormValues>();
+  const [resolving, setResolving] = useState<number | null>(null);
+
+  const resolve = async (index: number) => {
+    const profiles = form.getFieldValue('finalmask_xmc_profiles') as XmcProfile[];
+    const username = (profiles[index]?.username ?? '').trim();
+    if (!username) {
+      message.warning(t('inbounds.finalmaskXmcResolveNeedsName'));
+      return;
+    }
+    setResolving(index);
+    try {
+      const { data } = await apiClient.get<XmcProfile>('/mojang/profile', {
+        params: { username },
+      });
+      const next = [...profiles];
+      // Mojang's spelling wins — it may differ in case from what was typed,
+      // and the profile has to match the account exactly.
+      next[index] = { ...data };
+      form.setFieldValue('finalmask_xmc_profiles', next);
+      message.success(t('inbounds.finalmaskXmcResolved', { name: data.username }));
+    } catch (e) {
+      message.error(apiErrorMessage(e) ?? t('inbounds.finalmaskXmcResolveFailed'));
+    } finally {
+      setResolving(null);
+    }
+  };
+
+  return (
+    <Section itemKey="finalmask-xmc" labelKey="inbounds.finalmaskXmcSection">
+      <Alert
+        type="warning"
+        showIcon
+        title={t('inbounds.finalmaskXmcPrivacyNotice')}
+        style={{ marginBottom: 16 }}
+      />
+      <SideBySide>
+        <Form.Item
+          name="finalmask_xmc_hostname"
+          label={t('inbounds.finalmaskXmcHostname')}
+          tooltip={t('inbounds.finalmaskXmcHostnameTooltip')}
+        >
+          <Input
+            placeholder={t('inbounds.finalmaskXmcHostnamePlaceholder')}
+            allowClear
+          />
+        </Form.Item>
+        <Form.Item
+          name="finalmask_xmc_password"
+          label={t('inbounds.finalmaskXmcPassword')}
+          tooltip={t('inbounds.finalmaskXmcPasswordTooltip')}
+          rules={[
+            {
+              validator: (_, v: string) => {
+                if (!v || !v.trim()) {
+                  return Promise.reject(new Error(t('inbounds.finalmaskXmcPasswordRequired')));
+                }
+                // The handshake encrypts `verifyToken + password` under a
+                // 1024-bit RSA key with PKCS#1 v1.5 padding, which leaves 113
+                // bytes. Longer fails at connect time, not at save time, so
+                // catch it here where it can still be explained.
+                const bytes = new TextEncoder().encode(v).length;
+                return bytes > XMC_PASSWORD_MAX_BYTES
+                  ? Promise.reject(
+                      new Error(
+                        t('inbounds.finalmaskXmcPasswordTooLong', {
+                          bytes,
+                          max: XMC_PASSWORD_MAX_BYTES,
+                        }),
+                      ),
+                    )
+                  : Promise.resolve();
+              },
+            },
+          ]}
+        >
+          <Input.Password
+            placeholder={t('inbounds.finalmaskXmcPasswordPlaceholder')}
+            allowClear
+          />
+        </Form.Item>
+      </SideBySide>
+
+      <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
+        {t('inbounds.finalmaskXmcProfilesHint')}
+      </Typography.Paragraph>
+
+      <Form.List name="finalmask_xmc_profiles">
+        {(fields, { add, remove }) => (
+          <>
+            {fields.map((field: FormListFieldData) => (
+              <div
+                key={field.key}
+                style={{
+                  display: 'flex',
+                  gap: 8,
+                  alignItems: 'flex-start',
+                  marginBottom: 8,
+                }}
+              >
+                <Form.Item
+                  name={[field.name, 'username']}
+                  style={{ marginBottom: 0, flex: '0 0 200px' }}
+                >
+                  <Input
+                    placeholder={t('inbounds.finalmaskXmcUsernamePlaceholder')}
+                    onPressEnter={(e) => {
+                      e.preventDefault();
+                      void resolve(field.name);
+                    }}
+                  />
+                </Form.Item>
+                <Button
+                  onClick={() => void resolve(field.name)}
+                  loading={resolving === field.name}
+                >
+                  {t('inbounds.finalmaskXmcResolve')}
+                </Button>
+                {/* Resolved, not typed: shown so it is obvious the row is
+                    filled and which account it points at, but read-only —
+                    hand-editing a UUID or a signature only breaks the
+                    signature's agreement with the name. */}
+                <Form.Item name={[field.name, 'uuid']} style={{ marginBottom: 0, flex: 1 }}>
+                  <Input readOnly placeholder={t('inbounds.finalmaskXmcUuidPlaceholder')} />
+                </Form.Item>
+                <Form.Item name={[field.name, 'textures_value']} hidden>
+                  <Input />
+                </Form.Item>
+                <Form.Item name={[field.name, 'textures_signature']} hidden>
+                  <Input />
+                </Form.Item>
+                <Button
+                  type="text"
+                  danger
+                  icon={<DeleteOutlined />}
+                  disabled={fields.length === 1}
+                  onClick={() => remove(field.name)}
+                />
+              </div>
+            ))}
+            <Button
+              type="dashed"
+              icon={<PlusOutlined />}
+              onClick={() =>
+                add({ username: '', uuid: '', textures_value: '', textures_signature: '' })
+              }
+              block
+            >
+              {t('inbounds.finalmaskXmcAddProfile')}
+            </Button>
+          </>
+        )}
+      </Form.List>
+    </Section>
   );
 }
 

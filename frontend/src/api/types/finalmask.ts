@@ -19,7 +19,7 @@
  *     vless/reality TCP inbounds. Most useful for QUIC/Hysteria
  *     where a noise prefix breaks fingerprinting.
  */
-export type FinalMask = { "kind": "none" } | { "kind": "sudoku" } & SudokuParams | { "kind": "fragment" } & FragmentParams | { "kind": "noise" } & NoiseParams | { "kind": "salamander" } & SalamanderParams;
+export type FinalMask = { "kind": "none" } | { "kind": "sudoku" } & SudokuParams | { "kind": "fragment" } & FragmentParams | { "kind": "noise" } & NoiseParams | { "kind": "salamander" } & SalamanderParams | { "kind": "xmc" } & XmcParams;
 
 /**
  * Fragment finalmask knobs (xray-core v26.6.22 #6334). `lengths`/`delays`
@@ -136,3 +136,49 @@ padding_max: number | null,
  * Optional list of additional lookup tables (advanced).
  */
 custom_tables: Array<string>, };
+
+/**
+ * XMC knobs. `hostname` and `password` are operator-facing; the keypair is
+ * derived from the password and filled in on save.
+ */
+export type XmcParams = { 
+/**
+ * Server address the fake handshake announces. Empty ≡ the real host the
+ * client dialled, which is what a genuine client would send anyway.
+ */
+hostname: string, 
+/**
+ * Shared secret. Also the seed of the RSA keypair, so changing it
+ * invalidates every client that has the old one. xray encrypts
+ * `verifyToken + password` under a 1024-bit key with PKCS#1 v1.5
+ * padding, which caps this at 113 bytes.
+ */
+password: string, 
+/**
+ * At least one; the client picks one at random per connection.
+ */
+profiles: Array<XmcProfile>, };
+
+/**
+ * One Minecraft account the mask can present. These are real session-server
+ * values: an invented profile still connects (the server checks nothing), but
+ * the disguise stops being convincing — the signature won't verify against
+ * Mojang's key, which is exactly what someone probing the port would check.
+ */
+export type XmcProfile = { 
+/**
+ * Minecraft username. xray validates `^[A-Za-z0-9_]{3,16}$`.
+ */
+username: string, 
+/**
+ * Account UUID, canonical hyphenated form.
+ */
+uuid: string, 
+/**
+ * `value` of the signed `textures` property.
+ */
+textures_value: string, 
+/**
+ * `signature` of that property. Both halves are required.
+ */
+textures_signature: string, };

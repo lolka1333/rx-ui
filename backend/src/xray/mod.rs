@@ -9,6 +9,7 @@ pub mod proto;
 pub mod reload;
 pub mod router_rules;
 pub mod share_link;
+pub mod xmc;
 
 pub use control::XrayController;
 pub use grpc::XrayClient;

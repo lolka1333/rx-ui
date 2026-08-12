@@ -60,6 +60,69 @@ pub enum FinalMask {
     /// (not `fm=`), so non-xray clients (sing-box, `NekoBox`, official hysteria)
     /// pick it up too.
     Salamander(SalamanderParams),
+    /// XMC finalmask (`xray.transport.internet.finalmask.xmc`) — masquerade as
+    /// vanilla Minecraft. The client performs a real MC login in the clear,
+    /// both sides switch to AES-CFB8, and the tunnel is then sliced into
+    /// `xmc:data` custom-payload packets with padding shaped like a genuine
+    /// 26.1.2 session. TCP only, and symmetric: unlike Fragment it MUST be on
+    /// the server too, or nothing lines up.
+    Xmc(XmcParams),
+}
+
+/// One Minecraft account the mask can present. These are real session-server
+/// values: an invented profile still connects (the server checks nothing), but
+/// the disguise stops being convincing — the signature won't verify against
+/// Mojang's key, which is exactly what someone probing the port would check.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../frontend/src/api/types/finalmask.ts")]
+pub struct XmcProfile {
+    /// Minecraft username. xray validates `^[A-Za-z0-9_]{3,16}$`.
+    pub username: String,
+    /// Account UUID, canonical hyphenated form.
+    pub uuid: String,
+    /// `value` of the signed `textures` property.
+    pub textures_value: String,
+    /// `signature` of that property. Both halves are required.
+    pub textures_signature: String,
+}
+
+/// XMC knobs. `hostname` and `password` are operator-facing; the keypair is
+/// derived from the password and filled in on save.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../frontend/src/api/types/finalmask.ts")]
+pub struct XmcParams {
+    /// Server address the fake handshake announces. Empty ≡ the real host the
+    /// client dialled, which is what a genuine client would send anyway.
+    #[serde(default)]
+    pub hostname: String,
+    /// Shared secret. Also the seed of the RSA keypair, so changing it
+    /// invalidates every client that has the old one. xray encrypts
+    /// `verifyToken + password` under a 1024-bit key with PKCS#1 v1.5
+    /// padding, which caps this at 113 bytes.
+    pub password: String,
+    /// At least one; the client picks one at random per connection.
+    #[serde(default)]
+    pub profiles: Vec<XmcProfile>,
+    /// PKCS#1 DER of the password-derived private key, base64. DERIVED, not
+    /// operator input: `xray::xmc::derive_keypair` fills both of these on
+    /// save, and every save re-derives, so a changed password can't leave a
+    /// stale key behind. `#[ts(skip)]` keeps them out of the generated TS
+    /// type so the form neither renders nor round-trips them — note that this
+    /// affects the TYPE only: the same serde impl writes the DB blob and the
+    /// API response, so the response does carry them. That costs nothing here,
+    /// since the password they are derived from is on the same screen.
+    ///
+    /// They have to be stored because xray's runtime does not derive: it
+    /// fails the connection outright on an empty key, and only xray's JSON
+    /// parser (which the panel bypasses, pushing protobuf over gRPC) knows
+    /// how to compute one.
+    #[serde(default)]
+    #[ts(skip)]
+    pub rsa_private_key: String,
+    /// PKIX DER of the matching public key, base64. Same provenance.
+    #[serde(default)]
+    #[ts(skip)]
+    pub rsa_public_key: String,
 }
 
 /// Knobs surfaced to the operator. Mirrors the upstream proto field
@@ -409,10 +472,19 @@ pub struct SalamanderParams {
     pub password: String,
 }
 
-/// Which socket-side(s) a variant applies to. `Sudoku` works on both;
-/// `Fragment` only on TCP; `Noise` / `Salamander` only on UDP.
+/// Which socket-side(s) a variant applies to.
+///
+/// The TCP case splits in two because the two TCP masks want opposite things.
+/// Fragment is asymmetric — the client chops up its own `ClientHello` and the
+/// server just reads a normal stream — so putting it server-side would be
+/// pointless (and, under Reality, fatal). XMC is a handshake both ends have to
+/// perform. One flag could not express both, and conflating them is how a
+/// symmetric mask silently ends up on the client only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FinalMaskScope {
+    /// TCP, client side only.
+    TcpClientOnly,
+    /// TCP, both sides.
     Tcp,
     Udp,
     Both,
@@ -429,6 +501,7 @@ impl FinalMask {
             Self::Fragment(_) => "fragment",
             Self::Noise(_) => "noise",
             Self::Salamander(_) => "salamander",
+            Self::Xmc(_) => "xmc",
         }
     }
 
@@ -448,6 +521,16 @@ impl FinalMask {
             Self::Noise(p) => p.items.iter().any(NoiseItem::is_active),
             // Salamander is active once a password is set.
             Self::Salamander(p) => !p.password.trim().is_empty(),
+            // XMC needs all three: a password, someone to log in as, and the
+            // keypair derived from that password. The keys are checked too so
+            // a half-written row can never reach xray — it would not fail
+            // loudly, it would hand out an inbound whose every handshake dies.
+            Self::Xmc(p) => {
+                !p.password.trim().is_empty()
+                    && !p.profiles.is_empty()
+                    && !p.rsa_private_key.is_empty()
+                    && !p.rsa_public_key.is_empty()
+            }
         }
     }
 
@@ -485,7 +568,7 @@ impl FinalMask {
                     max_split_min: p.max_split_min.unwrap_or(0),
                     max_split_max: p.max_split_max.unwrap_or(0),
                 };
-                (proto.encode_to_vec(), FinalMaskScope::Tcp)
+                (proto.encode_to_vec(), FinalMaskScope::TcpClientOnly)
             }
             Self::Noise(p) => {
                 // One proto Item per active operator row. A literal packet and
@@ -535,6 +618,34 @@ impl FinalMask {
                 };
                 (proto.encode_to_vec(), FinalMaskScope::Udp)
             }
+            Self::Xmc(p) => {
+                use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
+                // The keypair was derived and stored on save. Undecodable
+                // base64 here would mean a hand-edited row; an empty key makes
+                // xray refuse the connection with "empty rsa private key",
+                // which is at least a loud failure rather than a silent one.
+                let proto = fm::xmc::Config {
+                    password: p.password.clone(),
+                    rsa_private_key: B64.decode(&p.rsa_private_key).unwrap_or_default(),
+                    rsa_public_key: B64.decode(&p.rsa_public_key).unwrap_or_default(),
+                    hostname: p.hostname.clone(),
+                    profiles: p
+                        .profiles
+                        .iter()
+                        .map(|pr| fm::xmc::Profile {
+                            username: pr.username.clone(),
+                            // Raw 16 bytes, not the hyphenated text: the proto
+                            // field is `bytes`. A profile that failed to parse
+                            // is dropped rather than sent as garbage — the API
+                            // rejects those on save, so reaching this is a bug.
+                            uuid: parse_uuid_bytes(&pr.uuid).unwrap_or_default(),
+                            textures_value: pr.textures_value.clone(),
+                            textures_signature: pr.textures_signature.clone(),
+                        })
+                        .collect(),
+                };
+                (proto.encode_to_vec(), FinalMaskScope::Tcp)
+            }
             Self::Salamander(p) => {
                 let proto = fm::salamander::Config {
                     password: p.password.clone(),
@@ -557,18 +668,134 @@ impl FinalMask {
     ///
     /// * Sudoku (Both) is symmetric — fills both slots either way.
     /// * Noise (Udp) → the UDP slot.
-    /// * Fragment (Tcp) → the TCP slot ON THE CLIENT (the dialer fragments its
-    ///   own `ClientHello`), but NEITHER slot on the server: a server-side
-    ///   fragment wrapper is pointless and, under Reality, panics
+    /// * Fragment (`TcpClientOnly`) → the TCP slot ON THE CLIENT (the dialer
+    ///   fragments its own `ClientHello`), but NEITHER slot on the server: a
+    ///   server-side fragment wrapper is pointless and, under Reality, panics
     ///   (`*fragment.fragmentConn is not reality.CloseWriteConn`).
+    /// * XMC (Tcp) → the TCP slot on BOTH sides. It is a handshake, not a
+    ///   transform: a client that speaks it to a server that doesn't gets
+    ///   nothing but a stalled Minecraft login.
     pub fn masks(&self, client_side: bool) -> (Vec<TypedMessage>, Vec<TypedMessage>) {
         match self.to_typed_message() {
             Some((m, FinalMaskScope::Both)) => (vec![m.clone()], vec![m]),
             Some((m, FinalMaskScope::Udp)) => (Vec::new(), vec![m]),
-            Some((m, FinalMaskScope::Tcp)) if client_side => (vec![m], Vec::new()),
-            Some((_, FinalMaskScope::Tcp)) | None => (Vec::new(), Vec::new()),
+            Some((m, FinalMaskScope::Tcp)) => (vec![m], Vec::new()),
+            Some((m, FinalMaskScope::TcpClientOnly)) if client_side => (vec![m], Vec::new()),
+            Some((_, FinalMaskScope::TcpClientOnly)) | None => (Vec::new(), Vec::new()),
         }
     }
+}
+
+impl XmcParams {
+    /// Repeat xray's own checks so a bad profile is a 400 with a readable
+    /// message instead of an inbound that starts and then refuses every
+    /// connection. Mirrors `XMC.Build` / `XMCProfile.Build` in
+    /// `infra/conf/transport_finalmask.go`.
+    pub fn validate(&self) -> Result<(), String> {
+        // xray encrypts `verifyToken || password` under a 1024-bit key with
+        // PKCS#1 v1.5 padding: 128 bytes of block, 11 of padding, 4 of token.
+        // A longer password fails at handshake time, not at config time.
+        const MAX_PASSWORD: usize = 113;
+
+        if self.password.trim().is_empty() {
+            return Err("XMC needs a password".to_owned());
+        }
+        if self.password.len() > MAX_PASSWORD {
+            return Err(format!(
+                "XMC password is {} bytes; the RSA-1024 handshake fits at most {MAX_PASSWORD}",
+                self.password.len()
+            ));
+        }
+        if self.profiles.is_empty() {
+            return Err("XMC needs at least one Minecraft profile".to_owned());
+        }
+        for (i, p) in self.profiles.iter().enumerate() {
+            let at = i + 1;
+            let name = p.username.as_bytes();
+            if !(3..=16).contains(&name.len())
+                || !name.iter().all(|b| b.is_ascii_alphanumeric() || *b == b'_')
+            {
+                return Err(format!(
+                    "profile {at}: username must be 3-16 characters of A-Z, a-z, 0-9 or _"
+                ));
+            }
+            if parse_uuid_bytes(&p.uuid).is_none() {
+                return Err(format!("profile {at}: '{}' is not a UUID", p.uuid));
+            }
+            if p.textures_value.trim().is_empty() || p.textures_signature.trim().is_empty() {
+                return Err(format!(
+                    "profile {at}: both the textures value and its signature are required"
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Which masks actually do something for a given transport + security.
+///
+/// Not a matter of taste: xray keeps two separate mask registries and two
+/// separate managers, and a transport only ever consults one of them.
+/// `TcpmaskManager` is wired into tcp, websocket, httpupgrade, grpc and
+/// splithttp; `UdpmaskManager` into kcp, hysteria, udp and splithttp's HTTP/3
+/// path. A mask offered on the wrong side does not error — it is built into
+/// the config, the inbound starts, and nothing ever calls it. That silence is
+/// the reason this list exists: without it the form offers five masks for
+/// every combination and four of them quietly do nothing.
+///
+/// Registries (`infra/conf/transport_finalmask.go`):
+///   TCP — header-custom, fragment, sudoku, xmc
+///   UDP — header-custom, mkcp-legacy, noise, salamander, sudoku, xdns,
+///         xicmp, realm
+/// Of those the panel exposes sudoku, fragment, noise, salamander and xmc.
+///
+/// XHTTP is listed as TCP here. It can run over HTTP/3, where it takes the UDP
+/// path instead, but that needs ALPN pinned to exactly `h3`; the API rejects
+/// that combination for TCP masks rather than letting the form present a
+/// transport whose masks depend on a field three tabs away.
+pub fn supported_kinds(
+    transport: crate::transports::TransportKind,
+    security: crate::security::SecurityKind,
+) -> Vec<&'static str> {
+    use crate::security::SecurityKind;
+    use crate::transports::TransportKind;
+
+    let mut kinds: Vec<&'static str> = match transport {
+        // TCP-family transports: the TCP registry, minus nothing.
+        TransportKind::Tcp | TransportKind::Ws | TransportKind::Xhttp => {
+            vec!["sudoku", "fragment", "xmc"]
+        }
+        // Hysteria is QUIC: only the UDP registry is ever consulted.
+        TransportKind::Hysteria => vec!["sudoku", "noise", "salamander"],
+    };
+
+    // Reality type-asserts its underlying conn to `CloseWriteConn` without
+    // checking (xtls/reality `tls.go:186`), so a mask that wraps the socket
+    // server-side and lacks `CloseWrite` panics the accept goroutine and kills
+    // the process. Measured, not deduced: reality + XMC died on the first
+    // connection; reality + sudoku survived repeated ones, because
+    // `sudoku.wrappedConn` implements the method. Fragment never runs
+    // server-side, so it never meets Reality at all.
+    if security == SecurityKind::Reality {
+        kinds.retain(|k| *k != "xmc");
+    }
+
+    kinds
+}
+
+/// Parse a canonical UUID into the 16 raw bytes xray's proto field wants.
+///
+/// Accepts the hyphenated form and the bare 32-hex form; anything else is
+/// `None`. Deliberately hand-rolled: this is the only place the panel needs a
+/// UUID parsed, and it is four lines against a dependency.
+pub fn parse_uuid_bytes(text: &str) -> Option<Vec<u8>> {
+    let hex: Vec<u8> = text.bytes().filter(|&b| b != b'-').collect();
+    if hex.len() != 32 {
+        return None;
+    }
+    hex.chunks_exact(2)
+        .map(|pair| Some(nibble(pair[0])? << 4 | nibble(pair[1])?))
+        .collect()
 }
 
 const fn nibble(b: u8) -> Option<u8> {

@@ -199,6 +199,9 @@ export type FinalMaskFormFields = Pick<
   | 'finalmask_fragment_delays'
   | 'finalmask_noise_items'
   | 'finalmask_salamander_password'
+  | 'finalmask_xmc_hostname'
+  | 'finalmask_xmc_password'
+  | 'finalmask_xmc_profiles'
 >;
 
 /** Hydrate the flat `finalmask_*` form fields from a typed `FinalMask`. The
@@ -247,6 +250,15 @@ export function hydrateFinalMask(target: FinalMaskFormFields, fm: FinalMask): vo
   } else if (fm.kind === 'salamander') {
     target.finalmask_kind = 'salamander';
     target.finalmask_salamander_password = fm.password;
+  } else if (fm.kind === 'xmc') {
+    target.finalmask_kind = 'xmc';
+    target.finalmask_xmc_hostname = fm.hostname;
+    target.finalmask_xmc_password = fm.password;
+    // Never leave the editor with zero rows: an empty list would hide the
+    // resolve button, which is the only way to fill a profile in.
+    target.finalmask_xmc_profiles = fm.profiles.length
+      ? fm.profiles.map((p) => ({ ...p }))
+      : [{ username: '', uuid: '', textures_value: '', textures_signature: '' }];
   }
 }
 
@@ -637,6 +649,30 @@ export function buildFinalMask(v: FormValues): FinalMask {
       return {
         kind: 'salamander',
         password: v.finalmask_salamander_password,
+      };
+    case 'xmc':
+      return {
+        kind: 'xmc',
+        hostname: v.finalmask_xmc_hostname.trim(),
+        password: v.finalmask_xmc_password,
+        // Drop rows the operator started and abandoned. A profile is only
+        // usable with all four fields, and the backend rejects partial ones —
+        // better to send three good profiles than to fail the whole save on a
+        // blank fourth row left over from a mis-click on "add".
+        profiles: v.finalmask_xmc_profiles
+          .filter(
+            (p) =>
+              p.username.trim() !== '' &&
+              p.uuid.trim() !== '' &&
+              p.textures_value.trim() !== '' &&
+              p.textures_signature.trim() !== '',
+          )
+          .map((p) => ({
+            username: p.username.trim(),
+            uuid: p.uuid.trim(),
+            textures_value: p.textures_value.trim(),
+            textures_signature: p.textures_signature.trim(),
+          })),
       };
   }
 }

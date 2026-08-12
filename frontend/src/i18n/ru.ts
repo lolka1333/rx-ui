@@ -717,6 +717,32 @@ export const ru = {
     finalmaskSalamanderPassword: 'Obfs-пароль',
     finalmaskSalamanderPasswordTooltip: 'Родная обфускация Hysteria 2. Общий пароль сервера и клиента; в подписку уходит стандартным obfs=salamander&obfs-password=…, поэтому его подхватывает любой Hysteria 2-клиент (не только xray).',
     finalmaskSalamanderPasswordPlaceholder: 'общий obfs-пароль',
+    finalmaskKindXmc: 'XMC — маскировка под Minecraft (TCP)',
+    finalmaskKindScopeHint:
+      'Показаны только те маски, которые xray действительно применит к выбранному транспорту и шифрованию.',
+    finalmaskXmcSection: 'XMC — маскировка под Minecraft',
+    finalmaskXmcPrivacyNotice:
+      'Профили подтягиваются с серверов Mojang: панель делает исходящий запрос по нажатию кнопки.',
+    finalmaskXmcHostname: 'Адрес сервера',
+    finalmaskXmcHostnameTooltip:
+      'Что подставить в поддельное рукопожатие как адрес сервера. Пусто — реальный хост, к которому подключился клиент; настоящий клиент отправил бы именно его.',
+    finalmaskXmcHostnamePlaceholder: 'mc.example.org',
+    finalmaskXmcPassword: 'Пароль',
+    finalmaskXmcPasswordTooltip:
+      'Общий секрет. Из него же выводится RSA-ключ, поэтому смена пароля отключает все клиенты со старым.',
+    finalmaskXmcPasswordPlaceholder: 'общий пароль',
+    finalmaskXmcPasswordRequired: 'Нужен пароль',
+    finalmaskXmcPasswordTooLong:
+      'Пароль {{bytes}} байт: рукопожатие RSA-1024 вмещает не больше {{max}}',
+    finalmaskXmcProfilesHint:
+      'Аккаунты, под которыми клиент представляется при входе. Введите ник и нажмите «Найти» — панель возьмёт UUID и подписанные текстуры у Mojang. Придуманные данные тоже подключатся, но подпись не сойдётся при проверке.',
+    finalmaskXmcUsernamePlaceholder: 'ник',
+    finalmaskXmcUuidPlaceholder: 'UUID подставится сам',
+    finalmaskXmcResolve: 'Найти',
+    finalmaskXmcResolved: 'Профиль {{name}} получен',
+    finalmaskXmcResolveNeedsName: 'Сначала введите ник',
+    finalmaskXmcResolveFailed: 'Не удалось получить профиль',
+    finalmaskXmcAddProfile: 'Добавить профиль',
     finalmaskSalamanderPasswordRequired: 'Пароль обязателен для salamander',
     finalmaskSudokuSection: 'Sudoku',
     finalmaskSudokuPassword: 'Пароль',

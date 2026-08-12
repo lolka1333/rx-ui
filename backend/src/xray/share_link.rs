@@ -337,6 +337,21 @@ fn finalmask_share_link_param(fm: &FinalMask) -> Option<(String, String)> {
         }
         // Salamander is a single password (packetSize left at xray default).
         FinalMask::Salamander(p) => serde_json::json!({ "password": p.password }),
+        // XMC ships the operator-facing shape only. The keypair is
+        // deliberately absent: the client's own `infra/conf` derives it from
+        // this password (`XMC.Build` → `DeriveRSAKey`), which is the same
+        // function that produced the server's copy — so both ends land on the
+        // same key without the private half ever crossing the wire.
+        FinalMask::Xmc(p) => serde_json::json!({
+            "hostname": p.hostname,
+            "password": p.password,
+            "profiles": p.profiles.iter().map(|pr| serde_json::json!({
+                "username":          pr.username,
+                "uuid":              pr.uuid,
+                "texturesValue":     pr.textures_value,
+                "texturesSignature": pr.textures_signature,
+            })).collect::<Vec<_>>(),
+        }),
     };
     let layer = serde_json::json!({ "type": fm.kind(), "settings": settings });
     // Sudoku applies to both sockets; Fragment is TCP-only; Noise is UDP-only.
@@ -346,7 +361,12 @@ fn finalmask_share_link_param(fm: &FinalMask) -> Option<(String, String)> {
         // `serde_json::json!` borrows the value, so the same `layer` reaches
         // both slots without a clone.
         FinalMask::Sudoku(_) => serde_json::json!({ "tcp": [layer], "udp": [layer] }),
-        FinalMask::Fragment(_) => serde_json::json!({ "tcp": [layer], "udp": [] }),
+        // Fragment is client-only but still TCP; XMC is TCP on both sides.
+        // From the share-link's point of view they look the same — it only
+        // ever describes the client half.
+        FinalMask::Fragment(_) | FinalMask::Xmc(_) => {
+            serde_json::json!({ "tcp": [layer], "udp": [] })
+        }
         FinalMask::Noise(_) | FinalMask::Salamander(_) => {
             serde_json::json!({ "tcp": [], "udp": [layer] })
         }

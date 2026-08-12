@@ -44,7 +44,7 @@ export type {
   UdpHop,
 } from './transport';
 
-export type { FinalMask, NoiseItem, SudokuParams } from './finalmask';
+export type { FinalMask, NoiseItem, SudokuParams, XmcProfile } from './finalmask';
 
 export type {
   CustomOutbound,

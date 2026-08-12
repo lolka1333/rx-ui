@@ -163,6 +163,13 @@ export const DEFAULTS: FormValues = {
     { packet_hex: '', rand_min: 5, rand_max: 10, delay_min: null, delay_max: null },
   ],
   finalmask_salamander_password: '',
+  finalmask_xmc_hostname: '',
+  finalmask_xmc_password: '',
+  // One blank row so the list editor never renders empty — the operator types
+  // a nickname into it and presses resolve.
+  finalmask_xmc_profiles: [
+    { username: '', uuid: '', textures_value: '', textures_signature: '' },
+  ],
   // Sockopt off by default — empty trusted list + null keepalive + no
   // mptcp means `buildSockopt` returns an all-empty SocketOpt, the
   // backend's `is_active` skips it, and xray gets no sockopt block.

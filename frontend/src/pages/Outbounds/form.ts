@@ -195,6 +195,10 @@ export const OUTBOUND_DEFAULTS: OutboundFormValues = {
   // Clone the item objects so the two forms don't share array/object refs.
   finalmask_noise_items: INB_DEFAULTS.finalmask_noise_items.map((it) => ({ ...it })),
   finalmask_salamander_password: INB_DEFAULTS.finalmask_salamander_password,
+  finalmask_xmc_hostname: INB_DEFAULTS.finalmask_xmc_hostname,
+  finalmask_xmc_password: INB_DEFAULTS.finalmask_xmc_password,
+  // Cloned for the same reason as the noise items above.
+  finalmask_xmc_profiles: INB_DEFAULTS.finalmask_xmc_profiles.map((p) => ({ ...p })),
 };
 
 /** The XHTTP knobs the outbound form does NOT expose — the tuning/sizing
