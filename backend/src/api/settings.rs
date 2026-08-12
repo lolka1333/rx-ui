@@ -112,7 +112,7 @@ pub async fn load_panel_settings(db: &crate::db::DbPool) -> AppResult<PanelSetti
     let xray_custom_rules =
         serde_json::from_str::<Vec<RoutingRule>>(&row.xray_custom_rules).unwrap_or_default();
     Ok(PanelSettings {
-        panel_port: i32::try_from(row.panel_port).unwrap_or(8080),
+        panel_port: i32::try_from(row.panel_port).unwrap_or_else(|_| i32::from(DEFAULT_PANEL_PORT)),
         panel_base_path: row.panel_base_path,
         sub_enabled: row.sub_enabled != 0,
         sub_host_override: row.sub_host_override,
@@ -1430,6 +1430,10 @@ async fn restart_panel(_user: AuthUser) -> StatusCode {
 /// lock the operator out — they can at least bring the panel up on
 /// the default port and fix it through the UI. `sub_port` is an i32
 /// (not u16) so caller can detect / log the out-of-range case.
+/// The port migration 0019 seeds the settings row with. Boot treats a stored
+/// value equal to this as "the operator never chose one" — see `main`.
+pub const DEFAULT_PANEL_PORT: u16 = 8080;
+
 pub async fn load_for_boot(db: &crate::db::DbPool) -> (Option<u16>, String, i32) {
     let row = sqlx::query!(
         "SELECT panel_port, panel_base_path, sub_port FROM panel_settings WHERE id = 1"
@@ -1440,9 +1444,9 @@ pub async fn load_for_boot(db: &crate::db::DbPool) -> (Option<u16>, String, i32)
     .flatten();
     match row {
         Some(r) => {
-            // `None` means "no stored preference", NOT "8080". Collapsing the
-            // two made a saved 8080 indistinguishable from a missing row, so
-            // `PANEL_PORT` silently won over an explicit choice made in the UI.
+            // `None` here means "no settings row at all", which is a different
+            // thing from "the row holds 8080" — the caller decides what to do
+            // with the latter.
             let port = u16::try_from(r.panel_port).ok();
             let sub_port = i32::try_from(r.sub_port).unwrap_or(0);
             (port, r.panel_base_path, sub_port)

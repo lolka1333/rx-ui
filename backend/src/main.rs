@@ -183,23 +183,29 @@ async fn main() -> anyhow::Result<()> {
     // a system-wide xray (e.g. /usr/local/bin/xray managed by systemd).
     let (xray_binary, xray_config) = resolve_xray_paths();
     let host = std::env::var("PANEL_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
-    // `PANEL_PORT` covers the first ever start, before a settings row exists.
-    // From the second start on, the stored value wins — that is what makes the
-    // port editable from the UI without touching files on disk.
     let env_port: u16 = std::env::var("PANEL_PORT")
         .ok()
         .and_then(|s| u16::from_str(&s).ok())
-        .unwrap_or(8080);
+        .unwrap_or(api::settings::DEFAULT_PANEL_PORT);
 
     let db = db::init_pool(&database_url).await?;
     bootstrap_admin(&db).await?;
 
-    // Read DB-stored runtime settings (panel port + URL prefix +
-    // optional sub-port). Falls back to env-derived port and empty
-    // prefix if the row is missing or malformed —
-    // see `settings::load_for_boot`.
+    // Read DB-stored runtime settings (panel port + URL prefix + optional
+    // sub-port); see `settings::load_for_boot`.
     let (db_port, base_path, db_sub_port) = api::settings::load_for_boot(&db).await;
-    let port = db_port.unwrap_or(env_port);
+    // A stored port wins so the operator can move the panel from the UI without
+    // editing files — EXCEPT while it still holds the schema default. The
+    // settings row is seeded by migration 0019 (`panel_port INTEGER NOT NULL
+    // DEFAULT 8080` + an immediate INSERT), so "8080" is indistinguishable from
+    // "never chosen", and treating the row's existence as a choice would make
+    // `PANEL_PORT` dead on every install. The cost is the one collision an
+    // operator can hit deliberately: picking 8080 in the UI *and* setting
+    // `PANEL_PORT` to something else hands the env value the port.
+    let port = match db_port {
+        Some(p) if p != api::settings::DEFAULT_PANEL_PORT => p,
+        _ => env_port,
+    };
 
     let state = AppState {
         db,
