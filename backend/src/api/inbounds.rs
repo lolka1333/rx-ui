@@ -140,11 +140,15 @@ pub struct Row {
 /// Every enabled inbound, as raw rows. Shared with the boot reconciler so the
 /// column list lives in one place.
 pub async fn load_enabled_inbound_rows(db: &crate::db::DbPool) -> AppResult<Vec<Row>> {
-    Ok(sqlx::query_as::<_, Row>(
-        r"SELECT id, tag, enabled, listen, port,
-                 protocol_config, transport_config, security_config, sniffing_config,
-                 finalmask_config, sockopt_config, created_at, updated_at
-          FROM inbounds WHERE enabled = 1",
+    // `query_as!`, like `read_row` below: the macro checks the column list and
+    // the types against the schema at compile time. The runtime form would
+    // turn a renamed column into a 500 at boot instead of a build error.
+    Ok(sqlx::query_as!(
+        Row,
+        r#"SELECT id, tag, enabled, listen, port,
+                  protocol_config, transport_config, security_config, sniffing_config,
+                  finalmask_config, sockopt_config, created_at, updated_at
+           FROM inbounds WHERE enabled = 1"#
     )
     .fetch_all(db)
     .await?)
@@ -192,9 +196,12 @@ pub fn row_to_inbound(r: Row) -> AppResult<Inbound> {
 // Validation
 // =============================================================================
 
-/// `FinalMask` cross-checks against the chosen security layer. Split out of
-/// `validate_layers` to keep that function readable.
-fn validate_finalmask(
+/// `FinalMask` cross-checks against the transport and the security layer.
+/// Split out of `validate_layers` to keep that function readable, and shared
+/// with `api::outbounds`: both write paths feed the SAME xray process, so a
+/// combination that is inert or fatal on one side is inert or fatal on the
+/// other. The caller supplies its own error prefix.
+pub fn validate_finalmask(
     transport: &TransportConfig,
     security: &SecurityConfig,
     finalmask: &FinalMask,
@@ -731,9 +738,12 @@ async fn create(
     validate_layers(&protocol, &transport, &security, &finalmask, true)?;
     ensure_port_free(&state.db, port, None).await?;
     complete_server_managed_fields(&state, &mut protocol, &mut security).await?;
+    // A derivation failure is the server's problem (missing binary, a core too
+    // old to know `xmc`, a wedged `convert pb`), not bad input — and `Internal`
+    // now renders its whole cause chain, so the operator sees what xray said.
     crate::xray::xmc::complete_finalmask(&state.xray.binary, &mut finalmask)
         .await
-        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+        .map_err(AppError::Internal)?;
 
     let id = Uuid::new_v4().to_string();
     let listen = listen.unwrap_or_else(|| "0.0.0.0".to_owned());
@@ -838,7 +848,7 @@ async fn update(
     if let Some(finalmask) = body.finalmask.as_mut() {
         crate::xray::xmc::complete_finalmask(&state.xray.binary, finalmask)
             .await
-            .map_err(|e| AppError::BadRequest(e.to_string()))?;
+            .map_err(AppError::Internal)?;
     }
 
     // Validate the post-change combination *before* hitting the DB so
@@ -849,14 +859,19 @@ async fn update(
     let next_transport = body.transport.as_ref().unwrap_or(&before.transport);
     let next_security = body.security.as_ref().unwrap_or(&before.security);
     let next_finalmask = body.finalmask.as_ref().unwrap_or(&before.finalmask);
-    // The matrix applies only to a mask the operator is actually submitting.
-    // Carrying a stored one forward must not 400 a `{enabled: false}` PATCH.
+    // The matrix judges the combination whenever the operator submits any part
+    // of it — the mask itself, or the transport / security it is keyed on.
+    // Moving an inbound to a transport that cannot run its stored mask is a
+    // choice being made now, not a legacy row riding along, and leaving it
+    // unchecked would strand a mask the create path refuses outright. A PATCH
+    // that touches none of the three (the `{enabled: false}` toggle, a rename,
+    // a port change) still carries the stored mask through untouched.
     validate_layers(
         next_protocol,
         next_transport,
         next_security,
         next_finalmask,
-        body.finalmask.is_some(),
+        body.finalmask.is_some() || body.transport.is_some() || body.security.is_some(),
     )?;
     let next_sniffing = body.sniffing.as_ref().unwrap_or(&before.sniffing);
     crate::xray::orchestrator::validate_sniffing(next_sniffing)

@@ -155,7 +155,11 @@ async fn replace(
     State(state): State<AppState>,
     Json(mut body): Json<Vec<CustomOutbound>>,
 ) -> AppResult<StatusCode> {
-    validate_outbounds(&body)?;
+    // The stored list is read once: it tells a newly chosen mask from one that
+    // is only riding along in the full-array PUT, and its tags are the ones to
+    // drop from xray before re-adding.
+    let previous = load_custom_outbounds(&state.db).await?;
+    validate_outbounds(&body, &previous)?;
 
     // Derive the server-side half of any mask that has one (today: XMC's RSA
     // keypair) before anything is built or stored. The outbound is a client,
@@ -163,9 +167,11 @@ async fn replace(
     // handler would be built with no mask at all and dial out bare while the
     // form shows one configured.
     for o in &mut body {
+        // Server-side failure, not bad input — kept as `Internal` so the whole
+        // cause chain reaches the operator (see `error.rs`).
         crate::xray::xmc::complete_finalmask(&state.xray.binary, &mut o.finalmask)
             .await
-            .map_err(|e| AppError::BadRequest(format!("outbound '{}': {e}", o.tag)))?;
+            .map_err(|e| AppError::Internal(e.context(format!("outbound '{}'", o.tag))))?;
     }
 
     // Build every enabled handler up front: a malformed config (bad reality
@@ -181,11 +187,7 @@ async fn replace(
         .collect::<AppResult<Vec<_>>>()?;
 
     // Tags currently in xray (from the previous save) — removed before re-add.
-    let old_tags: Vec<String> = load_custom_outbounds(&state.db)
-        .await?
-        .into_iter()
-        .map(|o| o.tag)
-        .collect();
+    let old_tags: Vec<String> = previous.into_iter().map(|o| o.tag).collect();
 
     let json = serde_json::to_string(&body).map_err(|e| AppError::Internal(e.into()))?;
     sqlx::query!(
@@ -258,7 +260,41 @@ pub async fn reconcile_outbounds_with_xray(state: &AppState) -> anyhow::Result<(
 
 /// Validate tags: non-empty, no reserved collisions, no whitespace/control
 /// chars (tags are addressed by exact string from routing rules), unique.
-fn validate_outbounds(outbounds: &[CustomOutbound]) -> AppResult<()> {
+/// Re-prefix a validation error with the outbound it came from. The shared
+/// validators speak about "the mask", not about which row carries it, and the
+/// whole array is submitted at once.
+fn prefix_error(tag: &str, e: AppError) -> AppError {
+    match e {
+        AppError::BadRequest(m) => AppError::BadRequest(format!("outbound '{tag}': {m}")),
+        other => other,
+    }
+}
+
+/// The mask as the operator sees it: the server-derived key material is
+/// stripped, so a mask carried over from the stored list compares equal
+/// whether or not the form echoed the keys back.
+fn mask_fingerprint(fm: &crate::transports::finalmask::FinalMask) -> String {
+    let mut fm = fm.clone();
+    if let crate::transports::finalmask::FinalMask::Xmc(p) = &mut fm {
+        p.rsa_private_key.clear();
+        p.rsa_public_key.clear();
+    }
+    serde_json::to_string(&fm).unwrap_or_default()
+}
+
+/// Is this outbound's mask something the operator is submitting anew, rather
+/// than a stored value riding along in the full-array PUT?
+fn mask_is_new(o: &CustomOutbound, previous: &[CustomOutbound]) -> bool {
+    previous
+        .iter()
+        .find(|p| p.id == o.id)
+        .is_none_or(|p| mask_fingerprint(&p.finalmask) != mask_fingerprint(&o.finalmask))
+}
+
+/// `previous` is the stored list, used only to tell a freshly chosen mask from
+/// one that was already there — rules added after a row was written must not
+/// turn every later save of the whole array into a 400.
+fn validate_outbounds(outbounds: &[CustomOutbound], previous: &[CustomOutbound]) -> AppResult<()> {
     if outbounds.len() > MAX_OUTBOUNDS {
         return Err(AppError::BadRequest(format!(
             "too many outbounds (max {MAX_OUTBOUNDS})"
@@ -274,44 +310,22 @@ fn validate_outbounds(outbounds: &[CustomOutbound]) -> AppResult<()> {
                 "duplicate outbound tag '{tag}'"
             )));
         }
-        // A noise FinalMask rides outbounds too, and feeds the SAME xray as the
-        // inbounds — an out-of-range value crash-loops the whole process, so the
-        // outbound write path must run the identical per-item validation.
-        o.finalmask
-            .validate_noise()
-            .map_err(|e| AppError::BadRequest(format!("outbound '{tag}': {e}")))?;
-        // Same reasoning one level up: the mask the panel dials out with has to
-        // be one this transport actually runs, or the outbound goes out bare
-        // while the form shows it configured. Judged by `is_configured` because
-        // the keys are derived after this, exactly as on the inbound path.
-        if o.finalmask.is_configured() {
-            let allowed = crate::transports::finalmask::supported_kinds(
-                o.transport.as_transport().kind(),
-                o.security.as_security().kind(),
-            );
-            if !allowed.contains(&o.finalmask.kind()) {
-                return Err(AppError::BadRequest(format!(
-                    "outbound '{tag}': FinalMask '{}' does not work with transport '{}' and \
-                     security '{}' — xray would build it and never apply it. Supported here: {}.",
-                    o.finalmask.kind(),
-                    o.transport.as_transport().kind().as_db_str(),
-                    o.security.as_security().kind().as_db_str(),
-                    if allowed.is_empty() {
-                        "none".to_owned()
-                    } else {
-                        allowed.join(", ")
-                    },
-                )));
-            }
-        }
-        // XMC's own invariants (password length, at least one profile, parseable
-        // UUIDs). Without this an outbound could store a profile whose UUID
-        // fails to parse, and `to_typed_message` would quietly send 16 zero
-        // bytes for it.
-        if let crate::transports::finalmask::FinalMask::Xmc(p) = &o.finalmask {
-            p.validate()
-                .map_err(|e| AppError::BadRequest(format!("outbound '{tag}': {e}")))?;
-        }
+        // The masks ride outbounds too and feed the SAME xray process as the
+        // inbounds, so they go through the inbound validator rather than a
+        // second copy of it: an out-of-range noise value crash-loops xray, a
+        // mask outside the transport's matrix dials out bare while the form
+        // shows it configured, and Reality over a mask with no `CloseWrite`
+        // panics the process. `check_matrix` is off for a mask carried over
+        // from the stored list untouched — the whole outbound array is
+        // re-submitted on every save, so judging a pre-existing mask would let
+        // one legacy entry block every unrelated outbound write.
+        crate::api::inbounds::validate_finalmask(
+            &o.transport,
+            &o.security,
+            &o.finalmask,
+            mask_is_new(o, previous),
+        )
+        .map_err(|e| prefix_error(tag, e))?;
         // Hysteria 2 is a QUIC proxy where the protocol and transport are one
         // and the same, so they must be paired — and the connection needs a
         // password, carried on the transport (where xray's dialer reads it).

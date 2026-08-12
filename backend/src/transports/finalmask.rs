@@ -505,9 +505,6 @@ impl FinalMask {
         }
     }
 
-    /// True when this variant should be wired into xray's stream config.
-    /// `None` is always skipped; parameterised variants check their
-    /// "required" field so an empty draft form doesn't break xray startup.
     /// "The operator picked this mask", judged only by what a form can send.
     ///
     /// Differs from [`Self::is_active`] for XMC alone, and the difference is
@@ -915,6 +912,71 @@ mod tests {
     use crate::xray::proto::xray::transport::internet::finalmask as fm;
     use prost::Message as _;
 
+    /// Which socket each mask is wrapped around is the whole point of the
+    /// variant, and getting it wrong is silent: the mask builds, the inbound
+    /// starts, and nothing ever calls it. `scope()` was lifted out of
+    /// `to_typed_message`, so this pins the mapping and the `masks()` routing
+    /// that reads it — server side and client side.
+    #[test]
+    fn every_variant_lands_on_the_socket_it_belongs_to() {
+        let sudoku = FinalMask::Sudoku(SudokuParams {
+            password: "p".to_owned(),
+            ..SudokuParams::default()
+        });
+        let fragment = FinalMask::Fragment(FragmentParams {
+            packets_from: Some(0),
+            packets_to: Some(1),
+            lengths_min: vec![40],
+            lengths_max: vec![80],
+            ..FragmentParams::default()
+        });
+        let noise = FinalMask::Noise(NoiseParams {
+            items: vec![NoiseItem {
+                rand_min: Some(1),
+                rand_max: Some(2),
+                ..NoiseItem::default()
+            }],
+            ..NoiseParams::default()
+        });
+        let salamander = FinalMask::Salamander(SalamanderParams {
+            password: "p".to_owned(),
+        });
+        let xmc = FinalMask::Xmc(XmcParams {
+            hostname: "mc.example.com".to_owned(),
+            password: "p".to_owned(),
+            profiles: vec![XmcProfile {
+                username: "Notch".to_owned(),
+                uuid: "069a79f4-44e9-4726-a5be-fca90e38aaf5".to_owned(),
+                textures_value: "dmFsdWU=".to_owned(),
+                textures_signature: "c2ln".to_owned(),
+            }],
+            rsa_private_key: "AA==".to_owned(),
+            rsa_public_key: "AA==".to_owned(),
+        });
+
+        // (mask, scope, server-side (tcp, udp), client-side (tcp, udp))
+        let table = [
+            (&sudoku, FinalMaskScope::Both, (1, 1), (1, 1)),
+            (&fragment, FinalMaskScope::TcpClientOnly, (0, 0), (1, 0)),
+            (&noise, FinalMaskScope::Udp, (0, 1), (0, 1)),
+            (&salamander, FinalMaskScope::Udp, (0, 1), (0, 1)),
+            (&xmc, FinalMaskScope::Tcp, (1, 0), (1, 0)),
+        ];
+        for (mask, scope, server, client) in table {
+            let kind = mask.kind();
+            assert!(mask.is_active(), "{kind} fixture must be active");
+            assert_eq!(mask.scope(), scope, "{kind} scope");
+            let (tcp, udp) = mask.masks(false);
+            assert_eq!((tcp.len(), udp.len()), server, "{kind} server-side slots");
+            let (tcp, udp) = mask.masks(true);
+            assert_eq!((tcp.len(), udp.len()), client, "{kind} client-side slots");
+        }
+
+        // No mask at all fills neither slot, whatever `scope()` reports for it.
+        assert_eq!(FinalMask::None.masks(false), (Vec::new(), Vec::new()));
+        assert_eq!(FinalMask::None.masks(true), (Vec::new(), Vec::new()));
+    }
+
     /// The server-side noise proto must carry the full 0..255 byte-value
     /// range (xray's conf default), not the proto's 0..0 — otherwise the
     /// server's "random" prefix is all zeros, which is both a fingerprint
@@ -1032,8 +1094,9 @@ mod tests {
     }
 
     /// Regression: a legacy blob deserialized on the config-gen reconcile path
-    /// (`main.rs::hydrate_inbound_row`, which also goes through
-    /// `serde_json::from_str`) must be ACTIVE and emit a UDP mask — otherwise a
+    /// (`api::inbounds::row_to_inbound`, which the boot reconciler shares and
+    /// which also goes through `serde_json::from_str`) must be ACTIVE and emit
+    /// a UDP mask — otherwise a
     /// pre-upgrade noise inbound would be silently pushed to xray with no mask
     /// on every boot/restart. Folding lives in `Deserialize`, so this holds on
     /// every read path without a per-call-site `normalize()`.
