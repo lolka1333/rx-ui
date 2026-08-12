@@ -47,7 +47,7 @@ import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/api/client';
 import { apiErrorMessage } from '@/api/errors';
 import { useAuth } from '@/stores/auth';
-import { useNav, type SettingsSection } from '@/stores/nav';
+import { useNav, SETTINGS_SECTIONS, type SettingsSection } from '@/stores/nav';
 import { setLocaleAndReload, useLocale } from '@/stores/locale';
 import { LOCALES } from '@/i18n';
 import type { PanelSettings, RoutingRule } from '@/api/types';
@@ -195,6 +195,30 @@ function useSectionDirtyPublish<V>({
  * switching categories (and navigating away and back). Rendered
  * always-mounted by AdminApp, revealed when `current` is a `settings-*` page.
  */
+/** Tab order of the Xray page, for the lean below. Module-level so the hook's
+ *  callback identity is stable. */
+const XRAY_TABS = ['basic', 'routing'] as const;
+
+/**
+ * Which way a tab pane's cascade leans. Stepping to a tab on the right deals
+ * the rows in from the right, stepping left deals them in from the left, so
+ * the motion agrees with the direction the eye has just travelled along the
+ * strip. Deliberately two states and not three: the first render, and an
+ * arrival from the sidebar, keep whatever lean was last used rather than
+ * inventing one — a neutral third case would only show up as the very first
+ * pane after a reload arriving with no lean while every later one has it.
+ *
+ * `order` must be a stable array (a module constant), not an inline literal.
+ */
+function useTabLean(order: readonly string[]) {
+  const [back, setBack] = useState(false);
+  const lean = useCallback(
+    (from: string, to: string) => setBack(order.indexOf(to) < order.indexOf(from)),
+    [order],
+  );
+  return [`app-settings-tabs${back ? ' app-tabs-back' : ''}`, lean] as const;
+}
+
 export function Settings({ section }: { section: SectionKey }) {
   const { t } = useTranslation();
   const setCurrent = useNav((s) => s.setCurrent);
@@ -296,6 +320,8 @@ export function Settings({ section }: { section: SectionKey }) {
   const isXray = section === 'xray';
   const panelTab: SettingsSection = isXray ? 'account' : section;
 
+  const [tabsClass, lean] = useTabLean(SETTINGS_SECTIONS);
+
   // Nothing until the first payload lands — same contract as the other pages:
   // no skeleton flash, and `app-content-reveal` fades the real content in once
   // there is something to show. A refetch keeps the current content on screen.
@@ -320,9 +346,12 @@ export function Settings({ section }: { section: SectionKey }) {
           another page (the wrapper's display flip restarts descendants too). */}
       <div className="app-page-fade" style={{ display: isXray ? 'none' : 'block' }}>
         <Tabs
-          className="app-settings-tabs"
+          className={tabsClass}
           activeKey={panelTab}
-          onChange={(k) => setCurrent(`settings-${k as SettingsSection}`)}
+          onChange={(k) => {
+            lean(panelTab, k);
+            setCurrent(`settings-${k as SettingsSection}`);
+          }}
           items={[
             {
               key: 'account',
@@ -1950,6 +1979,8 @@ function XraySection({
   const [dirty, setDirty] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<OutboundTestResult | null>(null);
+  const [xrayTab, setXrayTab] = useState<(typeof XRAY_TABS)[number]>('basic');
+  const [tabsClass, lean] = useTabLean(XRAY_TABS);
 
   const settingsQuery = useQuery<PanelSettings>({
     queryKey: ['panel-settings'],
@@ -2142,8 +2173,12 @@ function XraySection({
           onFinish={(v) => mutation.mutate(v)}
         >
           <Tabs
-            className="xray-tabs app-settings-tabs"
-            defaultActiveKey="basic"
+            className={`xray-tabs ${tabsClass}`}
+            activeKey={xrayTab}
+            onChange={(k) => {
+              lean(xrayTab, k);
+              setXrayTab(k as (typeof XRAY_TABS)[number]);
+            }}
             items={[
               {
                 key: 'basic',

@@ -1035,8 +1035,103 @@ button {
   margin: 0;
   padding: 2px 12px 0;
 }
-.app-settings-tabs > .ant-tabs-nav::before {
-  border-bottom: 1px solid var(--border, #1e2a44) !important;
+/* ====================================================================
+   Tab switch — the pane assembles top to bottom instead of arriving whole.
+   Group heading first, then the group's plate, then its rows one after the
+   other 35ms apart; each row drops 4px and unrolls downwards through a clip,
+   with a small sideways lean in the direction of the step.
+
+   The pane is `.ant-tabs-content`, NOT `.ant-tabs-tabpane`: antd v6 renamed
+   it, and in v5 that name belonged to the holder wrapping all panes — so the
+   old selector silently matches nothing here (checked against the live DOM).
+   Everything replays on each switch for free: inactive panes are
+   `display: none`, and coming back from that restarts a CSS animation.
+
+   `backwards` is what makes the stagger work at all: the fill has to reach
+   back over the delay, or a row would sit fully drawn at its final position
+   for its first 165ms and only then snap back to the start of its own
+   animation — the cascade would run in reverse of what it looks like it does.
+
+   The lean is a variable so both directions read from one rule; the class is
+   put on the Tabs by `useTabLean` in pages/Settings.tsx.
+   ==================================================================== */
+.app-settings-tabs {
+  --tab-lean: 10px;
+  --tab-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.app-settings-tabs.app-tabs-back {
+  --tab-lean: -10px;
+}
+/* The group heading moves first and sets the direction for everything under
+   it. */
+.app-settings-tabs .ant-tabs-content-active .app-settings-fieldgroup-title {
+  animation: app-tab-heading 0.15s var(--tab-ease) backwards;
+}
+/* The plate takes opacity only. Scaling or sliding a filled surface puts its
+   text through a subpixel grid it doesn't sit on, and thin labels go muddy for
+   the duration. */
+.app-settings-tabs .ant-tabs-content-active .app-settings-group {
+  animation: app-tab-plate 0.14s linear backwards;
+}
+.app-settings-tabs .ant-tabs-content-active .app-settings-group > * {
+  animation: app-tab-row 0.15s var(--tab-ease) backwards;
+}
+.app-settings-tabs .ant-tabs-content-active .app-settings-group > *:nth-child(1) {
+  animation-delay: 0.06s;
+}
+.app-settings-tabs .ant-tabs-content-active .app-settings-group > *:nth-child(2) {
+  animation-delay: 0.095s;
+}
+.app-settings-tabs .ant-tabs-content-active .app-settings-group > *:nth-child(3) {
+  animation-delay: 0.13s;
+}
+/* Past the third row the cascade would run out of budget, so the tail arrives
+   together: 165 + 150 = 315ms is the whole switch, and a settings pane is read
+   top-down anyway. */
+.app-settings-tabs .ant-tabs-content-active .app-settings-group > *:nth-child(n + 4) {
+  animation-delay: 0.165s;
+}
+@keyframes app-tab-heading {
+  from {
+    opacity: 0;
+    transform: translate3d(calc(var(--tab-lean) * 0.6), -3px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes app-tab-plate {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+/* Drop and unroll in the same direction, so the row reads as falling into
+   place rather than growing out of nothing. */
+@keyframes app-tab-row {
+  from {
+    opacity: 0;
+    transform: translate3d(var(--tab-lean), -4px, 0);
+    clip-path: inset(0 0 38% 0);
+  }
+  55% {
+    clip-path: inset(0 0 0 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    clip-path: inset(0 0 0 0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-settings-tabs .ant-tabs-content-active .app-settings-fieldgroup-title,
+  .app-settings-tabs .ant-tabs-content-active .app-settings-group,
+  .app-settings-tabs .ant-tabs-content-active .app-settings-group > * {
+    animation: none;
+  }
 }
 .app-settings-tab {
   display: inline-flex;
