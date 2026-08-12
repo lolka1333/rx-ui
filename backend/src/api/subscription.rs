@@ -65,14 +65,25 @@ pub fn generate_token() -> String {
 /// — wrong message to surface to the operator). Three attempts is
 /// vastly more than statistically necessary; if it ever fires, the DB
 /// is in trouble and propagating Internal is the right outcome.
+///
 pub async fn generate_unique_token(db: &SqlitePool) -> AppResult<String> {
+    let mut conn = db.acquire().await?;
+    generate_unique_token_on(&mut conn).await
+}
+
+/// Same, on a connection the caller already holds — the form a transaction
+/// takes. Pulling a second connection out of the pool while a write tx is open
+/// competes with that same small pool for no reason, and under concurrent
+/// writers it waits out the acquire timeout instead of proceeding on the
+/// connection already in hand.
+pub async fn generate_unique_token_on(conn: &mut sqlx::SqliteConnection) -> AppResult<String> {
     for _ in 0..3 {
         let candidate = generate_token();
         let exists = sqlx::query_scalar!(
             "SELECT 1 AS \"exists!: i64\" FROM clients WHERE sub_token = ?",
             candidate
         )
-        .fetch_optional(db)
+        .fetch_optional(&mut *conn)
         .await?
         .is_some();
         if !exists {
@@ -156,7 +167,7 @@ async fn subscription(
     // ORDER BY pins the bundle order across refreshes so the client
     // app's profile list doesn't reshuffle on every poll.
     let raw_rows = sqlx::query!(
-        r#"SELECT id, inbound_id, email, uuid, auth, flow, enabled, note,
+        r#"SELECT id, inbound_id, email, uuid, auth, flow, reverse_tag, enabled, note,
                   traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at,
                   uplink_total, downlink_total
            FROM clients
@@ -177,6 +188,7 @@ async fn subscription(
             uuid: r.uuid,
             auth: r.auth,
             flow: r.flow,
+            reverse_tag: r.reverse_tag,
             enabled: r.enabled != 0,
             note: r.note,
             traffic_limit_bytes: r.traffic_limit_bytes,
@@ -457,6 +469,7 @@ struct SubscriptionRow {
     uuid: String,
     auth: Option<String>,
     flow: Option<String>,
+    reverse_tag: Option<String>,
     enabled: bool,
     note: Option<String>,
     traffic_limit_bytes: Option<i64>,
@@ -480,7 +493,11 @@ impl SubscriptionRow {
             uuid: self.uuid.clone(),
             auth: self.auth.clone(),
             flow: self.flow.clone(),
-            reverse_tag: None,
+            // Carried, not dropped: the per-client share-link endpoint emits
+            // `reverse=` for a portal client, and a bundle that omitted it
+            // would hand the same client two different links. Regular client
+            // apps ignore the unknown key.
+            reverse_tag: self.reverse_tag.clone(),
             enabled: self.enabled,
             note: self.note.clone(),
             traffic_limit_bytes: self.traffic_limit_bytes,

@@ -153,9 +153,20 @@ async fn test_builtin(
 async fn replace(
     _user: AuthUser,
     State(state): State<AppState>,
-    Json(body): Json<Vec<CustomOutbound>>,
+    Json(mut body): Json<Vec<CustomOutbound>>,
 ) -> AppResult<StatusCode> {
     validate_outbounds(&body)?;
+
+    // Derive the server-side half of any mask that has one (today: XMC's RSA
+    // keypair) before anything is built or stored. The outbound is a client,
+    // and xray's XMC client refuses an empty public key — without this the
+    // handler would be built with no mask at all and dial out bare while the
+    // form shows one configured.
+    for o in &mut body {
+        crate::xray::xmc::complete_finalmask(&state.xray.binary, &mut o.finalmask)
+            .await
+            .map_err(|e| AppError::BadRequest(format!("outbound '{}': {e}", o.tag)))?;
+    }
 
     // Build every enabled handler up front: a malformed config (bad reality
     // key, etc.) aborts here with a 400 before we touch the DB or xray.
@@ -269,6 +280,38 @@ fn validate_outbounds(outbounds: &[CustomOutbound]) -> AppResult<()> {
         o.finalmask
             .validate_noise()
             .map_err(|e| AppError::BadRequest(format!("outbound '{tag}': {e}")))?;
+        // Same reasoning one level up: the mask the panel dials out with has to
+        // be one this transport actually runs, or the outbound goes out bare
+        // while the form shows it configured. Judged by `is_configured` because
+        // the keys are derived after this, exactly as on the inbound path.
+        if o.finalmask.is_configured() {
+            let allowed = crate::transports::finalmask::supported_kinds(
+                o.transport.as_transport().kind(),
+                o.security.as_security().kind(),
+            );
+            if !allowed.contains(&o.finalmask.kind()) {
+                return Err(AppError::BadRequest(format!(
+                    "outbound '{tag}': FinalMask '{}' does not work with transport '{}' and \
+                     security '{}' — xray would build it and never apply it. Supported here: {}.",
+                    o.finalmask.kind(),
+                    o.transport.as_transport().kind().as_db_str(),
+                    o.security.as_security().kind().as_db_str(),
+                    if allowed.is_empty() {
+                        "none".to_owned()
+                    } else {
+                        allowed.join(", ")
+                    },
+                )));
+            }
+        }
+        // XMC's own invariants (password length, at least one profile, parseable
+        // UUIDs). Without this an outbound could store a profile whose UUID
+        // fails to parse, and `to_typed_message` would quietly send 16 zero
+        // bytes for it.
+        if let crate::transports::finalmask::FinalMask::Xmc(p) = &o.finalmask {
+            p.validate()
+                .map_err(|e| AppError::BadRequest(format!("outbound '{tag}': {e}")))?;
+        }
         // Hysteria 2 is a QUIC proxy where the protocol and transport are one
         // and the same, so they must be paired — and the connection needs a
         // password, carried on the transport (where xray's dialer reads it).

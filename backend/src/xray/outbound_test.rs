@@ -116,12 +116,14 @@ async fn run(
         ]}
     });
 
-    let cfg_path = std::env::temp_dir().join(format!("rxui-obtest-{}.json", ob.id));
+    // A private, unpredictable directory rather than a name derived from the
+    // outbound id: this lands in a shared temp dir, and a path another local
+    // user can guess is a path they can pre-create as a symlink. The directory
+    // removes itself on drop; the file is still unlinked explicitly on every
+    // exit path below, including a spawn failure.
+    let dir = crate::xray::scratch::ScratchDir::new("obtest")?;
+    let cfg_path = dir.path().join("probe.json");
     tokio::fs::write(&cfg_path, serde_json::to_vec(&cfg)?).await?;
-
-    // The config embeds the upstream's secrets, so it must be removed on EVERY
-    // exit path from here — including a spawn failure, which the old code left
-    // on disk because tear-down was gated behind a successful spawn.
     let spawned = tokio::process::Command::new(binary)
         .arg("run")
         .arg("-config")

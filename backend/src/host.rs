@@ -6,7 +6,9 @@
 //! 100% because it built a new `System` per request.
 //!
 //! We instead keep a single `System` in shared state and refresh it from a
-//! tokio task every 2 seconds. Endpoints read the snapshot with no I/O latency.
+//! tokio task every 2 seconds, so endpoints read CPU/memory straight from the
+//! cache. Disk usage is the exception — it needs no two-sample dance and is
+//! queried inline (see `snapshot`).
 
 use crate::models::SystemStats;
 use std::{
@@ -65,8 +67,9 @@ impl HostMonitor {
     /// need the two-sample dance, and they change rarely enough that polling
     /// them on demand is cheap.
     pub async fn snapshot(&self) -> SystemStats {
-        let sys = self.sys.read().await;
-
+        // Enumerating filesystems is a syscall per mount, so it happens before
+        // the lock is taken — holding the sampler's lock across it would stall
+        // the 2s refresh behind every dashboard poll.
         // Report the filesystem the panel actually lives on: the disk whose
         // mount point is the longest prefix of our working directory (where the
         // DB and data dir sit). This beats a hardcoded mount-name allowlist,
@@ -83,6 +86,7 @@ impl HostMonitor {
                 (d.total_space(), d.total_space() - d.available_space())
             });
 
+        let sys = self.sys.read().await;
         SystemStats {
             cpu_percent: sys.global_cpu_usage(),
             cpu_cores: u32::try_from(sys.cpus().len()).unwrap_or(0),

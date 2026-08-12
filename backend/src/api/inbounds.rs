@@ -32,7 +32,11 @@ use crate::{
         vless::{VlessEncryptionAuth, VlessEncryptionMode, VlessFlow, VlessXorMode},
     },
     security::SecurityConfig,
-    transports::{TransportConfig, finalmask::FinalMask, xhttp::XhttpMode},
+    transports::{
+        TransportConfig,
+        finalmask::{FinalMask, FinalMaskScope},
+        xhttp::XhttpMode,
+    },
     xray::keygen,
 };
 use axum::{
@@ -114,10 +118,12 @@ async fn stats(
 // Row mapping
 // =============================================================================
 
+/// One `inbounds` row, still JSON-encoded. `row_to_inbound` is the only
+/// intended consumer; `tag` is public because the reconciler logs by it.
 #[derive(sqlx::FromRow)]
-struct Row {
+pub struct Row {
     id: String,
-    tag: String,
+    pub tag: String,
     enabled: i64,
     listen: String,
     port: i64,
@@ -131,12 +137,25 @@ struct Row {
     updated_at: String,
 }
 
+/// Every enabled inbound, as raw rows. Shared with the boot reconciler so the
+/// column list lives in one place.
+pub async fn load_enabled_inbound_rows(db: &crate::db::DbPool) -> AppResult<Vec<Row>> {
+    Ok(sqlx::query_as::<_, Row>(
+        r"SELECT id, tag, enabled, listen, port,
+                 protocol_config, transport_config, security_config, sniffing_config,
+                 finalmask_config, sockopt_config, created_at, updated_at
+          FROM inbounds WHERE enabled = 1",
+    )
+    .fetch_all(db)
+    .await?)
+}
+
 /// Decode one DB row into the public `Inbound`. Each JSON column maps
 /// directly into the corresponding tagged-enum field via `serde_json`.
 /// A malformed blob in any layer is surfaced as a 500 — the JSON is
 /// always written by this same code, so a parse failure means DB
 /// corruption or an aborted backfill, not user error.
-fn row_to_inbound(r: Row) -> AppResult<Inbound> {
+pub fn row_to_inbound(r: Row) -> AppResult<Inbound> {
     let protocol = serde_json::from_str(&r.protocol_config)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("protocol_config JSON: {e}")))?;
     let transport = serde_json::from_str(&r.transport_config)
@@ -179,12 +198,26 @@ fn validate_finalmask(
     transport: &TransportConfig,
     security: &SecurityConfig,
     finalmask: &FinalMask,
+    check_matrix: bool,
 ) -> AppResult<()> {
     // A mask outside the matrix is not an error in xray — it builds, the
     // inbound starts, and the mask never runs, because the transport only ever
     // consults the other registry. Refusing it here is the difference between
     // "obfuscation you don't have" and "obfuscation you think you have".
-    if finalmask.is_active() {
+    //
+    // `check_matrix` is off when the caller is carrying a stored mask forward
+    // untouched. Rows predating this rule exist (the form used to offer all
+    // five masks on every transport), and refusing them unconditionally would
+    // mean a PATCH of `{enabled: false}` gets a 400 about a mask the operator
+    // can no longer even see in the dropdown — an inbound that is live and
+    // unmanageable. A mask that silently does nothing is cosmetic; a mask the
+    // operator is actively choosing is not, and that is the case this guards.
+    // The gates below are NOT conditional: they cover crashes, not cosmetics.
+    //
+    // Judged by `is_configured`, not `is_active`: XMC's keys are derived after
+    // this runs on the create path, so `is_active` is false there for every
+    // freshly submitted XMC mask and the whole check would be dead for it.
+    if check_matrix && finalmask.is_configured() {
         let allowed = crate::transports::finalmask::supported_kinds(
             transport.as_transport().kind(),
             security.as_security().kind(),
@@ -208,21 +241,31 @@ fn validate_finalmask(
     // Same trap one level down. XHTTP negotiating HTTP/3 is QUIC underneath:
     // the listener gates the wrapper on `!l.isH3` (`splithttp/hub.go:540`) and
     // the dialer goes through `http3.Transport`, which never calls the
-    // masking dialer at all. `isH3` is decided by ALPN being exactly `h3`.
-    if matches!(finalmask, FinalMask::Xmc(_))
+    // masking dialer at all. `isH3` is decided by ALPN being exactly `h3` —
+    // compared the same way the core compares it, so `["h3","h3"]` (which the
+    // core runs over HTTP/2) is not falsely rejected here.
+    //
+    // Gated by scope rather than by variant: this catches every mask that
+    // lives only in the TCP registry — XMC and Fragment today. Sudoku is
+    // registered in the UDP one as well and keeps masking over h3. Same
+    // severity as the matrix above (silently inert, not fatal), so it carries
+    // the same `check_matrix` escape for stored values.
+    if check_matrix
+        && finalmask.is_configured()
+        && matches!(
+            finalmask.scope(),
+            FinalMaskScope::Tcp | FinalMaskScope::TcpClientOnly
+        )
         && matches!(transport, TransportConfig::Xhttp(_))
         && let SecurityConfig::Tls(tls) = security
-        && tls
-            .alpn
-            .as_ref()
-            .is_some_and(|a| a.iter().all(|p| p == "h3") && !a.is_empty())
+        && tls.alpn.as_deref().is_some_and(|a| a == ["h3"])
     {
-        return Err(AppError::BadRequest(
-            "XMC FinalMask cannot be used with XHTTP over HTTP/3: with ALPN \
+        return Err(AppError::BadRequest(format!(
+            "FinalMask '{}' cannot be used with XHTTP over HTTP/3: with ALPN \
              set to h3 only, xray runs the QUIC path and skips TCP masks on \
-             both ends. Add h2 / http1.1 to ALPN, or choose another transport."
-                .to_owned(),
-        ));
+             both ends. Add h2 / http1.1 to ALPN, or choose another transport.",
+            finalmask.kind(),
+        )));
     }
 
     validate_finalmask_security(security, finalmask)
@@ -349,11 +392,15 @@ fn validate_xhttp_mode(transport: &TransportConfig) -> AppResult<()> {
     Ok(())
 }
 
+/// `check_matrix` decides whether the transport×mask matrix applies. See
+/// `validate_finalmask` — it is off when a stored mask is being carried
+/// forward untouched, so a legacy row stays editable.
 fn validate_layers(
     protocol: &ProtocolConfig,
     transport: &TransportConfig,
     security: &SecurityConfig,
     finalmask: &FinalMask,
+    check_matrix: bool,
 ) -> AppResult<()> {
     // Cross-layer protocol/transport/security compatibility — declared
     // per protocol in `ProtocolConfig::compat`. The validator just
@@ -406,7 +453,7 @@ fn validate_layers(
     // FinalMask compatibility with the transport and the security layer
     // (Reality panics on Sudoku/XMC; XMC needs a TCP path; zero-length
     // fragment) — grouped in `validate_finalmask`.
-    validate_finalmask(transport, security, finalmask)?;
+    validate_finalmask(transport, security, finalmask, check_matrix)?;
 
     // VLESS fallbacks — xray-core rejects two combos at startup:
     //   * `fallbacks` + `decryption != "none"` (VLESS Encryption) — they
@@ -518,40 +565,7 @@ where
 /// Mutates the typed configs in place so the resulting JSON blobs
 /// carry the completed values. Returns Err if the keygen subprocess
 /// fails (the operator sees the underlying message).
-/// Server-derived material inside the `FinalMask`.
-///
-/// Only XMC has any: an RSA-1024 keypair seeded by the password. It is
-/// re-derived on every save rather than kept, so changing the password can
-/// never leave a stale key behind — that failure is invisible in the form and
-/// breaks the handshake for every client at once.
-///
-/// Runs xray's own derivation (`xray convert pb`, see `xray::xmc`) instead of
-/// a second implementation: the client derives its half from the same password
-/// with the same function, and two implementations that agree today are two
-/// that can disagree tomorrow.
-fn complete_finalmask_material(state: &AppState, finalmask: &mut FinalMask) -> AppResult<()> {
-    use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
-
-    let FinalMask::Xmc(p) = finalmask else {
-        return Ok(());
-    };
-    let password = p.password.trim().to_owned();
-    if password.is_empty() {
-        // An empty password is a half-filled form, not a request to derive
-        // from nothing. `is_active` will keep this mask out of the config.
-        p.rsa_private_key.clear();
-        p.rsa_public_key.clear();
-        return Ok(());
-    }
-    let keys = crate::xray::xmc::derive_keypair(&state.xray.binary, &password)
-        .map_err(AppError::Internal)?;
-    p.password = password;
-    p.rsa_private_key = B64.encode(&keys.private_der);
-    p.rsa_public_key = B64.encode(&keys.public_der);
-    Ok(())
-}
-
-fn complete_server_managed_fields(
+async fn complete_server_managed_fields(
     state: &AppState,
     protocol: &mut ProtocolConfig,
     security: &mut SecurityConfig,
@@ -605,6 +619,7 @@ fn complete_server_managed_fields(
                 .is_none_or(String::is_empty);
         if need_gen {
             let kp = keygen::generate_vless_encryption_keypair(&state.xray.binary, auth)
+                .await
                 .map_err(AppError::Internal)?;
             v.encryption_server_key = Some(kp.server_key);
             v.encryption_client_key = Some(kp.client_key);
@@ -713,10 +728,12 @@ async fn create(
 
     let mut finalmask = finalmask.unwrap_or_default();
     let sockopt = sockopt.unwrap_or_default();
-    validate_layers(&protocol, &transport, &security, &finalmask)?;
+    validate_layers(&protocol, &transport, &security, &finalmask, true)?;
     ensure_port_free(&state.db, port, None).await?;
-    complete_server_managed_fields(&state, &mut protocol, &mut security)?;
-    complete_finalmask_material(&state, &mut finalmask)?;
+    complete_server_managed_fields(&state, &mut protocol, &mut security).await?;
+    crate::xray::xmc::complete_finalmask(&state.xray.binary, &mut finalmask)
+        .await
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
     let id = Uuid::new_v4().to_string();
     let listen = listen.unwrap_or_else(|| "0.0.0.0".to_owned());
@@ -819,7 +836,9 @@ async fn update(
     // keys (they are not in the TS type), so an edit that touches nothing but
     // the hostname would otherwise persist a mask with no key at all.
     if let Some(finalmask) = body.finalmask.as_mut() {
-        complete_finalmask_material(&state, finalmask)?;
+        crate::xray::xmc::complete_finalmask(&state.xray.binary, finalmask)
+            .await
+            .map_err(|e| AppError::BadRequest(e.to_string()))?;
     }
 
     // Validate the post-change combination *before* hitting the DB so
@@ -830,7 +849,15 @@ async fn update(
     let next_transport = body.transport.as_ref().unwrap_or(&before.transport);
     let next_security = body.security.as_ref().unwrap_or(&before.security);
     let next_finalmask = body.finalmask.as_ref().unwrap_or(&before.finalmask);
-    validate_layers(next_protocol, next_transport, next_security, next_finalmask)?;
+    // The matrix applies only to a mask the operator is actually submitting.
+    // Carrying a stored one forward must not 400 a `{enabled: false}` PATCH.
+    validate_layers(
+        next_protocol,
+        next_transport,
+        next_security,
+        next_finalmask,
+        body.finalmask.is_some(),
+    )?;
     let next_sniffing = body.sniffing.as_ref().unwrap_or(&before.sniffing);
     crate::xray::orchestrator::validate_sniffing(next_sniffing)
         .map_err(|e| AppError::BadRequest(e.to_string()))?;
@@ -1244,6 +1271,7 @@ async fn regenerate_vless_encryption_keypair(
         .encryption_auth
         .unwrap_or(VlessEncryptionAuth::Mlkem768);
     let kp = keygen::generate_vless_encryption_keypair(&state.xray.binary, auth)
+        .await
         .map_err(AppError::Internal)?;
 
     vless.encryption_mode = VlessEncryptionMode::Mlkem768x25519Plus;
@@ -1377,7 +1405,7 @@ mod validate_layers_tests {
     /// helper so adding a 5th parameter to `validate_layers` is a one-line
     /// edit instead of touching every existing assertion.
     fn vl(p: &ProtocolConfig, t: &TransportConfig, s: &SecurityConfig) -> AppResult<()> {
-        validate_layers(p, t, s, &FinalMask::None)
+        validate_layers(p, t, s, &FinalMask::None, true)
     }
 
     fn vless(flow: VlessFlow) -> ProtocolConfig {
@@ -1647,21 +1675,18 @@ mod validate_layers_tests {
         assert!(err.contains("server_names"), "got: {err}");
     }
 
-    /// Sudoku is a symmetric, stateful cipher that must run server-side, and
-    /// Reality can't wrap its TCP conn — xray panics
-    /// `*sudoku... is not reality.CloseWriteConn`. So Sudoku+Reality stays
-    /// rejected.
-    #[test]
     /// Reality + XMC is the combination that really does kill xray: reality
     /// type-asserts the conn to `CloseWriteConn` unchecked and `xmc.serverConn`
     /// has no `CloseWrite`, so the accept goroutine panics with no recover.
     /// Confirmed by running it — one connection and the process was gone.
+    #[test]
     fn reality_with_xmc_err_kills_xray() {
         let err = validate_layers(
             &vless(VlessFlow::None),
             &TransportConfig::Tcp(TcpTransport {}),
             &reality_ok(),
             &FinalMask::Xmc(XmcParams::default()),
+            true,
         )
         .unwrap_err()
         .to_string();
@@ -1686,6 +1711,7 @@ mod validate_layers_tests {
                 lengths_max: vec![80],
                 ..FragmentParams::default()
             }),
+            true,
         )
         .expect("Fragment + Reality must be allowed (Fragment is client-only)");
     }
@@ -1707,6 +1733,7 @@ mod validate_layers_tests {
                 lengths_max: vec![80],
                 ..FragmentParams::default()
             }),
+            true,
         )
         .unwrap_err()
         .to_string();
@@ -1728,6 +1755,7 @@ mod validate_layers_tests {
                 lengths_max: vec![100],
                 ..FragmentParams::default()
             }),
+            true,
         )
         .unwrap_err()
         .to_string();
@@ -1749,6 +1777,7 @@ mod validate_layers_tests {
                 lengths_max: vec![80],
                 ..FragmentParams::default()
             }),
+            true,
         )
         .unwrap_err()
         .to_string();
@@ -1880,6 +1909,144 @@ mod validate_layers_tests {
                 password: "probe".to_owned(),
                 ..SudokuParams::default()
             }),
+            true,
+        )
+        .unwrap();
+    }
+
+    fn tls_ok() -> SecurityConfig {
+        SecurityConfig::Tls(TlsSecurity::default())
+    }
+
+    fn tls_alpn(alpn: &[&str]) -> SecurityConfig {
+        SecurityConfig::Tls(TlsSecurity {
+            alpn: Some(alpn.iter().map(|s| (*s).to_owned()).collect()),
+            ..TlsSecurity::default()
+        })
+    }
+
+    /// A profile the matrix tests can hand around without caring about it.
+    fn xmc_profile() -> crate::transports::finalmask::XmcProfile {
+        crate::transports::finalmask::XmcProfile {
+            username: "Notch".to_owned(),
+            uuid: "069a79f4-44e9-4726-a5be-fca90e38aaf5".to_owned(),
+            textures_value: "dmFsdWU=".to_owned(),
+            textures_signature: "c2ln".to_owned(),
+        }
+    }
+
+    /// As the form sends it: password and profiles, no derived keys.
+    fn xmc_from_form() -> FinalMask {
+        FinalMask::Xmc(XmcParams {
+            password: "probe".to_owned(),
+            profiles: vec![xmc_profile()],
+            ..XmcParams::default()
+        })
+    }
+
+    /// The matrix has to judge a mask the way the form sends it — without the
+    /// RSA keys, which are derived after validation on the create path. Gating
+    /// on `is_active` instead left this check dead for every new XMC inbound,
+    /// so hysteria2 + XMC returned 201 and quietly listened without the mask.
+    #[test]
+    fn xmc_on_hysteria_rejected_without_derived_keys() {
+        let err = validate_layers(
+            &hysteria2(),
+            &hysteria_transport(),
+            &tls_ok(),
+            &xmc_from_form(),
+            true,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("xmc"), "got: {err}");
+    }
+
+    /// The mirror of the case above: on TCP the same mask is in the matrix.
+    #[test]
+    fn xmc_on_tcp_tls_ok() {
+        validate_layers(
+            &vless(VlessFlow::None),
+            &TransportConfig::Tcp(TcpTransport {}),
+            &tls_ok(),
+            &xmc_from_form(),
+            true,
+        )
+        .unwrap();
+    }
+
+    /// A stored mask carried forward untouched skips the matrix: rows created
+    /// before the rule existed must stay editable, or a `{enabled: false}`
+    /// PATCH 400s about a mask the dropdown no longer even offers.
+    #[test]
+    fn legacy_out_of_matrix_mask_survives_an_untouched_update() {
+        validate_layers(
+            &hysteria2(),
+            &hysteria_transport(),
+            &tls_ok(),
+            &xmc_from_form(),
+            false,
+        )
+        .unwrap();
+    }
+
+    /// A blank draft (kind chosen, nothing filled in) is not a mask yet, so
+    /// the matrix stays quiet about it — gating on "kind != none" instead
+    /// would turn every half-open form section into a 400. Fragment shows this
+    /// on its own; a blank XMC draft is stopped one step earlier, by its own
+    /// field validation ("XMC needs a password").
+    #[test]
+    fn empty_fragment_draft_on_hysteria_passes() {
+        validate_layers(
+            &hysteria2(),
+            &hysteria_transport(),
+            &tls_ok(),
+            &FinalMask::Fragment(FragmentParams::default()),
+            true,
+        )
+        .unwrap();
+    }
+
+    /// XHTTP with ALPN exactly `h3` runs the QUIC path, where TCP-registry
+    /// masks are never consulted. Fragment lives only in that registry, so it
+    /// is refused there just like XMC — the gate is on the scope, not on one
+    /// variant.
+    #[test]
+    fn fragment_on_xhttp_h3_rejected() {
+        let err = validate_layers(
+            &vless(VlessFlow::None),
+            &TransportConfig::Xhttp(XhttpTransport {
+                mode: Some(XhttpMode::Auto),
+                ..XhttpTransport::default()
+            }),
+            &tls_alpn(&["h3"]),
+            &FinalMask::Fragment(FragmentParams {
+                packets_from: Some(0),
+                packets_to: Some(1),
+                lengths_min: vec![40],
+                lengths_max: vec![80],
+                ..FragmentParams::default()
+            }),
+            true,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("HTTP/3"), "got: {err}");
+    }
+
+    /// `["h3","h3"]` is not `["h3"]` to the core — it takes the HTTP/2 path,
+    /// where the mask does run. Refusing it would be a false negative.
+    #[test]
+    fn duplicate_h3_alpn_is_not_h3_only() {
+        validate_layers(
+            &vless(VlessFlow::None),
+            &TransportConfig::Xhttp(XhttpTransport {
+                mode: Some(XhttpMode::Auto),
+                ..XhttpTransport::default()
+            }),
+            &tls_alpn(&["h3", "h3"]),
+            &xmc_from_form(),
+            true,
         )
         .unwrap();
     }
@@ -1891,6 +2058,7 @@ mod validate_layers_tests {
             &TransportConfig::Tcp(TcpTransport {}),
             &reality_ok(),
             &FinalMask::None,
+            true,
         )
         .unwrap();
     }

@@ -110,31 +110,14 @@ pub struct VlessEncryptionKeypair {
 /// We discard everything else (the prefix, the mode, the seconds) —
 /// the panel assembles its own wire string from operator-chosen
 /// `xor_mode/seconds/padding` at proto-build time.
-pub fn generate_vless_encryption_keypair(
+pub async fn generate_vless_encryption_keypair(
     xray_binary: &std::path::Path,
     auth: crate::protocols::vless::VlessEncryptionAuth,
 ) -> anyhow::Result<VlessEncryptionKeypair> {
     use crate::protocols::vless::VlessEncryptionAuth;
 
-    let output = std::process::Command::new(xray_binary)
-        .arg("vlessenc")
-        .output()
-        .map_err(|e| {
-            anyhow::anyhow!(
-                "failed to invoke `{} vlessenc`: {e}. Is xray installed at this path?",
-                xray_binary.display()
-            )
-        })?;
-
-    if !output.status.success() {
-        anyhow::bail!(
-            "`xray vlessenc` exited with status {}: {}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout = crate::xray::cli::run(xray_binary, vec!["vlessenc".to_owned()]).await?;
+    let stdout = String::from_utf8_lossy(&stdout);
 
     // The output has two blocks — one X25519, one ML-KEM-768. We find
     // the right block by its "Authentication:" header line, then pluck
@@ -256,7 +239,7 @@ pub struct EchKeyBundle {
 /// to this hostname when ECH-rejected (handshake without encrypted SNI).
 /// Defaults to `cloudflare-ech.com` to match xray's own default, which
 /// blends in with the largest public ECH-using bucket.
-pub fn generate_ech_server_keys(
+pub async fn generate_ech_server_keys(
     xray_binary: &std::path::Path,
     server_name: Option<&str>,
 ) -> anyhow::Result<EchKeyBundle> {
@@ -265,25 +248,17 @@ pub fn generate_ech_server_keys(
         .filter(|s| !s.is_empty())
         .unwrap_or("cloudflare-ech.com");
 
-    let output = std::process::Command::new(xray_binary)
-        .args(["tls", "ech", "--serverName", server_name])
-        .output()
-        .map_err(|e| {
-            anyhow::anyhow!(
-                "failed to invoke `{} tls ech`: {e}. Is xray installed at this path?",
-                xray_binary.display()
-            )
-        })?;
-
-    if !output.status.success() {
-        anyhow::bail!(
-            "`xray tls ech` exited with status {}: {}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout = crate::xray::cli::run(
+        xray_binary,
+        vec![
+            "tls".to_owned(),
+            "ech".to_owned(),
+            "--serverName".to_owned(),
+            server_name.to_owned(),
+        ],
+    )
+    .await?;
+    let stdout = String::from_utf8_lossy(&stdout);
 
     // Output shape:
     //   ECH config list:

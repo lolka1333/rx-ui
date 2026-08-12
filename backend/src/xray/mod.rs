@@ -1,3 +1,4 @@
+pub mod cli;
 pub mod config_gen;
 pub mod control;
 pub mod grpc;
@@ -8,6 +9,7 @@ pub mod outbound_test;
 pub mod proto;
 pub mod reload;
 pub mod router_rules;
+pub mod scratch;
 pub mod share_link;
 pub mod xmc;
 

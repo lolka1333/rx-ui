@@ -656,7 +656,7 @@ fn validate_optional_host(value: &str, field: &str) -> AppResult<String> {
 /// Returns the trimmed value ready to store. `field` is spliced into the error
 /// messages so the sub-service and xray-test URL validators share one
 /// implementation.
-fn validate_optional_http_url(value: &str, field: &str) -> AppResult<String> {
+pub fn validate_optional_http_url(value: &str, field: &str) -> AppResult<String> {
     let url = value.trim();
     if !url.is_empty() {
         if url.chars().any(char::is_control) {
@@ -1430,7 +1430,7 @@ async fn restart_panel(_user: AuthUser) -> StatusCode {
 /// lock the operator out — they can at least bring the panel up on
 /// the default port and fix it through the UI. `sub_port` is an i32
 /// (not u16) so caller can detect / log the out-of-range case.
-pub async fn load_for_boot(db: &crate::db::DbPool) -> (u16, String, i32) {
+pub async fn load_for_boot(db: &crate::db::DbPool) -> (Option<u16>, String, i32) {
     let row = sqlx::query!(
         "SELECT panel_port, panel_base_path, sub_port FROM panel_settings WHERE id = 1"
     )
@@ -1440,11 +1440,14 @@ pub async fn load_for_boot(db: &crate::db::DbPool) -> (u16, String, i32) {
     .flatten();
     match row {
         Some(r) => {
-            let port = u16::try_from(r.panel_port).unwrap_or(8080);
+            // `None` means "no stored preference", NOT "8080". Collapsing the
+            // two made a saved 8080 indistinguishable from a missing row, so
+            // `PANEL_PORT` silently won over an explicit choice made in the UI.
+            let port = u16::try_from(r.panel_port).ok();
             let sub_port = i32::try_from(r.sub_port).unwrap_or(0);
             (port, r.panel_base_path, sub_port)
         }
-        None => (8080, String::new(), 0),
+        None => (None, String::new(), 0),
     }
 }
 

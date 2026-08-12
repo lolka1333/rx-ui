@@ -78,6 +78,7 @@ async fn vless_encryption(
         }
     };
     let kp = keygen::generate_vless_encryption_keypair(&state.xray.binary, auth)
+        .await
         .map_err(AppError::Internal)?;
     Ok(Json(kp))
 }
@@ -104,6 +105,7 @@ async fn ech(
     Query(q): Query<EchQuery>,
 ) -> AppResult<Json<EchKeyBundle>> {
     let bundle = keygen::generate_ech_server_keys(&state.xray.binary, q.server_name.as_deref())
+        .await
         .map_err(AppError::Internal)?;
     Ok(Json(bundle))
 }

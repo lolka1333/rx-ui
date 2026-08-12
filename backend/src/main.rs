@@ -183,11 +183,9 @@ async fn main() -> anyhow::Result<()> {
     // a system-wide xray (e.g. /usr/local/bin/xray managed by systemd).
     let (xray_binary, xray_config) = resolve_xray_paths();
     let host = std::env::var("PANEL_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
-    // The env var still wins for bootstrap purposes (first ever start,
-    // before any DB row exists) but on second-and-later starts the DB
-    // value loaded just below takes priority. This keeps the existing
-    // env-driven workflow working while giving operators a UI to flip
-    // the port without editing files on disk.
+    // `PANEL_PORT` covers the first ever start, before a settings row exists.
+    // From the second start on, the stored value wins — that is what makes the
+    // port editable from the UI without touching files on disk.
     let env_port: u16 = std::env::var("PANEL_PORT")
         .ok()
         .and_then(|s| u16::from_str(&s).ok())
@@ -201,7 +199,7 @@ async fn main() -> anyhow::Result<()> {
     // prefix if the row is missing or malformed —
     // see `settings::load_for_boot`.
     let (db_port, base_path, db_sub_port) = api::settings::load_for_boot(&db).await;
-    let port = if db_port == 8080 { env_port } else { db_port };
+    let port = db_port.unwrap_or(env_port);
 
     let state = AppState {
         db,
@@ -536,36 +534,23 @@ pub(crate) async fn reconcile_inbounds_with_xray(state: &AppState) -> anyhow::Re
         tracing::info!("xray not running, skipping inbound reconcile until it starts");
         return Ok(());
     }
-    let rows = sqlx::query!(
-        r#"SELECT id, tag, enabled, listen, port,
-                  protocol_config, transport_config, security_config, sniffing_config,
-                  finalmask_config, sockopt_config, created_at, updated_at
-           FROM inbounds WHERE enabled = 1"#
-    )
-    .fetch_all(&state.db)
-    .await?;
+    // Same row shape and same decoder the API reads inbounds through — a new
+    // layer column has one place to be added, not two, and the reconciler
+    // cannot silently start skipping every row because it missed one.
+    let rows = api::inbounds::load_enabled_inbound_rows(&state.db).await?;
 
     let total = rows.len();
     let mut pushed = 0usize;
     for r in rows {
-        // Parse the five typed blobs. Any failure is a per-row skip
-        // with a warning so a single corrupt row can't block the rest.
-        let Some(inb) = hydrate_inbound_row(ReconcileRow {
-            id: &r.id,
-            tag: &r.tag,
-            enabled: r.enabled,
-            listen: r.listen.clone(),
-            port: r.port,
-            protocol_config: &r.protocol_config,
-            transport_config: &r.transport_config,
-            security_config: &r.security_config,
-            sniffing_config: &r.sniffing_config,
-            finalmask_config: &r.finalmask_config,
-            sockopt_config: &r.sockopt_config,
-            created_at: r.created_at.clone(),
-            updated_at: r.updated_at.clone(),
-        }) else {
-            continue;
+        let tag = r.tag.clone();
+        // A corrupt blob is a per-row skip with a warning: one bad row (an
+        // aborted backfill, a crash mid-write) must not stall the rest.
+        let inb = match api::inbounds::row_to_inbound(r) {
+            Ok(inb) => inb,
+            Err(e) => {
+                tracing::warn!("inbound tag={tag} failed to decode, skipping: {e}");
+                continue;
+            }
         };
         // Pull enabled clients in a separate per-inbound query — keeps
         // the reconciliation join-free and lets a client-query failure
@@ -573,14 +558,14 @@ pub(crate) async fn reconcile_inbounds_with_xray(state: &AppState) -> anyhow::Re
         let clients = match crate::api::clients::load_enabled_clients(&state.db, &inb.id).await {
             Ok(v) => v,
             Err(e) => {
-                tracing::warn!("inbound tag={} client query failed, skipping: {e}", r.tag);
+                tracing::warn!("inbound tag={tag} client query failed, skipping: {e}");
                 continue;
             }
         };
         let handler = match xray::orchestrator::inbound_to_handler_config(&inb, &clients) {
             Ok(h) => h,
             Err(e) => {
-                tracing::warn!("inbound tag={} proto build failed, skipping: {e}", r.tag);
+                tracing::warn!("inbound tag={tag} proto build failed, skipping: {e}");
                 continue;
             }
         };
@@ -592,10 +577,10 @@ pub(crate) async fn reconcile_inbounds_with_xray(state: &AppState) -> anyhow::Re
         // xray's state to the current DB regardless of what was there
         // before. The remove is best-effort — a fresh xray instance has
         // nothing to remove.
-        let _ = state.xray_client.remove_inbound(&r.tag).await;
+        let _ = state.xray_client.remove_inbound(&tag).await;
         match state.xray_client.add_inbound(handler).await {
             Ok(()) => pushed += 1,
-            Err(e) => tracing::warn!("inbound tag={} AddInbound failed: {e}", r.tag),
+            Err(e) => tracing::warn!("inbound tag={tag} AddInbound failed: {e}"),
         }
     }
 
@@ -622,64 +607,6 @@ pub(crate) async fn resync_xray_state(state: &AppState) {
     if let Err(e) = crate::api::outbounds::reconcile_outbounds_with_xray(state).await {
         tracing::error!("xray outbound re-sync after restart failed: {e}");
     }
-}
-
-/// Per-row arguments mirror of the `SELECT … FROM inbounds` shape used
-/// by `reconcile_inbounds_with_xray`. Keeps the helper's signature
-/// independent of the anonymous record type `sqlx::query`! generates.
-struct ReconcileRow<'a> {
-    id: &'a str,
-    tag: &'a str,
-    enabled: i64,
-    listen: String,
-    port: i64,
-    protocol_config: &'a str,
-    transport_config: &'a str,
-    security_config: &'a str,
-    sniffing_config: &'a str,
-    finalmask_config: &'a str,
-    sockopt_config: &'a str,
-    created_at: String,
-    updated_at: String,
-}
-
-/// Parse one DB row into a typed `Inbound`. A failed JSON deserialise
-/// returns `None`; the caller logs and skips that row so a single
-/// corrupt blob (e.g. partially-written column from a crash) can't
-/// stall the whole reconciliation.
-fn hydrate_inbound_row(r: ReconcileRow<'_>) -> Option<crate::models::Inbound> {
-    fn parse_json<T: serde::de::DeserializeOwned>(tag: &str, col: &str, raw: &str) -> Option<T> {
-        match serde_json::from_str(raw) {
-            Ok(v) => Some(v),
-            Err(e) => {
-                tracing::warn!("inbound tag={tag} bad {col}, skipping: {e}");
-                None
-            }
-        }
-    }
-    let protocol = parse_json(r.tag, "protocol_config", r.protocol_config)?;
-    let transport = parse_json(r.tag, "transport_config", r.transport_config)?;
-    let security = parse_json(r.tag, "security_config", r.security_config)?;
-    let sniffing = parse_json(r.tag, "sniffing_config", r.sniffing_config)?;
-    let finalmask = parse_json(r.tag, "finalmask_config", r.finalmask_config)?;
-    let sockopt = parse_json(r.tag, "sockopt_config", r.sockopt_config)?;
-    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-    let port = r.port as u16;
-    Some(crate::models::Inbound {
-        id: r.id.to_owned(),
-        tag: r.tag.to_owned(),
-        enabled: r.enabled != 0,
-        listen: r.listen,
-        port,
-        protocol,
-        transport,
-        security,
-        sniffing,
-        finalmask,
-        sockopt,
-        created_at: r.created_at,
-        updated_at: r.updated_at,
-    })
 }
 
 async fn bootstrap_admin(db: &DbPool) -> anyhow::Result<()> {

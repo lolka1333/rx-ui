@@ -27,7 +27,14 @@ struct XrayState {
     child: Option<Child>,
     started_at: Option<DateTime<Utc>>,
     pid: Option<u32>,
+    /// Last `xray version` output, together with the binary fingerprint it was
+    /// read from. See [`XrayController::version`].
+    version: Option<(BinaryStamp, String)>,
 }
+
+/// Size + mtime of the xray binary — enough to notice the installer swapping
+/// it, and a `stat` instead of a process spawn.
+type BinaryStamp = (u64, Option<std::time::SystemTime>);
 
 impl XrayController {
     pub fn new(binary: PathBuf, config_path: PathBuf, logs: LogBuffer) -> Self {
@@ -188,9 +195,30 @@ impl XrayController {
         XrayStatus {
             running,
             pid: if running { pid } else { None },
-            version: self.read_version().await.ok(),
+            version: self.version().await,
             started_at: started_at.map(|d| d.to_rfc3339()),
         }
+    }
+
+    /// The core's version string, read at most once per binary.
+    ///
+    /// `status()` is on `/api/dashboard/overview`, which every page polls every
+    /// few seconds — spawning `xray version` each time is a process fork per
+    /// poll, forever, for a string that only changes when the binary is
+    /// replaced. Keyed by the file's size and mtime so an install or a manual
+    /// swap invalidates it on its own, with no cache to remember to clear.
+    pub async fn version(&self) -> Option<String> {
+        let stamp = std::fs::metadata(&self.binary)
+            .map(|m| (m.len(), m.modified().ok()))
+            .ok()?;
+        if let Some((cached, version)) = &self.state.read().await.version
+            && *cached == stamp
+        {
+            return Some(version.clone());
+        }
+        let version = self.read_version().await.ok()?;
+        self.state.write().await.version = Some((stamp, version.clone()));
+        Some(version)
     }
 
     pub async fn read_version(&self) -> anyhow::Result<String> {

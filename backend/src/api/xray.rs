@@ -212,9 +212,8 @@ async fn restart(
     // Freedom/routing strategy change saved via /api/settings applies on this
     // restart (the live process reloads its config.json on start).
     // A regen failure is almost always the operator's own config — a geosite
-    // code with a typo, a rule xray won't build — so hand back what xray
-    // actually said. `AppError::Internal` renders as the bare word "internal",
-    // which leaves them with no way to find the broken rule.
+    // code with a typo, a rule xray won't build — so it is a 400 with what
+    // xray actually said, not a 500.
     let has_ipv4 = crate::xray::reload::write_bootstrap_config(&state)
         .await
         .map_err(|e| AppError::BadRequest(format!("{e:#}")))?;
@@ -245,14 +244,23 @@ async fn test_outbound(
     /// endpoint and its body is of no use to us.
     const BODY_KEEP: usize = 512;
 
-    let url = req.url.trim();
-    if !(url.starts_with("http://") || url.starts_with("https://")) {
-        return Err(AppError::BadRequest(
-            "test URL must start with http:// or https://".to_owned(),
-        ));
+    // Same validator the settings field uses, so a URL accepted there is
+    // accepted here — a prefix-only check lets `http://a b` through and the
+    // failure then reads as "no egress" rather than "bad URL".
+    let url = crate::api::settings::validate_optional_http_url(&req.url, "test URL")?;
+    // That validator is the "optional field" one — empty is valid there and
+    // means "unset". Here there is nothing to probe without a URL.
+    if url.is_empty() {
+        return Err(AppError::BadRequest("test URL is required".to_owned()));
     }
+    let url = url.as_str();
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
+        // Ignore the machine's HTTP(S)_PROXY env, exactly as the `direct`
+        // outbound probe does: this button answers "does the SERVER reach the
+        // internet", and a system proxy would answer a different question —
+        // and disagree with the Outbounds page about the same server.
+        .no_proxy()
         .build()
         .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
 

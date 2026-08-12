@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, inbound_id, email, uuid, auth, flow, enabled, note,\n                  traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at,\n                  uplink_total, downlink_total\n           FROM clients\n           WHERE email = ?\n           ORDER BY inbound_id, created_at",
+  "query": "SELECT id, inbound_id, email, uuid, auth, flow, reverse_tag, enabled, note,\n                  traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at,\n                  uplink_total, downlink_total\n           FROM clients\n           WHERE email = ?\n           ORDER BY inbound_id, created_at",
   "describe": {
     "columns": [
       {
@@ -70,8 +70,19 @@
         }
       },
       {
-        "name": "enabled",
+        "name": "reverse_tag",
         "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "reverse_tag"
+          }
+        }
+      },
+      {
+        "name": "enabled",
+        "ordinal": 7,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -82,7 +93,7 @@
       },
       {
         "name": "note",
-        "ordinal": 7,
+        "ordinal": 8,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -93,7 +104,7 @@
       },
       {
         "name": "traffic_limit_bytes",
-        "ordinal": 8,
+        "ordinal": 9,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -104,7 +115,7 @@
       },
       {
         "name": "disabled_reason",
-        "ordinal": 9,
+        "ordinal": 10,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -115,7 +126,7 @@
       },
       {
         "name": "expires_at",
-        "ordinal": 10,
+        "ordinal": 11,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -126,7 +137,7 @@
       },
       {
         "name": "sub_token",
-        "ordinal": 11,
+        "ordinal": 12,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -137,7 +148,7 @@
       },
       {
         "name": "created_at",
-        "ordinal": 12,
+        "ordinal": 13,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -148,7 +159,7 @@
       },
       {
         "name": "updated_at",
-        "ordinal": 13,
+        "ordinal": 14,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -159,7 +170,7 @@
       },
       {
         "name": "uplink_total",
-        "ordinal": 14,
+        "ordinal": 15,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -170,7 +181,7 @@
       },
       {
         "name": "downlink_total",
-        "ordinal": 15,
+        "ordinal": 16,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -190,6 +201,7 @@
       false,
       true,
       true,
+      true,
       false,
       true,
       true,
@@ -202,5 +214,5 @@
       false
     ]
   },
-  "hash": "14ae492b44e28ea5aacadeb3effe85464753194cb42646dced9e9e228570e948"
+  "hash": "46e38a4f6e97251c2148ff9dc3b7f9d2e109536e49ad89318f4b3371425e433f"
 }

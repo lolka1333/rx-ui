@@ -89,9 +89,14 @@ impl HysteriaMasquerade {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../frontend/src/api/types/transport.ts")]
 pub struct HysteriaTransport {
-    /// Server-wide auth fallback. Used only when `users[]` is empty on
-    /// the protocol side; the panel prefers per-user auth (Client.auth)
-    /// and leaves this empty.
+    /// The connection password.
+    ///
+    /// On an INBOUND it is a server-wide fallback, used only when `users[]` is
+    /// empty on the protocol side — the panel prefers per-user auth
+    /// (`Client.auth`) and leaves it empty. On an OUTBOUND it is required and
+    /// is where the dialer reads the upstream's password from
+    /// (`orchestrator::outbound_to_handler_config`), which is why the outbound
+    /// validator rejects an empty one.
     pub auth: Option<String>,
     /// UDP session idle timeout in seconds. `None` ≡ upstream default (60s).
     #[ts(type = "number | null")]

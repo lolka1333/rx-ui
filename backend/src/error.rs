@@ -43,13 +43,27 @@ impl IntoResponse for AppError {
             Self::Database(sqlx::Error::RowNotFound) => {
                 (StatusCode::NOT_FOUND, "not found".to_string())
             }
+            // A DB error can carry a query fragment, so it stays opaque to the
+            // client and detailed in the log.
             Self::Database(e) => {
                 tracing::error!("db error: {e:?}");
                 (StatusCode::INTERNAL_SERVER_ERROR, "internal".to_string())
             }
+            // An internal error here is written by this codebase, for this
+            // operator: "saved but not applied to xray: …", "failed to bind
+            // the new listener on port …". Those sentences are the whole
+            // diagnosis, and collapsing them into "internal" is why several
+            // call sites had started returning 400 just to stay readable. The
+            // panel has a single admin who can already read the log, so the
+            // text ships with the 500 — `{:#}` keeps the whole cause chain,
+            // which is where the actual reason usually sits.
+            Self::Internal(e) => {
+                tracing::error!("internal error: {e:?}");
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))
+            }
             other => {
                 tracing::error!("internal error: {other:?}");
-                (StatusCode::INTERNAL_SERVER_ERROR, "internal".to_string())
+                (StatusCode::INTERNAL_SERVER_ERROR, other.to_string())
             }
         };
         (status, Json(json!({ "error": msg }))).into_response()

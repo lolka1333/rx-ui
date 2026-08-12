@@ -20,9 +20,10 @@ use crate::{
     AppState,
     auth::AuthUser,
     error::{AppError, AppResult},
+    transports::finalmask::{XmcProfile, is_valid_mc_username},
 };
 use axum::{Json, Router, extract::Query, routing::get};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::time::Duration;
 
 pub fn routes() -> Router<AppState> {
@@ -32,16 +33,6 @@ pub fn routes() -> Router<AppState> {
 #[derive(Debug, Deserialize)]
 pub struct ProfileQuery {
     pub username: String,
-}
-
-/// Exactly the four fields an `XmcProfile` needs, ready to drop into the form.
-#[derive(Debug, Serialize)]
-pub struct ResolvedProfile {
-    /// Mojang's spelling, which may differ in case from what was typed.
-    pub username: String,
-    pub uuid: String,
-    pub textures_value: String,
-    pub textures_signature: String,
 }
 
 #[derive(Deserialize)]
@@ -64,18 +55,15 @@ struct SessionProperty {
     signature: Option<String>,
 }
 
-async fn profile(
-    _user: AuthUser,
-    Query(q): Query<ProfileQuery>,
-) -> AppResult<Json<ResolvedProfile>> {
+/// Answers with the very type the form stores — `XmcProfile` — so the shape is
+/// declared once and ts-rs exports it once. A second, hand-written mirror of
+/// these four fields would let a rename compile on both sides while the
+/// resolved profile silently arrives half-empty.
+async fn profile(_user: AuthUser, Query(q): Query<ProfileQuery>) -> AppResult<Json<XmcProfile>> {
     let username = q.username.trim();
-    // Same shape xray enforces later; catching it here saves a pointless
-    // round trip to Mojang for something that could never be accepted.
-    if !(3..=16).contains(&username.len())
-        || !username
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_')
-    {
+    // Same rule the mask itself enforces on save; catching it here saves a
+    // pointless round trip to Mojang for something that could never be stored.
+    if !is_valid_mc_username(username) {
         return Err(AppError::BadRequest(
             "Minecraft username must be 3-16 characters of A-Z, a-z, 0-9 or _".to_owned(),
         ));
@@ -153,7 +141,8 @@ async fn profile(
             )
         })?;
 
-    Ok(Json(ResolvedProfile {
+    Ok(Json(XmcProfile {
+        // Mojang's spelling wins — it may differ in case from what was typed.
         username: account.name,
         uuid: hyphenate(&account.id)?,
         textures_value: textures.value,

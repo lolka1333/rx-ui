@@ -427,7 +427,7 @@ async fn commit_bulk_assign_tx(
             applied.push((inbound_id.clone(), true));
         } else {
             let new_id = Uuid::new_v4().to_string();
-            let sub_token = crate::api::subscription::generate_unique_token(&state.db).await?;
+            let sub_token = crate::api::subscription::generate_unique_token_on(&mut tx).await?;
             // Seed the new attachment's lifetime counters from the email's
             // current total (xray accounts per email, so every attachment
             // shares one usage figure). Starting a fresh row at 0 would leave
@@ -573,7 +573,13 @@ async fn sync_xray_applied(
             );
             continue;
         };
-        let inbound = &target_inbounds[inbound_id];
+        // `get`, not `[]`: the invariant that makes indexing safe (the 404
+        // when the id set and the row set disagree) is several hundred lines
+        // away, and the line above already treats a missing row as skippable.
+        let Some(inbound) = target_inbounds.get(inbound_id) else {
+            tracing::warn!("bulk-assign: inbound {inbound_id} vanished post-commit");
+            continue;
+        };
         if inbound.enabled {
             let tag = inbound.tag.clone();
             match inbound.protocol.as_protocol().build_user(&client) {
@@ -1059,6 +1065,15 @@ async fn update(
 /// touched column lands in one dynamic UPDATE via `QueryBuilder`,
 /// guarded by `has_change` so an empty PATCH stays a no-op.
 async fn write_client_update_tx(state: &AppState, id: &str, body: &ClientUpdate) -> AppResult<()> {
+    // Resolved BEFORE the transaction opens: this is a read-only validation
+    // that reads another table through the pool, and doing it mid-transaction
+    // means holding a write tx while waiting on a second connection from the
+    // same small pool.
+    let reverse_tag = match &body.reverse_tag {
+        Some(raw) => Some(normalize_reverse_tag(state, Some(raw)).await?),
+        None => None,
+    };
+
     let mut tx = state.db.begin().await?;
 
     if let Some(raw_email) = &body.email {
@@ -1089,7 +1104,12 @@ async fn write_client_update_tx(state: &AppState, id: &str, body: &ClientUpdate)
     #[allow(clippy::useless_let_if_seq)]
     let mut has_change = false;
     if let Some(uuid) = &body.uuid {
-        qb.push(", uuid = ").push_bind(uuid);
+        // Trimmed for the same reason as `email` above, and because the
+        // validation in `update` parses the TRIMMED value: storing the raw one
+        // would let " <uuid> " pass the check and then land in the VLESS
+        // `Account.id`, where xray cannot parse it — the client is saved and
+        // silently unable to connect.
+        qb.push(", uuid = ").push_bind(uuid.trim());
         has_change = true;
     }
     if let Some(raw_auth) = &body.auth {
@@ -1104,11 +1124,10 @@ async fn write_client_update_tx(state: &AppState, id: &str, body: &ClientUpdate)
         qb.push(", flow = ").push_bind(flow);
         has_change = true;
     }
-    if let Some(raw) = &body.reverse_tag {
+    if let Some(stored) = reverse_tag {
         // Present → set/clear. Empty string clears the tag (back to a normal
-        // VLESS user); a non-empty tag is normalised + validated the same as
-        // the create / bulk-assign paths (reserved / charset / collision).
-        let stored = normalize_reverse_tag(state, Some(raw)).await?;
+        // VLESS user); a non-empty tag was normalised + validated above, the
+        // same as on the create / bulk-assign paths.
         qb.push(", reverse_tag = ").push_bind(stored);
         has_change = true;
     }

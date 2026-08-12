@@ -508,6 +508,25 @@ impl FinalMask {
     /// True when this variant should be wired into xray's stream config.
     /// `None` is always skipped; parameterised variants check their
     /// "required" field so an empty draft form doesn't break xray startup.
+    /// "The operator picked this mask", judged only by what a form can send.
+    ///
+    /// Differs from [`Self::is_active`] for XMC alone, and the difference is
+    /// load-bearing: XMC's keys are derived server-side, so on the create path
+    /// they do not exist yet when the request is validated. A gate written
+    /// against `is_active` is therefore dead for XMC — it let a QUIC inbound
+    /// save a TCP-only mask that would never run, which is the exact failure
+    /// the matrix exists to prevent. Anything that decides "should this be
+    /// checked" must ask this; anything that decides "can this be built" must
+    /// ask `is_active`.
+    pub fn is_configured(&self) -> bool {
+        match self {
+            Self::Xmc(p) => !p.password.trim().is_empty() && !p.profiles.is_empty(),
+            other => other.is_active(),
+        }
+    }
+
+    /// True when this variant has everything it needs to become a mask in the
+    /// running config — operator input AND server-derived material.
     pub fn is_active(&self) -> bool {
         match self {
             Self::None => false,
@@ -534,6 +553,21 @@ impl FinalMask {
         }
     }
 
+    /// Which socket(s) this mask is wrapped around, i.e. which of xray's two
+    /// registries it is loaded from. A property of the variant alone, so it
+    /// can be asked before the mask is filled in — the ALPN gate in
+    /// `api::inbounds` needs exactly that.
+    pub const fn scope(&self) -> FinalMaskScope {
+        match self {
+            Self::Sudoku(_) => FinalMaskScope::Both,
+            Self::Fragment(_) => FinalMaskScope::TcpClientOnly,
+            Self::Xmc(_) => FinalMaskScope::Tcp,
+            // `None` has no socket to wrap; the value is never read for it
+            // (`to_typed_message` bails on inactive masks first).
+            Self::Noise(_) | Self::Salamander(_) | Self::None => FinalMaskScope::Udp,
+        }
+    }
+
     /// Wire-level `TypedMessage` for `StreamConfig.tcpmasks` / `.udpmasks`
     /// paired with the scope the orchestrator should route it to.
     /// Returns `None` for inactive variants — the caller drops both slots.
@@ -545,7 +579,7 @@ impl FinalMask {
         }
         // `is_active` filtered out `Self::None` and the blank-form variants,
         // so by here we have a populated Sudoku / Fragment / Noise.
-        let (bytes, scope) = match self {
+        let bytes = match self {
             Self::Sudoku(p) => {
                 let proto = fm::sudoku::Config {
                     password: p.password.clone(),
@@ -555,7 +589,7 @@ impl FinalMask {
                     padding_max: p.padding_max.unwrap_or(0),
                     custom_tables: p.custom_tables.clone(),
                 };
-                (proto.encode_to_vec(), FinalMaskScope::Both)
+                proto.encode_to_vec()
             }
             Self::Fragment(p) => {
                 let proto = fm::fragment::Config {
@@ -568,7 +602,7 @@ impl FinalMask {
                     max_split_min: p.max_split_min.unwrap_or(0),
                     max_split_max: p.max_split_max.unwrap_or(0),
                 };
-                (proto.encode_to_vec(), FinalMaskScope::TcpClientOnly)
+                proto.encode_to_vec()
             }
             Self::Noise(p) => {
                 // One proto Item per active operator row. A literal packet and
@@ -616,7 +650,7 @@ impl FinalMask {
                     reset_max,
                     items,
                 };
-                (proto.encode_to_vec(), FinalMaskScope::Udp)
+                proto.encode_to_vec()
             }
             Self::Xmc(p) => {
                 use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
@@ -644,13 +678,13 @@ impl FinalMask {
                         })
                         .collect(),
                 };
-                (proto.encode_to_vec(), FinalMaskScope::Tcp)
+                proto.encode_to_vec()
             }
             Self::Salamander(p) => {
                 let proto = fm::salamander::Config {
                     password: p.password.clone(),
                 };
-                (proto.encode_to_vec(), FinalMaskScope::Udp)
+                proto.encode_to_vec()
             }
             Self::None => unreachable!("filtered by is_active above"),
         };
@@ -659,7 +693,7 @@ impl FinalMask {
                 r#type: format!("xray.transport.internet.finalmask.{}.Config", self.kind()),
                 value: bytes,
             },
-            scope,
+            self.scope(),
         ))
     }
 
@@ -711,10 +745,7 @@ impl XmcParams {
         }
         for (i, p) in self.profiles.iter().enumerate() {
             let at = i + 1;
-            let name = p.username.as_bytes();
-            if !(3..=16).contains(&name.len())
-                || !name.iter().all(|b| b.is_ascii_alphanumeric() || *b == b'_')
-            {
+            if !is_valid_mc_username(&p.username) {
                 return Err(format!(
                     "profile {at}: username must be 3-16 characters of A-Z, a-z, 0-9 or _"
                 ));
@@ -781,6 +812,20 @@ pub fn supported_kinds(
     }
 
     kinds
+}
+
+/// The shape xray enforces on a Minecraft username (`^[A-Za-z0-9_]{3,16}$`).
+///
+/// Lives here rather than in each caller because the profile validator and the
+/// Mojang lookup both need it, and two copies of a character class are two
+/// copies that can disagree — the lookup would then accept a name the save
+/// rejects, which reads as "the panel found the account and then refused it".
+pub fn is_valid_mc_username(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    (3..=16).contains(&bytes.len())
+        && bytes
+            .iter()
+            .all(|b| b.is_ascii_alphanumeric() || *b == b'_')
 }
 
 /// Parse a canonical UUID into the 16 raw bytes xray's proto field wants.

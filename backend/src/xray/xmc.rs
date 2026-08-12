@@ -25,8 +25,10 @@
 //! `3a8c4ad5…798d2f`, the value asserted by `TestDeriveRSAKeyGoldenPrivateKey`
 //! in `transport/internet/finalmask/xmc/derivation_test.go`.
 
+use crate::xray::scratch::ScratchDir;
 use anyhow::{Context, bail};
 use serde_json::json;
+use std::ffi::OsStr;
 use std::path::Path;
 
 /// Type URL of the built mask config, as it appears in the protobuf we parse
@@ -47,14 +49,39 @@ pub struct XmcKeypair {
 /// filler that has to pass validation for the build to reach the derivation.
 /// The filler profile uses a syntactically valid username/UUID and single-byte
 /// textures; none of it reaches the returned keys.
-pub fn derive_keypair(xray_binary: &Path, password: &str) -> anyhow::Result<XmcKeypair> {
+/// Runs on a blocking thread with a deadline: `output()` waits for the child,
+/// and an axum handler that waits with it is a tokio worker taken out of
+/// service. On a single-vCPU box that is the whole runtime. The deadline is
+/// belt for the same braces — a wedged child would otherwise hold the request
+/// open forever, and this call sits on the save path of every XMC inbound.
+pub async fn derive_keypair(xray_binary: &Path, password: &str) -> anyhow::Result<XmcKeypair> {
+    let binary = xray_binary.to_path_buf();
+    let password = password.to_owned();
+    // The whole derivation — scratch dir, probe config, subprocess, protobuf
+    // read-back — moves to a blocking thread as one unit, rather than only the
+    // subprocess: the file I/O around it is on the same request path.
+    match tokio::time::timeout(
+        crate::xray::cli::CLI_TIMEOUT,
+        tokio::task::spawn_blocking(move || derive_blocking(&binary, &password)),
+    )
+    .await
+    {
+        Ok(joined) => joined.context("xmc key derivation task failed")?,
+        Err(_) => bail!(
+            "deriving the xmc key did not finish within {}s",
+            crate::xray::cli::CLI_TIMEOUT.as_secs()
+        ),
+    }
+}
+
+fn derive_blocking(xray_binary: &Path, password: &str) -> anyhow::Result<XmcKeypair> {
     if password.is_empty() {
         bail!("xmc password must not be empty");
     }
 
-    let dir = scratch_dir()?;
-    let config_path = dir.0.join("probe.json");
-    let out_path = dir.0.join("probe.pb");
+    let dir = ScratchDir::new("xmc")?;
+    let config_path = dir.path().join("probe.json");
+    let out_path = dir.path().join("probe.pb");
 
     // A minimal config that reaches `XMC.Build`. It never runs: `convert pb`
     // parses and compiles, nothing is listened on.
@@ -84,27 +111,16 @@ pub fn derive_keypair(xray_binary: &Path, password: &str) -> anyhow::Result<XmcK
     std::fs::write(&config_path, serde_json::to_vec(&probe)?)
         .context("write probe config for xmc key derivation")?;
 
-    let output = std::process::Command::new(xray_binary)
-        .arg("convert")
-        .arg("pb")
-        .arg("-outpbfile")
-        .arg(&out_path)
-        .arg(&config_path)
-        .output()
-        .map_err(|e| {
-            anyhow::anyhow!(
-                "failed to invoke `{} convert pb`: {e}. Is xray installed at this path?",
-                xray_binary.display()
-            )
-        })?;
-
-    if !output.status.success() {
-        bail!(
-            "`xray convert pb` exited with status {}: {}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
+    crate::xray::cli::run_blocking(
+        xray_binary,
+        &[
+            OsStr::new("convert"),
+            OsStr::new("pb"),
+            OsStr::new("-outpbfile"),
+            out_path.as_os_str(),
+            config_path.as_os_str(),
+        ],
+    )?;
 
     let compiled = std::fs::read(&out_path).context("read protobuf built by `xray convert pb`")?;
     extract_keypair(&compiled)
@@ -140,32 +156,6 @@ fn extract_keypair(compiled: &[u8]) -> anyhow::Result<XmcKeypair> {
     })
 }
 
-/// A private directory under the system temp dir, removed when dropped.
-///
-/// Not worth a `tempfile` dependency for one call site: the probe holds only
-/// the operator's own password, it lives for the length of one `convert pb`,
-/// and the name is unique per process and instant so two concurrent saves
-/// cannot collide.
-struct ScratchDir(std::path::PathBuf);
-
-impl Drop for ScratchDir {
-    fn drop(&mut self) {
-        // Best-effort: a leftover directory in temp is not worth failing a
-        // save that has otherwise succeeded.
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
-
-fn scratch_dir() -> anyhow::Result<ScratchDir> {
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or_default();
-    let path = std::env::temp_dir().join(format!("rx-xmc-{}-{stamp}", std::process::id()));
-    std::fs::create_dir_all(&path).context("create scratch dir for xmc key derivation")?;
-    Ok(ScratchDir(path))
-}
-
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack
         .windows(needle.len())
@@ -186,27 +176,81 @@ fn varint(buf: &[u8]) -> anyhow::Result<(usize, &[u8])> {
     bail!("malformed varint")
 }
 
-/// Find a length-delimited field by number in a flat message. Every field of
-/// `xmc.Config` we care about is wire type 2; anything else means the shape
-/// changed under us and guessing would be worse than failing.
+/// Find a length-delimited field by number in a flat message.
+///
+/// The two fields we read are wire type 2, but the rest of the message is
+/// skipped by wire type rather than rejected: `xmc.Config` already carries a
+/// `reserved`, the panel lets the operator install any core release, and a
+/// future scalar field next to the keys must not turn every XMC save into an
+/// error. Groups (3/4) are gone from proto3, so meeting one really does mean
+/// the message is not what we think it is.
 fn field(mut buf: &[u8], wanted: u32) -> anyhow::Result<Option<&[u8]>> {
     while !buf.is_empty() {
         let (tag, rest) = varint(buf)?;
         let number = u32::try_from(tag >> 3)?;
         let wire = tag & 7;
-        if wire != 2 {
-            bail!("field {number} of the xmc config is wire type {wire}, expected 2");
-        }
-        let (len, rest) = varint(rest)?;
-        let (value, tail) = rest
-            .split_at_checked(len)
-            .context("field of the xmc config is truncated")?;
-        if number == wanted {
-            return Ok(Some(value));
-        }
-        buf = tail;
+        buf = match wire {
+            0 => varint(rest)?.1,
+            1 | 5 => {
+                let width = if wire == 1 { 8 } else { 4 };
+                rest.split_at_checked(width)
+                    .with_context(|| format!("field {number} of the xmc config is truncated"))?
+                    .1
+            }
+            2 => {
+                let (len, rest) = varint(rest)?;
+                let (value, tail) = rest
+                    .split_at_checked(len)
+                    .with_context(|| format!("field {number} of the xmc config is truncated"))?;
+                if number == wanted {
+                    return Ok(Some(value));
+                }
+                tail
+            }
+            other => bail!("field {number} of the xmc config is wire type {other}"),
+        };
     }
     Ok(None)
+}
+
+/// Fill in the server-derived half of a `FinalMask` before it is stored.
+///
+/// Only XMC has one: an RSA-1024 keypair seeded by the password. Re-derived on
+/// every save rather than carried forward, so a changed password can never
+/// leave a stale key behind — that failure is invisible in the form and breaks
+/// the handshake for every client at once. It also means an upgraded xray
+/// re-syncs the key on the next save instead of pinning whatever the old
+/// binary produced.
+///
+/// Shared by the inbound and outbound write paths on purpose. They feed the
+/// same xray, and the outbound needs the public half just as much: xray's
+/// client refuses an empty `rsaPublicKey`, so an outbound saved without this
+/// dials out with no mask at all while the form shows one configured.
+pub async fn complete_finalmask(
+    xray_binary: &Path,
+    finalmask: &mut crate::transports::finalmask::FinalMask,
+) -> anyhow::Result<()> {
+    use crate::transports::finalmask::FinalMask;
+    use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
+
+    let FinalMask::Xmc(p) = finalmask else {
+        return Ok(());
+    };
+    let password = p.password.trim().to_owned();
+    if password.is_empty() {
+        // Nothing to derive from. Clearing matters even though validation
+        // rejects an empty password on both write paths today: without it a
+        // half-edited mask would carry the previous password's keys into the
+        // row, and the next reader would trust them.
+        p.rsa_private_key.clear();
+        p.rsa_public_key.clear();
+        return Ok(());
+    }
+    let keys = derive_keypair(xray_binary, &password).await?;
+    p.password = password;
+    p.rsa_private_key = B64.encode(&keys.private_der);
+    p.rsa_public_key = B64.encode(&keys.public_der);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -273,7 +317,7 @@ mod tests {
             return;
         }
 
-        let keys = derive_keypair(&binary, "deterministic-rsa-key-golden")
+        let keys = derive_blocking(&binary, "deterministic-rsa-key-golden")
             .expect("derive the golden keypair");
         let digest = Sha256::digest(&keys.private_der)
             .iter()
