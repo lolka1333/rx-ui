@@ -12,14 +12,17 @@
 //! bootstrap clients automatically; old client builds that don't
 //! understand `fm=` will fail to connect — that's intentional.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState, type Key } from 'react';
 import { App, Alert, Button, Form, Input, InputNumber, Select, Typography } from 'antd';
 import type { FormListFieldData } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
-import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/api/client';
 import { apiErrorMessage } from '@/api/errors';
+import {
+  useAllowedFinalMasks,
+  type FinalMaskTransport,
+} from '@/api/finalmaskSupport';
 import type { FinalMask, XmcProfile } from '@/api/types';
 import { InputField, RangePair, Section, SelectField, SideBySide } from '../widgets';
 import type { FormValues, SudokuAscii } from '../form/types';
@@ -45,69 +48,35 @@ const VARIANT_LABEL_KEYS: Record<FinalMask['kind'], string> = {
   xmc: 'inbounds.finalmaskKindXmc',
 };
 
-/** Which masks xray will actually run, keyed transport → security → kinds.
- *
- *  Fetched rather than hardcoded. xray keeps two mask registries and each
- *  transport consults exactly one of them, so a mask offered on the wrong side
- *  is not an error — it builds, the inbound starts, and nothing ever calls it.
- *  The backend already refuses those combinations; asking it what it allows is
- *  how the dropdown and the validator stay the same rule instead of two copies
- *  that drift. */
-type SupportMatrix = Record<string, Record<string, FinalMask['kind'][]>>;
-
-function useFinalMaskSupport() {
-  return useQuery<SupportMatrix>({
-    queryKey: ['finalmask-support'],
-    queryFn: async () =>
-      (await apiClient.get<SupportMatrix>('/inbounds/finalmask-support')).data,
-    // Derived from the xray build, not from anything the operator can change
-    // while the form is open.
-    staleTime: Infinity,
-  });
-}
-
 /** Operator-selectable ASCII modes for Sudoku. `''` (empty) means
  *  "use xray's default" and is the form's resting state. */
 const ASCII_MODES: Exclude<SudokuAscii, ''>[] = ['prefer_entropy', 'prefer_ascii'];
 
 const ASCII_OPTIONS = ASCII_MODES.map((value) => ({ value, label: value }));
 
-export function FinalMaskTab() {
+/** The tab renders the matrix; it does not enforce it. Snapping an
+ *  unsupported value back lives in the forms' guard hooks, which stay mounted
+ *  — antd only mounts a tab pane on its first visit, so a rule living here
+ *  would fire or not depending on which tabs the operator happened to open.
+ *
+ *  `transport` arrives already folded into the backend's vocabulary: the tab
+ *  is shared with the outbound form, whose protocol spellings differ. */
+export function FinalMaskTab({
+  transport,
+  security,
+}: {
+  transport: FinalMaskTransport;
+  security: string;
+}) {
   const { t } = useTranslation();
   const form = Form.useFormInstance<FormValues>();
   const kind = Form.useWatch('finalmask_kind', form);
-  // The form has no single "transport" field: `network` covers the TCP family
-  // and Hysteria arrives as a protocol, taking its QUIC transport with it.
-  // The backend matrix is keyed by the transport, so fold them here.
-  const protocolKind = Form.useWatch('protocol_kind', form);
-  const network = Form.useWatch('network', form);
-  const security = Form.useWatch('security', form);
-  const transport = protocolKind === 'hysteria2' ? 'hysteria' : network;
-  const { data: support } = useFinalMaskSupport();
-
-  // `none` is always offered — it is the absence of a mask, not a mask.
-  const allowed = useMemo<FinalMask['kind'][]>(() => {
-    const kinds = support?.[transport]?.[security];
-    // Until the matrix arrives, show everything rather than an empty list:
-    // a dropdown with one entry would read as "this transport supports
-    // nothing", which is a worse lie than showing too much for a moment.
-    return kinds ? ['none', ...kinds] : (Object.keys(VARIANT_LABEL_KEYS) as FinalMask['kind'][]);
-  }, [support, transport, security]);
+  const { allowed, isPending } = useAllowedFinalMasks(transport, security);
 
   const variantOptions = useMemo(
     () => allowed.map((value) => ({ value, label: t(VARIANT_LABEL_KEYS[value]) })),
     [allowed, t],
   );
-
-  // Changing transport or security can strip the mask that was selected —
-  // switching a TCP inbound to Hysteria takes XMC away with it. Leaving the
-  // old value selected would show an empty tab and then fail on save with a
-  // message about a combination the operator can no longer see.
-  useEffect(() => {
-    if (kind && !allowed.includes(kind)) {
-      form.setFieldValue('finalmask_kind', 'none');
-    }
-  }, [allowed, kind, form]);
 
   return (
     <>
@@ -124,7 +93,7 @@ export function FinalMaskTab() {
         extra={t('inbounds.finalmaskKindScopeHint')}
         style={{ marginBottom: 16 }}
       >
-        <Select options={variantOptions} />
+        <Select options={variantOptions} loading={isPending} disabled={isPending} />
       </Form.Item>
 
       {kind === 'sudoku' && <SudokuFields />}
@@ -134,6 +103,12 @@ export function FinalMaskTab() {
       {kind === 'xmc' && <XmcFields />}
     </>
   );
+}
+
+/** A nickname was typed but the lookup never ran, so the row carries no UUID
+ *  or signature and would be dropped on save. */
+function unresolved(row: XmcProfile | undefined): boolean {
+  return Boolean(row?.username?.trim()) && !row?.uuid;
 }
 
 /** XMC — the inbound pretends to be a vanilla Minecraft server: a real login
@@ -149,30 +124,43 @@ function XmcFields() {
   const { t } = useTranslation();
   const { message } = App.useApp();
   const form = Form.useFormInstance<FormValues>();
-  const [resolving, setResolving] = useState<number | null>(null);
+  // Keyed by the row's stable `key`, not its index: rows are added and removed
+  // while a lookup is in flight, and one shared "which row is busy" number
+  // would clear the wrong spinner.
+  const [resolving, setResolving] = useState<ReadonlySet<Key>>(new Set());
 
-  const resolve = async (index: number) => {
+  const rows = Form.useWatch('finalmask_xmc_profiles', form) as XmcProfile[] | undefined;
+
+  const resolve = async (index: number, key: Key) => {
     const profiles = form.getFieldValue('finalmask_xmc_profiles') as XmcProfile[];
     const username = (profiles[index]?.username ?? '').trim();
     if (!username) {
       message.warning(t('inbounds.finalmaskXmcResolveNeedsName'));
       return;
     }
-    setResolving(index);
+    setResolving((prev) => new Set(prev).add(key));
     try {
       const { data } = await apiClient.get<XmcProfile>('/mojang/profile', {
         params: { username },
       });
-      const next = [...profiles];
+      // Re-read after the await and write one row, never the whole list: a
+      // lookup running next to this one may already have filled another row,
+      // and rewriting the array wholesale would undo it. If the row moved or
+      // was retyped meanwhile, this answer is no longer about it.
+      const current = form.getFieldValue('finalmask_xmc_profiles') as XmcProfile[];
+      if ((current[index]?.username ?? '').trim() !== username) return;
       // Mojang's spelling wins — it may differ in case from what was typed,
       // and the profile has to match the account exactly.
-      next[index] = { ...data };
-      form.setFieldValue('finalmask_xmc_profiles', next);
+      form.setFieldValue(['finalmask_xmc_profiles', index], { ...data });
       message.success(t('inbounds.finalmaskXmcResolved', { name: data.username }));
     } catch (e) {
       message.error(apiErrorMessage(e) ?? t('inbounds.finalmaskXmcResolveFailed'));
     } finally {
-      setResolving(null);
+      setResolving((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
     }
   };
 
@@ -235,8 +223,28 @@ function XmcFields() {
         {t('inbounds.finalmaskXmcProfilesHint')}
       </Typography.Paragraph>
 
-      <Form.List name="finalmask_xmc_profiles">
-        {(fields, { add, remove }) => (
+      {/* A row is only a profile once all four fields are filled — the
+          adapter drops half-filled ones on the way out, and without this the
+          operator would type three nicknames, never press Resolve, and get a
+          toast about having no profiles while three of them sit on screen. */}
+      <Form.List
+        name="finalmask_xmc_profiles"
+        rules={[
+          {
+            validator: (_, rows: XmcProfile[] | undefined) =>
+              (rows ?? []).some(
+                (r) =>
+                  r?.username?.trim() &&
+                  r?.uuid &&
+                  r?.textures_value &&
+                  r?.textures_signature,
+              )
+                ? Promise.resolve()
+                : Promise.reject(new Error(t('inbounds.finalmaskXmcProfilesRequired'))),
+          },
+        ]}
+      >
+        {(fields, { add, remove }, { errors }) => (
           <>
             {fields.map((field: FormListFieldData) => (
               <div
@@ -251,18 +259,26 @@ function XmcFields() {
                 <Form.Item
                   name={[field.name, 'username']}
                   style={{ marginBottom: 0, flex: '0 0 200px' }}
+                  // A typed-but-unresolved row looks finished and is not.
+                  validateStatus={unresolved(rows?.[field.name]) ? 'warning' : undefined}
+                  help={
+                    unresolved(rows?.[field.name])
+                      ? t('inbounds.finalmaskXmcProfileUnresolved')
+                      : undefined
+                  }
                 >
                   <Input
                     placeholder={t('inbounds.finalmaskXmcUsernamePlaceholder')}
                     onPressEnter={(e) => {
                       e.preventDefault();
-                      void resolve(field.name);
+                      void resolve(field.name, field.key);
                     }}
                   />
                 </Form.Item>
                 <Button
-                  onClick={() => void resolve(field.name)}
-                  loading={resolving === field.name}
+                  onClick={() => void resolve(field.name, field.key)}
+                  loading={resolving.has(field.key)}
+                  disabled={resolving.has(field.key)}
                 >
                   {t('inbounds.finalmaskXmcResolve')}
                 </Button>
@@ -298,6 +314,7 @@ function XmcFields() {
             >
               {t('inbounds.finalmaskXmcAddProfile')}
             </Button>
+            <Form.ErrorList errors={errors} />
           </>
         )}
       </Form.List>

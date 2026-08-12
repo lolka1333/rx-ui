@@ -17,6 +17,7 @@
 
 import { useEffect } from 'react';
 import { Form } from 'antd';
+import { useFinalMaskGuard } from '@/api/finalmaskSupport';
 import { HysteriaTab } from '../tabs/HysteriaTab';
 import { VlessEncryption } from '../tabs/VlessEncryption';
 import type {
@@ -53,6 +54,7 @@ export function useProtocolGuards(form: ReturnType<typeof Form.useForm<FormValue
   const network = Form.useWatch('network', form) as FormNetwork | undefined;
   const flow = Form.useWatch('vless_flow', form);
   const security = Form.useWatch('security', form) as FormSecurity | undefined;
+  const finalmaskKind = Form.useWatch('finalmask_kind', form);
 
   useEffect(() => {
     if (!protocol) return;
@@ -80,4 +82,15 @@ export function useProtocolGuards(form: ReturnType<typeof Form.useForm<FormValue
       form.setFieldValue('security', 'tls');
     }
   }, [protocol, network, flow, security, form]);
+
+  // Same idea one layer down: not every FinalMask runs on every transport, and
+  // the one that no longer does has to leave with the transport that carried
+  // it. Kept here rather than in the tab that renders it — this hook is
+  // mounted for the whole life of the form, that tab is not.
+  useFinalMaskGuard(
+    protocol === 'hysteria2' ? 'hysteria' : (network ?? 'tcp'),
+    security ?? 'none',
+    finalmaskKind,
+    () => form.setFieldValue('finalmask_kind', 'none'),
+  );
 }

@@ -743,6 +743,9 @@ export const ru = {
     finalmaskXmcResolveNeedsName: 'Сначала введите ник',
     finalmaskXmcResolveFailed: 'Не удалось получить профиль',
     finalmaskXmcAddProfile: 'Добавить профиль',
+    finalmaskXmcProfilesRequired: 'Добавь хотя бы один профиль и нажми «Найти»',
+    finalmaskXmcProfileUnresolved: 'Нажми «Найти» — строка без UUID при сохранении отбрасывается',
+    finalmaskKindDropped: '{{kind}} не работает на этом транспорте — маска выключена',
     finalmaskSalamanderPasswordRequired: 'Пароль обязателен для salamander',
     finalmaskSudokuSection: 'Sudoku',
     finalmaskSudokuPassword: 'Пароль',
@@ -937,6 +940,8 @@ export const ru = {
     noInboundsYet: 'Сначала создай хотя бы одно подключение на странице «Подключения».',
     copy: 'Скопировать',
     shareLinkLargeQrHint: 'QR плотный — это нормально для пост-квантового ключа. Сканируй с близкого расстояния, или просто скопируй ссылку ниже.',
+    shareLinkTooLongForQr:
+      'Ссылка слишком длинная для QR-кода — скопируй её или дай ссылку на подписку.',
     shareTabLink: 'Ссылка',
     shareTabSub: 'Подписка',
     subHint: 'Один URL → все конфиги этого email. Поддерживается v2rayN, Hiddify, NekoBox, sing-box и Streisand. Клиент автоматически перезабирает обновления раз в 12 часов.',

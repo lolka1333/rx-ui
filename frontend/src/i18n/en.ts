@@ -770,6 +770,9 @@ export const en: Dict = {
     finalmaskXmcResolveNeedsName: 'Enter a nickname first',
     finalmaskXmcResolveFailed: 'Could not fetch the profile',
     finalmaskXmcAddProfile: 'Add profile',
+    finalmaskXmcProfilesRequired: 'Add at least one profile and press Resolve on it',
+    finalmaskXmcProfileUnresolved: 'Press Resolve — a row without a UUID is dropped on save',
+    finalmaskKindDropped: '{{kind}} does not work on this transport — the mask was turned off',
     finalmaskSalamanderPasswordRequired: 'Password is required for salamander',
     finalmaskSudokuSection: 'Sudoku',
     finalmaskSudokuPassword: 'Password',
@@ -939,6 +942,8 @@ export const en: Dict = {
     noInboundsYet: 'Create at least one inbound on the Inbounds page first.',
     copy: 'Copy',
     shareLinkLargeQrHint: 'Dense QR is normal for post-quantum keys. Scan from close range, or just copy the link below.',
+    shareLinkTooLongForQr:
+      'This link is too long to fit in a QR code — copy it or use the subscription URL instead.',
     shareTabLink: 'Link',
     shareTabSub: 'Subscription',
     subHint: 'One URL → every config for this email. Supported by v2rayN, Hiddify, NekoBox, sing-box, and Streisand. Clients auto-refresh every 12 hours.',

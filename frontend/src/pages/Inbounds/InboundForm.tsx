@@ -177,7 +177,16 @@ export const InboundForm = memo(function InboundForm({
       {
         key: 'finalmask',
         label: t('inbounds.tabFinalMask'),
-        children: <FinalMaskTab />,
+        children: (
+          <FinalMaskTab
+            // The form has no single "transport" field: `network` covers the
+            // TCP family, and Hysteria arrives as a protocol carrying its QUIC
+            // transport with it. Fold them into the backend's vocabulary here,
+            // where both fields are already at hand.
+            transport={watchedProtocol === 'hysteria2' ? 'hysteria' : (watchedNetwork ?? 'tcp')}
+            security={watchedSecurity ?? 'none'}
+          />
+        ),
       },
     ];
   }, [

@@ -18,6 +18,7 @@
  * 2-5, and shows a searchable Select for 6+.
  */
 import {
+  Alert,
   Button,
   Form,
   Input,
@@ -178,6 +179,17 @@ interface ClientFormValues {
 }
 
 type TrafficUnit = 'MB' | 'GB' | 'TB';
+
+/** Byte-mode capacity of the largest QR (version 40) at error-correction
+ *  level L is 2953 bytes. Kept a little under it: the encoder throws on
+ *  overflow, and it throws from render. */
+const QR_MAX_BYTES = 2900;
+
+/** QR byte-mode counts bytes, not code points — links carry percent-encoded
+ *  UTF-8 and a `#name` fragment that need not be ASCII. */
+function qrBytes(link: string): number {
+  return new TextEncoder().encode(link).length;
+}
 
 const TRAFFIC_UNIT_BYTES: Record<TrafficUnit, number> = {
   MB: 1024 ** 2,
@@ -478,9 +490,9 @@ export function Clients() {
   }, [clients, emailFilter, enabledFilter, stats]);
 
   const invalidate = () => {
+    // Prefix match: this covers every per-inbound list too, since they are
+    // all keyed `['clients-global', inboundId]`.
     qc.invalidateQueries({ queryKey: ['clients-global'] });
-    // The nested-list cache (per-inbound) also goes stale.
-    qc.invalidateQueries({ queryKey: ['clients'] });
   };
 
   // === mutations ==========================================================
@@ -1417,13 +1429,24 @@ function ShareLinkPane({
           key — total URL ≈ 1800 chars, forcing a high-version QR
           (~v25). `level="L"` drops error correction so the modules
           fit; larger `size` for long links keeps each module
-          camera-readable. */}
-      <QrCard
-        value={share.link}
-        size={share.link.length > 800 ? 288 : 224}
-        level="L"
-      />
-      {share.link.length > 800 && (
+          camera-readable.
+
+          Past the byte-mode ceiling the encoder throws — from render, where
+          React 19 unmounts the whole root and the panel goes white. An XMC
+          mask with two profiles is already over it (each profile carries a
+          684-char RSA signature), and the form invites adding more, so the
+          link is measured before it is handed over. The text and the copy
+          button below stay: only the QR has a size limit. */}
+      {qrBytes(share.link) <= QR_MAX_BYTES ? (
+        <QrCard
+          value={share.link}
+          size={share.link.length > 800 ? 288 : 224}
+          level="L"
+        />
+      ) : (
+        <Alert type="info" showIcon title={t('clients.shareLinkTooLongForQr')} />
+      )}
+      {share.link.length > 800 && qrBytes(share.link) <= QR_MAX_BYTES && (
         <Typography.Text
           type="secondary"
           style={{ fontSize: 11, display: 'block', textAlign: 'center', marginTop: -8 }}

@@ -1,0 +1,100 @@
+//! Which FinalMask variants a given transport × security actually runs.
+//!
+//! xray keeps two mask registries and each transport consults exactly one of
+//! them, so a mask offered on the wrong side is not an error — it builds, the
+//! inbound starts, and nothing ever calls it. The backend refuses those
+//! combinations on save; asking it what it allows is how the dropdown and the
+//! validator stay one rule instead of two copies that drift.
+//!
+//! Shared by the inbound and the outbound form. Their protocol vocabularies
+//! differ (`hysteria2` vs `hysteria`), so each folds its own fields into
+//! [`FinalMaskTransport`] and nothing below this line knows about protocols.
+
+import { useEffect, useMemo, useRef } from 'react';
+import { App } from 'antd';
+import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
+import { apiClient } from './client';
+import type { FinalMask } from './types';
+
+/** Transport in the vocabulary the backend matrix is keyed by. */
+export type FinalMaskTransport = 'tcp' | 'ws' | 'xhttp' | 'hysteria';
+
+/** `transport -> security -> kinds`, exactly as the endpoint returns it. */
+type FinalMaskSupport = Record<string, Record<string, FinalMask['kind'][]>>;
+
+/** Every variant the form knows how to render, in dropdown order. Also the
+ *  fallback list while the matrix is in flight. Typed against the ts-rs union,
+ *  so adding a variant in Rust breaks the build here until it is handled. */
+const FINALMASK_KINDS: Record<FinalMask['kind'], true> = {
+  none: true,
+  sudoku: true,
+  fragment: true,
+  noise: true,
+  salamander: true,
+  xmc: true,
+};
+
+function useFinalMaskSupport() {
+  return useQuery<FinalMaskSupport>({
+    queryKey: ['finalmask-support'],
+    queryFn: async () =>
+      (await apiClient.get<FinalMaskSupport>('/inbounds/finalmask-support')).data,
+    // Derived from the xray build, not from anything the operator can change
+    // while the form is open.
+    staleTime: Infinity,
+  });
+}
+
+/** The kinds selectable for this combination. `none` is always in the list —
+ *  it is the absence of a mask, not a mask.
+ *
+ *  While the matrix is loading (or if the request failed — the client does not
+ *  retry) every kind is returned rather than an empty list: a dropdown with a
+ *  single entry would read as "this transport supports nothing", a worse lie
+ *  than briefly showing too much. `pending` is surfaced so the caller can say
+ *  so instead of guessing. */
+export function useAllowedFinalMasks(transport: string, security: string) {
+  const { data, isPending } = useFinalMaskSupport();
+  const allowed = useMemo<FinalMask['kind'][]>(() => {
+    const kinds = data?.[transport]?.[security];
+    return kinds ? ['none', ...kinds] : (Object.keys(FINALMASK_KINDS) as FinalMask['kind'][]);
+  }, [data, transport, security]);
+  // `resolved` separates "everything, because we know" from "everything,
+  // because we don't know yet" — only the former may drive a reset.
+  return { allowed, isPending, resolved: data?.[transport]?.[security] !== undefined };
+}
+
+/** Snap a mask the current transport cannot run back to `none`, and say so.
+ *
+ *  Called from the forms' guard code, which stays mounted, rather than from
+ *  the FinalMask tab: antd mounts a tab pane on its first visit, so a rule
+ *  living in the tab would fire or not depending on which tabs the operator
+ *  happened to open — the same form would silently self-correct or 400 on
+ *  save. Takes the watched value and a reset callback instead of the form
+ *  instance, so each form keeps its own field typing.
+ *
+ *  Only acts once the matrix has actually answered: an unreachable panel must
+ *  not wipe a mask that is configured and working. */
+export function useFinalMaskGuard(
+  transport: string,
+  security: string,
+  kind: FinalMask['kind'] | undefined,
+  reset: () => void,
+) {
+  const { t } = useTranslation();
+  const { message } = App.useApp();
+  const { allowed, resolved } = useAllowedFinalMasks(transport, security);
+  // The callback is rebuilt every render at the call sites; parking it in a
+  // ref from inside an effect keeps this effect keyed on the mask rule alone.
+  const resetRef = useRef(reset);
+  useEffect(() => {
+    resetRef.current = reset;
+  }, [reset]);
+
+  useEffect(() => {
+    if (!resolved || !kind || allowed.includes(kind)) return;
+    resetRef.current();
+    message.warning(t('inbounds.finalmaskKindDropped', { kind }));
+  }, [resolved, allowed, kind, message, t]);
+}

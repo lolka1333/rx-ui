@@ -11,6 +11,7 @@ import { memo, useCallback, useLayoutEffect, useMemo, useState, type ReactNode }
 import { ImportOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import type { CustomOutbound, VlessEncryptionMode } from '@/api/types';
+import { useFinalMaskGuard } from '@/api/finalmaskSupport';
 import { FinalMaskTab } from '@/pages/Inbounds/tabs/FinalMaskTab';
 import { LinkParseError, parseOutboundLink } from './parseLink';
 // Single source of truth for uTLS fingerprints — same list the inbound
@@ -107,9 +108,19 @@ export const OutboundForm = memo(function OutboundForm({
     | VlessEncryptionMode
     | undefined;
   const xhttpObfs = Form.useWatch('xhttp_x_padding_obfs_mode', form) as boolean | undefined;
+  const finalmaskKind = Form.useWatch('finalmask_kind', form);
   const hyCongestion = Form.useWatch('hy_congestion', form) as string | undefined;
   const { message } = App.useApp();
   const [linkText, setLinkText] = useState('');
+
+  // Drop a mask this transport cannot run — the outbound half of the rule the
+  // inbound form applies in `useProtocolGuards`.
+  useFinalMaskGuard(
+    isHysteria ? 'hysteria' : (network ?? 'tcp'),
+    security ?? 'none',
+    finalmaskKind,
+    () => form.setFieldValue('finalmask_kind', 'none'),
+  );
 
   // Paste a vless:// or hysteria2:// share-link → overlay its fields on a clean
   // default base. Keep the operator's tag (use the link's #name only when the
@@ -639,7 +650,13 @@ export const OutboundForm = memo(function OutboundForm({
       {/* FinalMask — mirror the upstream's socket obfuscation (reuses the
           inbound tab; Sudoku/Noise must match the server or it drops). */}
       <Section itemKey="finalmask" labelKey="outbounds.finalmaskSection">
-        <FinalMaskTab />
+        <FinalMaskTab
+          // Outbound spelling of the same fold: this form says `hysteria`
+          // where the inbound one says `hysteria2`, and pins `network` to
+          // 'tcp' for it.
+          transport={isHysteria ? 'hysteria' : (network ?? 'tcp')}
+          security={security ?? 'none'}
+        />
       </Section>
 
       {/* Advanced */}

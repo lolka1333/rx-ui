@@ -313,6 +313,27 @@ function applyFinalMask(out: Partial<OutboundFormValues>, fmRaw: string): void {
   } else if (item.type === 'salamander') {
     out.finalmask_kind = 'salamander';
     out.finalmask_salamander_password = str('password');
+  } else if (item.type === 'xmc') {
+    out.finalmask_kind = 'xmc';
+    out.finalmask_xmc_hostname = str('hostname');
+    out.finalmask_xmc_password = str('password');
+    // The link spells the texture fields in camelCase (that is xray's conf
+    // schema); the form holds them under the proto's snake_case names. The
+    // RSA keypair is deliberately absent from the link — it is derived from
+    // the password on save, on whichever side needs it.
+    const profiles = arr('profiles').map((raw) => {
+      const pr = (raw ?? {}) as Record<string, unknown>;
+      const field = (k: string) => (typeof pr[k] === 'string' ? (pr[k] as string) : '');
+      return {
+        username: field('username'),
+        uuid: field('uuid'),
+        textures_value: field('texturesValue'),
+        textures_signature: field('texturesSignature'),
+      };
+    });
+    out.finalmask_xmc_profiles = profiles.length
+      ? profiles
+      : [{ username: '', uuid: '', textures_value: '', textures_signature: '' }];
   }
 }
 
