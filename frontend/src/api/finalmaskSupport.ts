@@ -23,16 +23,18 @@ export type FinalMaskTransport = 'tcp' | 'ws' | 'xhttp' | 'hysteria';
 /** `transport -> security -> kinds`, exactly as the endpoint returns it. */
 type FinalMaskSupport = Record<string, Record<string, FinalMask['kind'][]>>;
 
-/** Every variant the form knows how to render, in dropdown order. Also the
- *  fallback list while the matrix is in flight. Typed against the ts-rs union,
- *  so adding a variant in Rust breaks the build here until it is handled. */
-const FINALMASK_KINDS: Record<FinalMask['kind'], true> = {
-  none: true,
-  sudoku: true,
-  fragment: true,
-  noise: true,
-  salamander: true,
-  xmc: true,
+/** Every variant the form can render, mapped to its i18n key — and, because the
+ *  record is keyed by the ts-rs union, the one exhaustive list of kinds in the
+ *  frontend: adding a variant in Rust breaks the build here until it is handled.
+ *  Doubles as the dropdown order and as the fallback while the matrix is in
+ *  flight. */
+export const FINALMASK_LABEL_KEYS: Record<FinalMask['kind'], string> = {
+  none: 'inbounds.finalmaskKindNone',
+  sudoku: 'inbounds.finalmaskKindSudoku',
+  fragment: 'inbounds.finalmaskKindFragment',
+  noise: 'inbounds.finalmaskKindNoise',
+  salamander: 'inbounds.finalmaskKindSalamander',
+  xmc: 'inbounds.finalmaskKindXmc',
 };
 
 function useFinalMaskSupport() {
@@ -58,7 +60,9 @@ export function useAllowedFinalMasks(transport: string, security: string) {
   const { data, isPending } = useFinalMaskSupport();
   const allowed = useMemo<FinalMask['kind'][]>(() => {
     const kinds = data?.[transport]?.[security];
-    return kinds ? ['none', ...kinds] : (Object.keys(FINALMASK_KINDS) as FinalMask['kind'][]);
+    return kinds
+      ? ['none', ...kinds]
+      : (Object.keys(FINALMASK_LABEL_KEYS) as FinalMask['kind'][]);
   }, [data, transport, security]);
   // `resolved` separates "everything, because we know" from "everything,
   // because we don't know yet" — only the former may drive a reset.
@@ -70,31 +74,41 @@ export function useAllowedFinalMasks(transport: string, security: string) {
  *  Called from the forms' guard code, which stays mounted, rather than from
  *  the FinalMask tab: antd mounts a tab pane on its first visit, so a rule
  *  living in the tab would fire or not depending on which tabs the operator
- *  happened to open — the same form would silently self-correct or 400 on
- *  save. Takes the watched value and a reset callback instead of the form
- *  instance, so each form keeps its own field typing.
+ *  happened to open.
+ *
+ *  The mask is read through `getKind`, NOT through `Form.useWatch`, and that is
+ *  the whole point: `useWatch` resolves against `getFieldsValue()`, which
+ *  clones only REGISTERED fields, so it answers `undefined` for a field whose
+ *  tab has never been opened — which is every form on open, i.e. exactly when
+ *  this rule has to run. `getFieldValue` reads the store itself and answers for
+ *  unmounted fields too. The transport and security arguments come from
+ *  always-mounted fields, so they still drive the re-render.
  *
  *  Only acts once the matrix has actually answered: an unreachable panel must
  *  not wipe a mask that is configured and working. */
 export function useFinalMaskGuard(
   transport: string,
   security: string,
-  kind: FinalMask['kind'] | undefined,
+  getKind: () => FinalMask['kind'] | undefined,
   reset: () => void,
 ) {
   const { t } = useTranslation();
   const { message } = App.useApp();
   const { allowed, resolved } = useAllowedFinalMasks(transport, security);
-  // The callback is rebuilt every render at the call sites; parking it in a
-  // ref from inside an effect keeps this effect keyed on the mask rule alone.
+  // Both callbacks are rebuilt every render at the call sites; parking them in
+  // refs keeps this effect keyed on the mask rule alone.
+  const getKindRef = useRef(getKind);
   const resetRef = useRef(reset);
   useEffect(() => {
+    getKindRef.current = getKind;
     resetRef.current = reset;
-  }, [reset]);
+  }, [getKind, reset]);
 
   useEffect(() => {
-    if (!resolved || !kind || allowed.includes(kind)) return;
+    if (!resolved) return;
+    const kind = getKindRef.current();
+    if (!kind || allowed.includes(kind)) return;
     resetRef.current();
     message.warning(t('inbounds.finalmaskKindDropped', { kind }));
-  }, [resolved, allowed, kind, message, t]);
+  }, [resolved, allowed, message, t]);
 }

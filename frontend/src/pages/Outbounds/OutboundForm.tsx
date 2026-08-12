@@ -108,7 +108,6 @@ export const OutboundForm = memo(function OutboundForm({
     | VlessEncryptionMode
     | undefined;
   const xhttpObfs = Form.useWatch('xhttp_x_padding_obfs_mode', form) as boolean | undefined;
-  const finalmaskKind = Form.useWatch('finalmask_kind', form);
   const hyCongestion = Form.useWatch('hy_congestion', form) as string | undefined;
   const { message } = App.useApp();
   const [linkText, setLinkText] = useState('');
@@ -118,7 +117,7 @@ export const OutboundForm = memo(function OutboundForm({
   useFinalMaskGuard(
     isHysteria ? 'hysteria' : (network ?? 'tcp'),
     security ?? 'none',
-    finalmaskKind,
+    () => form.getFieldValue('finalmask_kind'),
     () => form.setFieldValue('finalmask_kind', 'none'),
   );
 

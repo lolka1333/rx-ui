@@ -20,10 +20,11 @@ import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/api/client';
 import { apiErrorMessage } from '@/api/errors';
 import {
+  FINALMASK_LABEL_KEYS,
   useAllowedFinalMasks,
   type FinalMaskTransport,
 } from '@/api/finalmaskSupport';
-import type { FinalMask, XmcProfile } from '@/api/types';
+import type { XmcProfile } from '@/api/types';
 import { InputField, RangePair, Section, SelectField, SideBySide } from '../widgets';
 import type { FormValues, SudokuAscii } from '../form/types';
 
@@ -34,19 +35,6 @@ const SUDOKU_PADDING_MAX = 255;
 /** xray encrypts `verifyToken + password` under a 1024-bit RSA key with
  *  PKCS#1 v1.5 padding: 128 bytes of block, 11 of padding, 4 of token. */
 const XMC_PASSWORD_MAX_BYTES = 113;
-
-/** Variant catalogue rendered into the kind-selector. Each maps to a
- *  translated label so the dropdown stays localised; the transport-scope
- *  hint (TCP / UDP) is part of the label so the operator picks the right
- *  variant for their inbound at a glance. */
-const VARIANT_LABEL_KEYS: Record<FinalMask['kind'], string> = {
-  none: 'inbounds.finalmaskKindNone',
-  sudoku: 'inbounds.finalmaskKindSudoku',
-  fragment: 'inbounds.finalmaskKindFragment',
-  noise: 'inbounds.finalmaskKindNoise',
-  salamander: 'inbounds.finalmaskKindSalamander',
-  xmc: 'inbounds.finalmaskKindXmc',
-};
 
 /** Operator-selectable ASCII modes for Sudoku. `''` (empty) means
  *  "use xray's default" and is the form's resting state. */
@@ -74,7 +62,7 @@ export function FinalMaskTab({
   const { allowed, isPending } = useAllowedFinalMasks(transport, security);
 
   const variantOptions = useMemo(
-    () => allowed.map((value) => ({ value, label: t(VARIANT_LABEL_KEYS[value]) })),
+    () => allowed.map((value) => ({ value, label: t(FINALMASK_LABEL_KEYS[value]) })),
     [allowed, t],
   );
 

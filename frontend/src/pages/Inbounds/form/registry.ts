@@ -54,7 +54,6 @@ export function useProtocolGuards(form: ReturnType<typeof Form.useForm<FormValue
   const network = Form.useWatch('network', form) as FormNetwork | undefined;
   const flow = Form.useWatch('vless_flow', form);
   const security = Form.useWatch('security', form) as FormSecurity | undefined;
-  const finalmaskKind = Form.useWatch('finalmask_kind', form);
 
   useEffect(() => {
     if (!protocol) return;
@@ -90,7 +89,7 @@ export function useProtocolGuards(form: ReturnType<typeof Form.useForm<FormValue
   useFinalMaskGuard(
     protocol === 'hysteria2' ? 'hysteria' : (network ?? 'tcp'),
     security ?? 'none',
-    finalmaskKind,
+    () => form.getFieldValue('finalmask_kind'),
     () => form.setFieldValue('finalmask_kind', 'none'),
   );
 }
