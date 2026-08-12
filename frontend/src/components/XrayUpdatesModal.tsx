@@ -445,7 +445,6 @@ function ReleaseRow({
 
   return (
     <div
-      className="app-release-row"
       onClick={noAsset ? undefined : onSelect}
       role="radio"
       aria-checked={selected}

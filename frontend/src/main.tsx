@@ -30,7 +30,10 @@ type ContainerWithRoot = HTMLElement & {
   __reactRoot?: ReactDOM.Root;
 };
 
-const container = document.getElementById('root') as ContainerWithRoot;
+const container = document.getElementById('root') as ContainerWithRoot | null;
+if (!container) {
+  throw new Error('#root is missing from index.html');
+}
 if (!container.__reactRoot) {
   container.__reactRoot = ReactDOM.createRoot(container);
 }

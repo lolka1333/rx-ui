@@ -21,5 +21,5 @@
     },
     "types": ["node"]
   },
-  "include": ["src", "src/**/*.css"]
+  "include": ["src"]
 }

@@ -43,6 +43,8 @@ import { useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'r
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/api/client';
+import { needsIpv4 } from '@/lib/builtinOutbounds';
+import { GEOIP_PRESETS, GEOSITE_PRESETS } from '@/lib/geoPresets';
 import { uuid } from '@/lib/id';
 import type { Client, CustomOutbound, Inbound, RoutingRule } from '@/api/types';
 // Reuse the inbound editor's form widgets so this modal matches the rest of
@@ -65,52 +67,6 @@ const TARGETS: { value: string; color: string }[] = [
 const targetColor = (tag: string): string =>
   TARGETS.find((tg) => tg.value === tag)?.color ?? 'default';
 
-/** Friendly presets for the domain / IP tag inputs — a curated slice of the
- *  geosite / geoip vocabulary in the bundled `*.dat`. Labels are short, plain
- *  English (no icons, no i18n): service names are proper nouns and the rest
- *  echo the token meaning ("Ads All", "Private IP"), so they read the same in
- *  any UI language. The dropdown shows the label; the selected chip keeps the
- *  raw token (`optionLabelProp="value"`), matching the row summary + JSON
- *  preview. The inputs stay `mode="tags"`, so any custom matcher (full:,
- *  regexp:, CIDR, ext:…) still works. Every token is verified present in
- *  geosite.dat / geoip.dat. */
-const DOMAIN_PRESETS: { value: string; label: string }[] = [
-  { value: 'geosite:category-ru', label: 'Russia' },
-  { value: 'geosite:private', label: 'Private' },
-  { value: 'geosite:category-ads-all', label: 'Ads All' },
-  { value: 'geosite:category-porn', label: 'Porn (18+)' },
-  { value: 'geosite:google', label: 'Google' },
-  { value: 'geosite:youtube', label: 'YouTube' },
-  { value: 'geosite:telegram', label: 'Telegram' },
-  { value: 'geosite:netflix', label: 'Netflix' },
-  { value: 'geosite:openai', label: 'OpenAI' },
-  { value: 'geosite:meta', label: 'Meta' },
-  { value: 'geosite:twitter', label: 'Twitter / X' },
-  { value: 'geosite:tiktok', label: 'TikTok' },
-  { value: 'geosite:spotify', label: 'Spotify' },
-  { value: 'geosite:steam', label: 'Steam' },
-  { value: 'geosite:apple', label: 'Apple' },
-  { value: 'geosite:microsoft', label: 'Microsoft' },
-  { value: 'geosite:cn', label: 'China' },
-];
-const IP_PRESETS: { value: string; label: string }[] = [
-  { value: 'geoip:ru', label: 'Russia' },
-  { value: 'geoip:private', label: 'Private IP' },
-  { value: 'geoip:cn', label: 'China' },
-  { value: 'geoip:telegram', label: 'Telegram' },
-  { value: 'geoip:google', label: 'Google' },
-  { value: 'geoip:netflix', label: 'Netflix' },
-  { value: 'geoip:twitter', label: 'Twitter / X' },
-  { value: 'geoip:facebook', label: 'Facebook' },
-  { value: 'geoip:cloudflare', label: 'Cloudflare' },
-  { value: 'geoip:us', label: 'USA' },
-  { value: 'geoip:de', label: 'Germany' },
-  { value: 'geoip:nl', label: 'Netherlands' },
-  { value: 'geoip:gb', label: 'UK' },
-];
-
-/** Filter a preset Select by both the friendly label and the raw token, so
- *  typing "russia" or "category-ru" both surface the Russia entry. */
 const presetFilter = (input: string, value?: unknown, label?: unknown): boolean => {
   const q = input.trim().toLowerCase();
   if (!q) return true;
@@ -239,8 +195,8 @@ function GroupList({
             {t(g.key)}
           </div>
           <Space size={[6, 6]} wrap>
-            {g.items.map((c, k) => (
-              <Tag key={k} style={{ margin: 0 }}>
+            {g.items.map((c) => (
+              <Tag key={c} style={{ margin: 0 }}>
                 {c}
               </Tag>
             ))}
@@ -309,7 +265,7 @@ export function RoutingRulesField({
   const reverseTags = useMemo(
     () =>
       Array.from(
-        new Set(clients.map((c) => c.reverse_tag?.trim()).filter((t): t is string => !!t)),
+        new Set(clients.map((c) => c.reverse_tag?.trim()).filter((tag): tag is string => !!tag)),
       ),
     [clients],
   );
@@ -334,23 +290,20 @@ export function RoutingRulesField({
   const sysIpv4 = (Form.useWatch('xray_ipv4_domains', parentForm) as string[] | undefined) ?? [];
   // Full evaluation order as a list of tokens (system keys + custom rule ids).
   const ruleOrder = (Form.useWatch('xray_rule_order', parentForm) as string[] | undefined) ?? [];
-  // `direct-ipv4` is a grown-on-demand built-in: it only exists once an IPv4
-  // domain is listed OR an enabled rule already targets it (mirrors the
-  // Outbounds list + config_gen's `needs_ipv4`). Don't offer it as a target
-  // before then — a rule can't route to an outbound the config won't emit yet;
-  // the IPv4-domains field is the way to bring it into being.
-  const needsIpv4 =
-    sysIpv4.length > 0 || rules.some((r) => r.enabled && r.outbound_tag === 'direct-ipv4');
+  // `direct-ipv4` is a grown-on-demand built-in. Don't offer it as a target
+  // before it exists — a rule can't route to an outbound the config won't
+  // emit yet; listing an IPv4 domain is the way to bring it into being.
+  const ipv4Live = needsIpv4(sysIpv4, rules);
   const targetOptions = useMemo(
     () => [
-      ...TARGETS.filter((tg) => tg.value !== 'direct-ipv4' || needsIpv4).map((tg) => ({
+      ...TARGETS.filter((tg) => tg.value !== 'direct-ipv4' || ipv4Live).map((tg) => ({
         value: tg.value,
         label: tg.value,
       })),
       ...customTags.map((tag) => ({ value: tag, label: tag })),
       ...reverseTags.map((tag) => ({ value: tag, label: t('reverse.tunnelTargetLabel', { tag }) })),
     ],
-    [customTags, reverseTags, needsIpv4, t],
+    [customTags, reverseTags, ipv4Live, t],
   );
   const [modalOpen, setModalOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -785,9 +738,9 @@ export function RoutingRulesField({
                         }}
                       >
                         <span style={condLabelStyle}>{t(g.key)}</span>
-                        {g.items.map((c, k) => (
+                        {g.items.map((c) => (
                           <Tag
-                            key={k}
+                            key={c}
                             style={{
                               margin: 0,
                               maxWidth: 180,
@@ -979,7 +932,7 @@ function RuleModal({
         <Form.Item name="domain" label={t('settings.ruleDomain')} style={{ marginBottom: 12 }}>
           <Select
             mode="tags"
-            options={DOMAIN_PRESETS}
+            options={GEOSITE_PRESETS}
             optionLabelProp="value"
             showSearch={{ filterOption: (input, option) => presetFilter(input, option?.value, option?.label) }}
             tokenSeparators={[',', ' ']}
@@ -989,7 +942,7 @@ function RuleModal({
         <Form.Item name="ip" label={t('settings.ruleIp')} style={{ marginBottom: 12 }}>
           <Select
             mode="tags"
-            options={IP_PRESETS}
+            options={GEOIP_PRESETS}
             optionLabelProp="value"
             showSearch={{ filterOption: (input, option) => presetFilter(input, option?.value, option?.label) }}
             tokenSeparators={[',', ' ']}
@@ -1010,7 +963,7 @@ function RuleModal({
           <Form.Item name="source_ip" label={t('settings.ruleSourceIp')} style={{ marginBottom: 12 }}>
             <Select
               mode="tags"
-              options={IP_PRESETS}
+              options={GEOIP_PRESETS}
               optionLabelProp="value"
               showSearch={{ filterOption: (input, option) => presetFilter(input, option?.value, option?.label) }}
               tokenSeparators={[',', ' ']}

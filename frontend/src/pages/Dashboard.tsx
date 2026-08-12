@@ -17,20 +17,10 @@ import { XrayUpdatesModal } from '@/components/XrayUpdatesModal';
 import { LogsModal } from '@/components/LogsModal';
 import { ServerInfoCard } from '@/components/ServerInfoCard';
 import { useDashboardOverview } from '@/api/overview';
+import { fmtBytes as fmtBytesRaw } from '@/lib/format';
 
-function fmtBytes(n: number): string {
-  if (n === 0) return '0';
-  // English units, matching the shared lib/format.ts formatter — the panel is
-  // bilingual (en/ru) and the rest of the UI uses B/KB/MB/…, not Cyrillic.
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let i = 0;
-  let v = n;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i++;
-  }
-  return `${v.toFixed(v >= 10 ? 0 : 1)} ${units[i]}`;
-}
+/** Gauge details live in a narrow column — no decimal from 10 upwards. */
+const fmtBytes = (n: number) => (n === 0 ? '0' : fmtBytesRaw(n, { compact: true }));
 
 interface GaugeProps {
   label: string;
@@ -70,7 +60,6 @@ function Gauge({ label, percent, detail, color }: GaugeProps) {
       />
       <div className="app-gauge-meta" style={{ marginTop: -4 }}>
         <span
-          className="app-gauge-label"
           style={{ fontSize: 15, color: token.colorTextSecondary, fontWeight: 500 }}
         >
           {label}

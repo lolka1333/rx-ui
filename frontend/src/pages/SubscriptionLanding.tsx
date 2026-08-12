@@ -18,9 +18,6 @@
  * so the page doesn't need a dedicated panel API. AbortController
  * cancels the in-flight request if the user navigates away (or
  * React 18 StrictMode double-mounts the effect in dev).
- *
- * Page is intentionally Russian-only — localisation is a separate
- * task.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -627,7 +624,6 @@ export function SubscriptionLanding({ token }: { token: string }) {
                   key={a.key}
                   type="button"
                   onClick={() => setAppKey(a.key)}
-                  className="app-sub-chip"
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',

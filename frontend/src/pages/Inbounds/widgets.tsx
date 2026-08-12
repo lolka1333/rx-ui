@@ -406,7 +406,7 @@ interface NumberWithUnitProps {
 // even though the values are unchanged.
 const NUMBER_FLEX_STYLE = { flex: 1, minWidth: 0 } as const;
 
-export function NumberWithUnit({ value, onChange, unit, min, placeholder }: NumberWithUnitProps) {
+function NumberWithUnit({ value, onChange, unit, min, placeholder }: NumberWithUnitProps) {
   return (
     <Space.Compact block>
       <InputNumber

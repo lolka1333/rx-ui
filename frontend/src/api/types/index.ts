@@ -28,8 +28,6 @@ export type {
   VlessXorMode,
   VlessFallback,
   VlessFallbackType,
-  VlessEncryptionKeypair,
-  HysteriaProtocol,
 } from './protocol';
 
 export type {
@@ -44,13 +42,10 @@ export type {
   UdpHop,
 } from './transport';
 
-export type { FinalMask, NoiseItem, SudokuParams, XmcProfile } from './finalmask';
+export type { FinalMask, NoiseItem, XmcProfile } from './finalmask';
 
 export type {
   CustomOutbound,
-  OutboundProtocolConfig,
-  VlessOutbound,
-  OutboundMux,
   OutboundTestResult,
   OutboundTraffic,
 } from './outbound';
@@ -66,7 +61,6 @@ export type {
 
 export type {
   Client,
-  ClientCreateGlobal,
   ClientBulkAssign,
   ClientBulkAssignResult,
   ShareLinkResponse,
@@ -76,9 +70,6 @@ export type { TrafficSnapshot, DashboardOverview, XrayRelease, LogEntry } from '
 
 export type {
   UserView,
-  LoginRequest,
-  LoginResponse,
-  ChangeCredentialsRequest,
   PanelSettings,
   PanelSettingsUpdate,
   RoutingRule,

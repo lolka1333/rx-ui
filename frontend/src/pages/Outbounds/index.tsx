@@ -38,6 +38,7 @@ import type {
 import { TRANSPORT_LABEL } from '@/pages/Inbounds/helpers';
 import { TrafficCell } from '@/components/TrafficCell';
 import { useNav } from '@/stores/nav';
+import { needsIpv4 } from '@/lib/builtinOutbounds';
 import { fmtBytes } from '@/lib/format';
 import { OutboundForm } from './OutboundForm';
 import { ReverseWizard } from './ReverseWizard';
@@ -114,11 +115,10 @@ export function Outbounds() {
     queryKey: ['panel-settings'],
     queryFn: async () => (await apiClient.get<PanelSettings>('/settings/panel')).data,
   });
-  const needsIpv4 =
-    !!settings &&
-    (settings.xray_ipv4_domains.length > 0 ||
-      settings.xray_custom_rules.some((r) => r.enabled && r.outbound_tag === 'direct-ipv4'));
-  const systemRows = needsIpv4 ? [...SYSTEM_OUTBOUNDS, DIRECT_IPV4_ROW] : SYSTEM_OUTBOUNDS;
+  const systemRows =
+    settings && needsIpv4(settings.xray_ipv4_domains, settings.xray_custom_rules)
+      ? [...SYSTEM_OUTBOUNDS, DIRECT_IPV4_ROW]
+      : SYSTEM_OUTBOUNDS;
 
   // Per-outbound lifetime traffic (by tag, incl. built-ins) — persisted in the
   // backend, survives xray restarts. Poll only while this tab is visible so a

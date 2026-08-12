@@ -265,7 +265,7 @@ export function hydrateFinalMask(target: FinalMaskFormFields, fm: FinalMask): vo
 /** Build the typed `ProtocolConfig` from the flat form. Dispatches on
  *  `protocol_kind`. Hysteria 2's protocol-side config is currently empty
  *  (all knobs live on the transport / per-client auth layers). */
-export function buildProtocol(v: FormValues): ProtocolConfig {
+function buildProtocol(v: FormValues): ProtocolConfig {
   if (v.protocol_kind === 'hysteria2') {
     return { kind: 'hysteria2' };
   }
@@ -311,7 +311,7 @@ export function buildProtocol(v: FormValues): ProtocolConfig {
 /** Pour a server-side `QuicParams` back into the flat form fields.
  *  Called from `inboundToForm` on both transports that carry the
  *  struct (Hysteria, XHTTP) — only one branch fires per inbound. */
-export function hydrateQuicParams(v: FormValues, q: QuicParams) {
+function hydrateQuicParams(v: FormValues, q: QuicParams) {
   v.quic_congestion = q.congestion ?? 'default';
   v.quic_bbr_profile = q.bbr_profile ?? '';
   v.quic_brutal_up_mbps = q.brutal_up_mbps ?? null;
@@ -335,7 +335,7 @@ export function hydrateQuicParams(v: FormValues, q: QuicParams) {
  *  or `null` if every knob is still at its default. Lets the backend
  *  skip persisting an empty object and leave xray on its hard-coded
  *  defaults. */
-export function buildQuicParams(v: FormValues): QuicParams | null {
+function buildQuicParams(v: FormValues): QuicParams | null {
   const ports = v.quic_udp_hop_ports
     .map((p) => Number.parseInt(p, 10))
     .filter((n) => Number.isFinite(n) && n > 0 && n < 65536);
@@ -382,7 +382,7 @@ export function buildQuicParams(v: FormValues): QuicParams | null {
 }
 
 /** Compose a `HysteriaMasquerade` from the flat per-kind form fields. */
-export function buildMasquerade(v: FormValues): HysteriaMasquerade {
+function buildMasquerade(v: FormValues): HysteriaMasquerade {
   switch (v.hysteria_masq_kind) {
     case 'notfound':
       return { kind: 'notfound' };
@@ -409,7 +409,7 @@ export function buildMasquerade(v: FormValues): HysteriaMasquerade {
   }
 }
 
-export function buildTransport(v: FormValues): TransportConfig {
+function buildTransport(v: FormValues): TransportConfig {
   // Hysteria 2 force-pairs proxy + transport — skip the network switch.
   if (v.protocol_kind === 'hysteria2') {
     const h: HysteriaTransport = {
@@ -482,7 +482,7 @@ export function buildTransport(v: FormValues): TransportConfig {
   }
 }
 
-export function buildSecurity(v: FormValues): SecurityConfig {
+function buildSecurity(v: FormValues): SecurityConfig {
   switch (v.security) {
     case 'none':
       return { kind: 'none' };
@@ -534,7 +534,7 @@ export function buildSecurity(v: FormValues): SecurityConfig {
   }
 }
 
-export function buildSniffing(v: FormValues): Sniffing {
+function buildSniffing(v: FormValues): Sniffing {
   return {
     enabled: v.sniffing_enabled,
     dest_override: v.sniffing_dest_override,
@@ -551,7 +551,7 @@ export function buildSniffing(v: FormValues): Sniffing {
  *  returns the object (never null) — the backend's `is_active` guard
  *  decides whether to emit a sockopt block, so an all-empty value here
  *  is harmless and serializes to `{}`. Blank CIDR entries are dropped. */
-export function buildSockopt(v: FormValues): SocketOpt {
+function buildSockopt(v: FormValues): SocketOpt {
   return {
     trusted_x_forwarded_for: (v.sockopt_trusted_x_forwarded_for ?? [])
       .map((s) => s.trim())
@@ -726,6 +726,6 @@ export function orNull(s: string): string | null {
   return s.trim() ? s.trim() : null;
 }
 
-export function orNullNum(n: number | null): number | null {
+function orNullNum(n: number | null): number | null {
   return n === null || Number.isNaN(n) ? null : n;
 }

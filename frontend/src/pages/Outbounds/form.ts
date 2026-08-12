@@ -29,7 +29,7 @@ import { DEFAULTS as INB_DEFAULTS } from '@/pages/Inbounds/form/defaults';
 import type { FormValues as InbFormValues } from '@/pages/Inbounds/form/types';
 
 /** {name,value} header pair — the shape `HeaderListField` reads/writes. */
-export interface HeaderPair {
+interface HeaderPair {
   name: string;
   value: string;
 }

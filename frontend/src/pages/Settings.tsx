@@ -51,6 +51,12 @@ import { useNav, SETTINGS_SECTIONS, type SettingsSection } from '@/stores/nav';
 import { setLocaleAndReload, useLocale } from '@/stores/locale';
 import { LOCALES } from '@/i18n';
 import type { PanelSettings, RoutingRule } from '@/api/types';
+import {
+  GEOIP_PRESETS,
+  GEOSITE_PRESETS,
+  GEO_PRESET_BY_VALUE,
+  type GeoPreset,
+} from '@/lib/geoPresets';
 import { mergePanelSettings } from '@/lib/panelSettings';
 import { pemRule } from '@/lib/pem';
 import { reportRouting } from '@/lib/routingReport';
@@ -405,7 +411,7 @@ function SectionFrame({ title, children }: { title: string; children: React.Reac
   return (
     <section className="app-settings-section">
       <h1 className="app-settings-section-title">{title}</h1>
-      <div className="app-settings-fields">{children}</div>
+      <div>{children}</div>
     </section>
   );
 }
@@ -1883,54 +1889,9 @@ const hostOf = (u: string) => {
   }
 };
 
-type GeoOption = { value: string; code: string; label: string };
-
-/** Quick-pick presets for the blocked-IP field: country names + a 2-letter
- *  code badge, each mapping to an xray `geoip:` matcher. The field stays
- *  free-text (mode="tags"), so custom IPs / CIDRs / geoip codes still work. */
-const GEOIP_OPTIONS: GeoOption[] = [
-  { value: 'geoip:private', code: 'IP', label: 'Private IPs' },
-  { value: 'geoip:ru', code: 'RU', label: 'Russia' },
-  { value: 'geoip:ua', code: 'UA', label: 'Ukraine' },
-  { value: 'geoip:by', code: 'BY', label: 'Belarus' },
-  { value: 'geoip:kz', code: 'KZ', label: 'Kazakhstan' },
-  { value: 'geoip:cn', code: 'CN', label: 'China' },
-  { value: 'geoip:ir', code: 'IR', label: 'Iran' },
-  { value: 'geoip:us', code: 'US', label: 'USA' },
-  { value: 'geoip:de', code: 'DE', label: 'Germany' },
-  { value: 'geoip:nl', code: 'NL', label: 'Netherlands' },
-  { value: 'geoip:gb', code: 'GB', label: 'United Kingdom' },
-  { value: 'geoip:tr', code: 'TR', label: 'Turkey' },
-  { value: 'geoip:br', code: 'BR', label: 'Brazil' },
-  { value: 'geoip:vn', code: 'VN', label: 'Vietnam' },
-  { value: 'geoip:es', code: 'ES', label: 'Spain' },
-  { value: 'geoip:id', code: 'ID', label: 'Indonesia' },
-];
-
-/** Quick-pick presets for the blocked-domain field: `geosite:` categories +
- *  common TLD matchers (regexp). Custom domains / geosite codes still work. */
-const GEOSITE_OPTIONS: GeoOption[] = [
-  { value: 'geosite:category-ads-all', code: 'AD', label: 'Ads' },
-  { value: 'geosite:category-porn', code: '18', label: 'Porn (18+)' },
-  { value: 'geosite:cn', code: 'CN', label: 'China sites' },
-  { value: 'geosite:google', code: 'G', label: 'Google' },
-  { value: 'geosite:telegram', code: 'TG', label: 'Telegram' },
-  { value: 'regexp:\\.ru$', code: 'RU', label: '.ru' },
-  { value: 'regexp:\\.su$', code: 'RU', label: '.su' },
-  { value: 'regexp:\\.xn--p1ai$', code: 'RU', label: '.рф' },
-  { value: 'regexp:\\.ua$', code: 'UA', label: '.ua' },
-  { value: 'regexp:\\.cn$', code: 'CN', label: '.cn' },
-  { value: 'regexp:\\.vn$', code: 'VN', label: '.vn' },
-];
-
-/** value -> preset, so a selected chip can show the same code badge. */
-const GEO_BY_VALUE = new Map<string, GeoOption>(
-  [...GEOIP_OPTIONS, ...GEOSITE_OPTIONS].map((o) => [o.value, o]),
-);
-
 /** Dropdown row: "<code> <name>". A custom (typed) option has no code. */
 const renderGeoOption: NonNullable<SelectProps['optionRender']> = (option) => {
-  const o = option.data as GeoOption;
+  const o = option.data as GeoPreset;
   return (
     <span>
       {o.code ? <span className="geo-code">{o.code}</span> : null}
@@ -1941,12 +1902,12 @@ const renderGeoOption: NonNullable<SelectProps['optionRender']> = (option) => {
 
 /** Selected chip: a preset shows "<code> <name>", a custom value shows raw. */
 const renderGeoTag: NonNullable<SelectProps['tagRender']> = (props) => {
-  const o = GEO_BY_VALUE.get(String(props.value));
+  const o = GEO_PRESET_BY_VALUE.get(String(props.value));
   return (
     <Tag closable={props.closable} onClose={props.onClose}>
       {o ? (
         <>
-          <span className="geo-code">{o.code}</span>
+          {o.code ? <span className="geo-code">{o.code}</span> : null}
           {o.label}
         </>
       ) : (
@@ -1956,7 +1917,11 @@ const renderGeoTag: NonNullable<SelectProps['tagRender']> = (props) => {
   );
 };
 
-interface OutboundTestResult {
+/** Shape of `POST /api/xray/test-outbound` — the panel's own egress probe.
+ *  Distinct from the generated `OutboundTestResult` in `@/api/types`, which
+ *  belongs to `/outbounds/{id}/test`; the two endpoints answer different
+ *  questions and the names must not be confusable. */
+interface XrayEgressTestResult {
   ok: boolean;
   status: number;
   latency_ms: number;
@@ -1978,7 +1943,7 @@ function XraySection({
   const [form] = Form.useForm<XrayFormValues>();
   const [dirty, setDirty] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<OutboundTestResult | null>(null);
+  const [testResult, setTestResult] = useState<XrayEgressTestResult | null>(null);
   const [xrayTab, setXrayTab] = useState<(typeof XRAY_TABS)[number]>('basic');
   const [tabsClass, lean] = useTabLean(XRAY_TABS);
 
@@ -2093,7 +2058,7 @@ function XraySection({
     setTesting(true);
     setTestResult(null);
     try {
-      const { data } = await apiClient.post<OutboundTestResult>(
+      const { data } = await apiClient.post<XrayEgressTestResult>(
         '/xray/test-outbound',
         { url },
       );
@@ -2346,7 +2311,7 @@ function XraySection({
                     >
                       <Select
                         mode="tags"
-                        options={GEOIP_OPTIONS}
+                        options={GEOIP_PRESETS}
                         showSearch={{ optionFilterProp: 'label' }}
                         optionRender={renderGeoOption}
                         tagRender={renderGeoTag}
@@ -2365,7 +2330,7 @@ function XraySection({
                     >
                       <Select
                         mode="tags"
-                        options={GEOSITE_OPTIONS}
+                        options={GEOSITE_PRESETS}
                         showSearch={{ optionFilterProp: 'label' }}
                         optionRender={renderGeoOption}
                         tagRender={renderGeoTag}

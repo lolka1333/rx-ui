@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { App as AntdApp, ConfigProvider } from 'antd';
 import ruRU from 'antd/locale/ru_RU';
 import enUS from 'antd/locale/en_US';
@@ -7,6 +7,7 @@ import App from './App';
 import { useTheme } from '@/stores/theme';
 import { useLocale } from '@/stores/locale';
 import { THEMES, applyCssVariables } from '@/theme/tokens';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { queryClient } from '@/api/client';
 import i18n from '@/i18n';
 
@@ -41,24 +42,30 @@ export function Root() {
     document.documentElement.lang = locale;
   }, [locale]);
 
+  // Memoised: a fresh theme object on every render makes antd recompute its
+  // token cache and re-render every styled component under it.
+  const antdTheme = useMemo(
+    () => ({
+      ...THEMES[mode],
+      // Lift antd popups (Select dropdowns, tooltips, toasts) above the
+      // settings modal overlay (z-index 1100) — otherwise they open behind
+      // it and look broken (the language dropdown wouldn't show).
+      token: { ...THEMES[mode].token, zIndexPopupBase: 1200 },
+    }),
+    [mode],
+  );
+
   return (
-    <ConfigProvider
-      locale={ANTD_LOCALES[locale]}
-      theme={{
-        ...THEMES[mode],
-        // Lift antd popups (Select dropdowns, tooltips, toasts) above the
-        // settings modal overlay (z-index 1100) — otherwise they open behind
-        // it and look broken (the language dropdown wouldn't show).
-        token: { ...THEMES[mode].token, zIndexPopupBase: 1200 },
-      }}
-    >
+    <ConfigProvider locale={ANTD_LOCALES[locale]} theme={antdTheme}>
       {/* <AntdApp> provides a context-aware message/notification/modal so
           static `message.success(...)` calls pick up the current theme and
           locale instead of antd's global fallback. Components should switch
           to `App.useApp().message` over time. */}
       <AntdApp>
         <QueryClientProvider client={queryClient}>
-          <App />
+          <ErrorBoundary>
+            <App />
+          </ErrorBoundary>
         </QueryClientProvider>
       </AntdApp>
     </ConfigProvider>
