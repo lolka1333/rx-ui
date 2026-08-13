@@ -101,10 +101,15 @@ function buildSubscriptionUrl(token: string, settings: PanelSettings | undefined
   // with its own cert, 'inherit' → same as the panel, i.e. the admin's current
   // origin scheme. Deriving it from window.location alone would hand out an
   // http link to a TLS listener (or vice-versa) once the two schemes diverge.
+  //
+  // sub_tls_mode belongs to the dedicated listener, which only exists at a
+  // non-zero sub_port. At port 0 the panel serves /sub/ itself, so its scheme —
+  // the current origin's — is the only true one, whatever mode is stored.
+  const ownListener = (settings?.sub_port ?? 0) > 0;
   const protocol =
-    settings?.sub_tls_mode === 'off'
+    ownListener && settings?.sub_tls_mode === 'off'
       ? 'http:'
-      : settings?.sub_tls_mode === 'custom'
+      : ownListener && settings?.sub_tls_mode === 'custom'
         ? 'https:'
         : window.location.protocol;
   const host = settings?.sub_link_host?.trim() || window.location.hostname;

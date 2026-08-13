@@ -7,10 +7,12 @@
 # Critical correctness gates:
 #   • cargo fmt          — style drift would obscure real diffs in review
 #   • cargo clippy -D    — every warning becomes an error; lets us actually
-#                          consume the workspace lint config (forbid unsafe etc.)
-#   • cargo test         — the unit tests added in this PR set (parse_range,
-#                          validate_flow_network, share_link, keygen, enum
-#                          round-trips) catch the most-likely regressions
+#                          consume the workspace lint config (pedantic +
+#                          nursery, `unsafe_code = "deny"`)
+#   • cargo test         — the backend unit suite: config/share-link builders,
+#                          validators, key generation and the enum round-trips
+#                          that keep the DB, the API types and xray's JSON in
+#                          agreement
 #   • sqlx cache parity  — `cargo sqlx prepare --check` fails the build if
 #                          someone added/changed a sqlx::query!() without
 #                          regenerating `.sqlx/` — this is a chronic source
@@ -103,7 +105,6 @@ jobs:
         # If a query!() macro changed without `cargo sqlx prepare` being
         # re-run, the committed `.sqlx/` cache drifts from the code. This
         # rebuilds the query metadata against a real schema and diffs it.
-        # Informational for now (|| warning) rather than a hard gate.
         run: |
           # Pin sqlx-cli to the 0.9.x line — matches the `sqlx` crate (0.9)
           # and the committed `.sqlx/` cache, so `prepare --check` is a
@@ -116,8 +117,7 @@ jobs:
           export DATABASE_URL="sqlite:${RUNNER_TEMP}/sqlx-check.db"
           cargo sqlx database create
           cargo sqlx migrate run
-          cargo sqlx prepare --check -- --bin rx-ui || \
-            echo "::warning::sqlx cache may be stale — run 'cargo sqlx prepare' locally"
+          cargo sqlx prepare --check -- --bin rx-ui
 
   frontend:
     name: Frontend (TypeScript)

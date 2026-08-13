@@ -203,6 +203,21 @@ async fn replace(
     // it — mirrors the inbound create path.
     let new_tags: std::collections::HashSet<&str> =
         handlers.iter().map(|(t, _)| t.as_str()).collect();
+    // A tag that left the list takes its lifetime total with it. `outbound_traffic`
+    // is keyed by tag, so an orphan row would be inherited by the next outbound
+    // that happened to reuse the name — the same ghost-total misattribution the
+    // inbound path deletes for (`api::inbounds`). Every tag in the submitted
+    // list is kept, including a disabled one, because its total is still shown.
+    let submitted: std::collections::HashSet<&str> = body.iter().map(|o| o.tag.as_str()).collect();
+    for tag in &old_tags {
+        if !submitted.contains(tag.as_str())
+            && let Err(e) = sqlx::query!("DELETE FROM outbound_traffic WHERE tag = ?", tag)
+                .execute(&state.db)
+                .await
+        {
+            tracing::warn!("could not drop the traffic total of removed outbound {tag}: {e}");
+        }
+    }
     for tag in &old_tags {
         if !new_tags.contains(tag.as_str()) {
             let _ = state.xray_client.remove_outbound(tag).await;

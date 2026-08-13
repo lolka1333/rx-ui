@@ -75,6 +75,12 @@ pub async fn generate_unique_token(db: &SqlitePool) -> AppResult<String> {
 /// the wrong sentence entirely. Three attempts is far more than statistically
 /// necessary; if it ever runs out, the DB is in trouble and `Internal` is the
 /// right outcome.
+///
+/// Every client INSERT must call this and bind the result. The column's
+/// `DEFAULT ''` is an artifact of the `ALTER TABLE ... NOT NULL` that added it
+/// (migration 0022) and is not a usable value: it is unique like any other, so
+/// the first row that omits a token takes `''` and gets a subscription URL that
+/// resolves to nothing, and the second one fails the index.
 pub async fn generate_unique_token_on(conn: &mut sqlx::SqliteConnection) -> AppResult<String> {
     for _ in 0..3 {
         let candidate = generate_token();

@@ -19,10 +19,13 @@ frontend/.vite/
 
 # Backend runtime data (DB, xray binary, geofiles, generated config,
 # secrets) — operator-specific, never source. Ignore the whole dir.
-# Lands under backend/ when run from there, or the repo root when the
-# binary is run from the workspace root — ignore both.
-backend/data/
-/data/
+# The path is relative to the process's working directory, so it lands
+# wherever the binary was started from: backend/ during development, the
+# repo root from the workspace, frontend/ from a stray terminal. Match the
+# directory at any depth rather than enumerating the spots — no tracked
+# source directory is named `data` (`backend/proto/common/geodata/` is a
+# different component and unaffected).
+data/
 
 # Backend secrets — never commit JWT secrets or .env
 .env

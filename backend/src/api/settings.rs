@@ -1102,7 +1102,7 @@ async fn swap_panel_listener(
     let tls = load_tls_for_boot(&state.db).await;
     if new_port != current_port {
         let app = build_router(state.clone()).await;
-        let new_tx = spawn_listener("0.0.0.0", new_port, app, tls)
+        let new_tx = spawn_listener(&state.bind_host, new_port, app, tls)
             .await
             .map_err(|e| {
                 AppError::Internal(anyhow::anyhow!(
@@ -1141,7 +1141,7 @@ async fn swap_panel_listener(
             let _ = old_tx.send(());
         }
         let app = build_router(state.clone()).await;
-        let new_tx = rebind_with_retry("0.0.0.0", current_port, app, tls).await?;
+        let new_tx = rebind_with_retry(&state.bind_host, current_port, app, tls).await?;
         *state.listener_shutdown.write().await = Some(new_tx);
         tracing::info!(
             "panel prefix swapped {previous_prefix:?} → {normalised:?} \
@@ -1239,7 +1239,7 @@ async fn swap_sub_listener(
     let mut bound = None;
     for attempt in 1..=ATTEMPTS {
         tokio::time::sleep(Duration::from_millis(u64::from(attempt.min(5)) * 100)).await;
-        match spawn_sub_listener(state, "0.0.0.0", new_sub_port, app.clone()).await {
+        match spawn_sub_listener(state, &state.bind_host, new_sub_port, app.clone()).await {
             Ok((tx, _is_https)) => {
                 bound = Some(tx);
                 break;

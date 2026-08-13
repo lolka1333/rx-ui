@@ -1514,9 +1514,20 @@ function SubscriptionSection({
               (so flipping the switch back on restores the config),
               just become read-only while disabled. One watcher wraps both
               groups since every dependent field shares the same gate. */}
-          <Form.Item shouldUpdate={(p, n) => p.sub_enabled !== n.sub_enabled} noStyle>
+          <Form.Item
+            shouldUpdate={(p, n) =>
+              p.sub_enabled !== n.sub_enabled || p.sub_port !== n.sub_port
+            }
+            noStyle
+          >
             {({ getFieldValue }) => {
               const enabled = getFieldValue('sub_enabled') as boolean;
+              // TLS below configures the DEDICATED subscription listener, and
+              // that listener only exists at a non-zero port. At port 0 the
+              // /sub/ routes are served by the panel's own listener on the
+              // panel's own TLS, so a mode picked here would govern nothing
+              // while the share link kept promising its scheme.
+              const ownListener = enabled && (getFieldValue('sub_port') as number) > 0;
               return (
                 <>
                   <FieldGroup title={t('settings.subGroupConnection')}>
@@ -1603,7 +1614,7 @@ function SubscriptionSection({
                       }
                     >
                       <Select
-                        disabled={!enabled}
+                        disabled={!ownListener}
                         options={[
                           { value: 'inherit', label: t('settings.subTlsInherit') },
                           { value: 'off', label: t('settings.subTlsOff') },

@@ -11,8 +11,9 @@
 // `std::env::set_var` is `unsafe` in Rust 2024 because env vars are
 // process-global state. In a build script we run synchronously on a single
 // thread before anything else touches the environment, so the unsafety is
-// inert here — the workspace-wide `unsafe-code = "forbid"` lint just needs
-// a one-line local override.
+// inert here — and the workspace lint is `unsafe_code = "deny"` (Cargo.toml),
+// which a local `allow` may override. `forbid` could not be overridden at all,
+// so this file would stop building the moment anyone "tightened" it to that.
 #[allow(unsafe_code)]
 fn set_protoc_env(path: std::path::PathBuf) {
     // SAFETY: build.rs is single-threaded; no other code reads PROTOC.

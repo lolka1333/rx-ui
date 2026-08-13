@@ -5,7 +5,8 @@ members = ["backend"]
 [workspace.package]
 edition = "2024"
 version = "0.1.0"
-license = "MIT"
+# Matches LICENSE, NOTICE, README and the OCI label CI stamps on the image.
+license = "AGPL-3.0-or-later"
 authors = ["panel"]
 # MSRV pinned to the current latest stable so builds use a known-tested
 # toolchain. Bump when a new stable comes out and the workspace is

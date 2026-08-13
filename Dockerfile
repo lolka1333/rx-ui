@@ -87,6 +87,13 @@ EXPOSE 8080
 # secret URL prefix (a bare `/` 404s when the panel is mounted under one). The
 # HTTPS fallback (`-k`, self-signed ok) keeps the check green when the operator
 # has enabled panel HTTPS on this same port.
+#
+# ${PANEL_PORT} is the right port to probe even though a stored panel port can
+# outrank the env var at boot: the seeded row holds the default, so the env var
+# wins on every install that never moved the port from the UI. One that did is
+# listening on a port this image does not publish — unreachable from outside the
+# container — and reporting unhealthy is the accurate verdict, not a false alarm
+# to paper over here. Change the port in compose, not in the panel.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -fsS "http://127.0.0.1:${PANEL_PORT}/healthz" >/dev/null \
         || curl -fsSk "https://127.0.0.1:${PANEL_PORT}/healthz" >/dev/null || exit 1

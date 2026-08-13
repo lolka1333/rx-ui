@@ -62,6 +62,13 @@ pub struct AppState {
     /// the settings handler to decide whether a port change needs a
     /// listener re-bind, and surfaced for logging.
     pub current_port: Arc<AtomicU16>,
+    /// Interface the process bound at startup (`PANEL_HOST`, default
+    /// `127.0.0.1`). Every rebind reads it instead of picking its own: the
+    /// documented bare-metal setup is a panel on loopback behind a reverse
+    /// proxy, and a rebind that chose `0.0.0.0` on its own would put the admin
+    /// login on every interface the moment an operator changed the port — with
+    /// nothing in the UI to say so.
+    pub bind_host: Arc<str>,
     /// `oneshot::Sender` that signals the current listener task to
     /// gracefully shut down. Replaced (and the old handle dropped /
     /// scheduled for shutdown) when a new listener takes over.
@@ -218,6 +225,7 @@ async fn main() -> anyhow::Result<()> {
         inbound_live: inbound_traffic::InboundLiveStore::new(),
         base_path: Arc::new(RwLock::new(base_path.clone())),
         current_port: Arc::new(AtomicU16::new(port)),
+        bind_host: Arc::from(host.as_str()),
         listener_shutdown: Arc::new(RwLock::new(None)),
         current_sub_port: Arc::new(AtomicU16::new(0)),
         live_ipv4_outbound: Arc::new(AtomicBool::new(false)),
