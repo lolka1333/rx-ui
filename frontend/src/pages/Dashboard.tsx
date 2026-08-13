@@ -1,4 +1,4 @@
-import { Alert, App, Card, Col, Row, Progress, Tag, Grid, Button, theme } from 'antd';
+import { App, Card, Col, Row, Progress, Tag, Grid, Button, theme } from 'antd';
 import {
   PoweroffOutlined,
   ReloadOutlined,
@@ -17,6 +17,8 @@ import { XrayUpdatesModal } from '@/components/XrayUpdatesModal';
 import { LogsModal } from '@/components/LogsModal';
 import { ServerInfoCard } from '@/components/ServerInfoCard';
 import { useDashboardOverview } from '@/api/overview';
+import { useLoadState } from '@/api/loadState';
+import { LoadError, LoadStale } from '@/components/LoadState';
 import { fmtBytes as fmtBytesRaw } from '@/lib/format';
 
 /** Gauge details live in a narrow column — no decimal from 10 upwards. */
@@ -92,14 +94,9 @@ export function Dashboard() {
   const qc = useQueryClient();
   const [updatesOpen, setUpdatesOpen] = useState(false);
   const [logsOpen, setLogsOpen] = useState(false);
-  const {
-    data,
-    isLoading,
-    isError,
-    error,
-    refetch,
-    isRefetching,
-  } = useDashboardOverview();
+  const overview = useDashboardOverview();
+  const { data } = overview;
+  const page = useLoadState([overview]);
 
   const xrayAction = useMutation({
     mutationFn: async (action: 'start' | 'stop' | 'restart') =>
@@ -120,27 +117,18 @@ export function Dashboard() {
   });
 
   // All hooks called above this point so the order is stable across renders.
-  // Distinguish "still waiting on the first response" from "had data, refetch
-  // failed". First load returns `null` so nothing flashes — when data arrives
-  // the content mounts fresh and `.app-content-reveal` fades it in. The second
-  // case keeps the stale data on screen with a small "stale" banner.
-  if (isLoading && !data) {
+  // This page is where the three-state reading was worked out; it now shares the
+  // hook with everything else so the two cannot drift apart on the next edit.
+  //
+  // `failed` is nearly unreachable HERE specifically: a reload seeds `data` from
+  // the session snapshot (see `lib/overviewCache`), so from the first frame there
+  // is something to show and a dead backend lands in `stale`, not `failed`. On
+  // every other page the same hook resolves the other way.
+  if (page.blocked) {
     return null;
   }
-  if (isError && !data) {
-    return (
-      <Alert
-        type="error"
-        showIcon
-        title={t('common.error')}
-        description={apiErrorMessage(error) ?? String(error)}
-        action={
-          <Button size="small" onClick={() => refetch()} loading={isRefetching}>
-            {t('common.retry')}
-          </Button>
-        }
-      />
-    );
+  if (page.failed) {
+    return <LoadError state={page} />;
   }
 
   const cpu = Math.round(data?.system.cpu_percent ?? 0);
@@ -159,25 +147,9 @@ export function Dashboard() {
 
   return (
     <div className="app-content-reveal">
-      {isError && (
-        // "Had data, refetch failed" — the numbers below are the last ones that
-        // arrived, and without this they would sit there looking live. This case
-        // used to be rare enough to fall through to the error screen above; a
-        // reload now starts from the session snapshot, so `data` is set from the
-        // first frame and that screen is unreachable once anything is cached.
-        <Alert
-          type="warning"
-          showIcon
-          banner
-          title={t('dashboard.stale')}
-          action={
-            <Button size="small" onClick={() => refetch()} loading={isRefetching}>
-              {t('common.retry')}
-            </Button>
-          }
-          style={{ marginBottom: 16 }}
-        />
-      )}
+      {/* "Had data, refetch failed" — the numbers below are the last ones that
+          arrived, and without this they would sit there looking live. */}
+      <LoadStale state={page} />
       <ServerInfoCard
         ipv4={data?.system.ipv4 ?? null}
         ipv6={data?.system.ipv6 ?? null}

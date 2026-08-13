@@ -46,6 +46,8 @@ import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'r
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/api/client';
 import { apiErrorMessage } from '@/api/errors';
+import { useLoadState } from '@/api/loadState';
+import { LoadError, LoadStale } from '@/components/LoadState';
 import { useAuth } from '@/stores/auth';
 import { useNav, type SettingsSection } from '@/stores/nav';
 import { setLocaleAndReload, useLocale } from '@/stores/locale';
@@ -218,6 +220,7 @@ export function Settings({ section }: { section: SectionKey }) {
     queryKey: ['panel-settings'],
     queryFn: async () => (await apiClient.get<PanelSettings>('/settings/panel')).data,
   });
+  const pageState = useLoadState([pageQuery]);
   // Page-level dirty registry. Sections publish handles by key so
   // the bar can save / discard everything at once with a single
   // click, no matter how many sections the operator has touched.
@@ -308,7 +311,12 @@ export function Settings({ section }: { section: SectionKey }) {
   // Nothing until the first payload lands — same contract as the other pages:
   // no skeleton flash, and `app-content-reveal` fades the real content in once
   // there is something to show. A refetch keeps the current content on screen.
-  if (pageQuery.isLoading && !pageQuery.data) return null;
+  //
+  // A `blocked` gate only — deliberately no `failed` branch here. An early
+  // return would take the whole page off screen, and Account is the one settings
+  // surface that keeps working with the backend down (it reads the auth store,
+  // not the network). Each section owns its own failure surface instead.
+  if (pageState.blocked) return null;
 
   return (
     <div className="app-settings-page app-content-reveal">
@@ -750,6 +758,7 @@ function AccessSection({
   // response. Skip the form entirely until then — no skeleton, no
   // placeholder, just empty space for ~50ms (and never a wrong port).
   const data = settingsQuery.data;
+  const state = useLoadState([settingsQuery]);
   const accessBaseline = useMemo(
     () => (data ? {
             panel_port: data.panel_port,
@@ -759,6 +768,8 @@ function AccessSection({
   );
   return (
     <SectionFrame title={t('settings.panelSection')}>
+      <LoadError state={state} />
+      <LoadStale state={state} />
       {data && (
         <Form<PanelAccessFormValues>
           form={form}
@@ -1220,6 +1231,7 @@ function TlsSection({
   useSectionDirtyPublish({ dirty, setDirty, form, mutation, onDirtyChange, qc });
 
   const data = settingsQuery.data;
+  const state = useLoadState([settingsQuery]);
   const tlsBaseline = useMemo(
     () => (data ? {
             panel_tls_enabled: data.panel_tls_enabled,
@@ -1233,6 +1245,8 @@ function TlsSection({
   const httpsOn = !!data?.panel_tls_enabled;
   return (
     <SectionFrame title={t('settings.tlsSection')}>
+      <LoadError state={state} />
+      <LoadStale state={state} />
       {data && (
         <Form<TlsFormValues>
           form={form}
@@ -1463,6 +1477,7 @@ function SubscriptionSection({
   useSectionDirtyPublish({ dirty, setDirty, form, mutation, onDirtyChange, qc });
 
   const data = settingsQuery.data;
+  const state = useLoadState([settingsQuery]);
   const subBaseline = useMemo(
     () => (data ? {
             sub_enabled: data.sub_enabled,
@@ -1480,6 +1495,8 @@ function SubscriptionSection({
   );
   return (
     <SectionFrame title={t('settings.sectionSubscription')}>
+      <LoadError state={state} />
+      <LoadStale state={state} />
       {data && (
         <Form<SubscriptionFormValues>
           form={form}
@@ -2082,6 +2099,7 @@ function XraySection({
   }, [form, message, t]);
 
   const data = settingsQuery.data;
+  const state = useLoadState([settingsQuery]);
   const xrayBaseline = useMemo(
     () => (data ? {
             xray_freedom_strategy: data.xray_freedom_strategy,
@@ -2098,6 +2116,8 @@ function XraySection({
   );
   return (
     <SectionFrame title={t('settings.xraySection')}>
+      <LoadError state={state} />
+      <LoadStale state={state} />
       {data && (
         <Form<XrayFormValues>
           form={form}

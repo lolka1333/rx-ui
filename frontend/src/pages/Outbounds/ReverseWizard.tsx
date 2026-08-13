@@ -20,6 +20,8 @@ import { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/api/client';
 import { apiErrorMessage } from '@/api/errors';
+import { useLoadState } from '@/api/loadState';
+import { LoadError } from '@/components/LoadState';
 import { uuid } from '@/lib/id';
 import type {
   Client,
@@ -74,10 +76,12 @@ export function ReverseWizard({
   const [parsed, setParsed] = useState<Partial<OutboundFormValues> | null>(null);
   const [localTag, setLocalTag] = useState('');
 
-  const { data: inbounds = [] } = useQuery<Inbound[]>({
+  const inboundsQ = useQuery<Inbound[]>({
     queryKey: ['inbounds'],
     queryFn: async () => (await apiClient.get<Inbound[]>('/inbounds')).data,
   });
+  const { data: inbounds = [] } = inboundsQ;
+  const state = useLoadState([inboundsQ]);
   const vlessInbounds = inbounds.filter((i) => i.protocol.kind === 'vless');
 
   // Measure the current step's body so the modal animates its height between
@@ -279,10 +283,16 @@ export function ReverseWizard({
 
   const portalSetup = (
     <Form layout="vertical">
+      {/* Without this the empty list is indistinguishable from a real one, and
+          `notFoundContent` states outright that the server has no VLESS inbound
+          — advice to go create a duplicate of one that already exists. Disable
+          the Select on failure so that sentence cannot even be opened. */}
+      <LoadError state={state} />
       <Form.Item label={t('reverse.inbound')} required tooltip={t('reverse.inboundHint')}>
         <Select
           value={inboundId}
           onChange={setInboundId}
+          disabled={state.failed}
           placeholder={t('reverse.inboundPlaceholder')}
           options={vlessInbounds.map((i) => ({ value: i.id, label: `${i.tag} (:${i.port})` }))}
           notFoundContent={t('reverse.inboundNotFound')}

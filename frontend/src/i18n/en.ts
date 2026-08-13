@@ -12,6 +12,12 @@ export const en: Dict = {
     install: 'Install',
     error: 'Error',
     retry: 'Retry',
+    // `stale` sits over content that is still on screen after a failed refresh.
+    // It deliberately does NOT name a cause: one dead endpoint looks the same
+    // from here as a dead panel, and only the sidebar plaque — driven by the
+    // status poll — is in a position to say `unreachable`.
+    stale: 'Not updating. Showing the last known state.',
+    unreachable: 'Panel unreachable',
     next: 'Next',
     back: 'Back',
     errorTimeout: 'Server is not responding (timeout). Check that the backend is alive.',
@@ -264,7 +270,6 @@ export const en: Dict = {
     xrayStart: 'Start',
     xrayStop: 'Stop',
     xrayRestart: 'Restart',
-    stale: 'Not updating — the panel is unreachable. Showing the last known state.',
     xrayNotInstalled: 'not installed',
     xrayStartedToast: 'Xray started',
     xrayStoppedToast: 'Xray stopped',

@@ -28,6 +28,8 @@ import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/api/client';
 import { apiErrorMessage } from '@/api/errors';
+import { useLoadState } from '@/api/loadState';
+import { LoadError, LoadStale } from '@/components/LoadState';
 import { useClientsFilter } from '@/stores/clientsFilter';
 import { useNav } from '@/stores/nav';
 import type { Client, Inbound, InboundTraffic } from '@/api/types';
@@ -60,10 +62,11 @@ export function Inbounds() {
   const [editing, setEditing] = useState<Inbound | null>(null);
   const [form] = Form.useForm<FormValues>();
 
-  const { data } = useQuery<Inbound[]>({
+  const inboundsQ = useQuery<Inbound[]>({
     queryKey: ['inbounds'],
     queryFn: async () => (await apiClient.get<Inbound[]>('/inbounds')).data,
   });
+  const { data } = inboundsQ;
   // Memoised so the `?? []` fallback keeps a stable identity across renders —
   // `trafficByInbound` (and the client-count map) depend on it, and a fresh
   // array each render would defeat their memoisation.
@@ -73,10 +76,11 @@ export function Inbounds() {
   // query that returns every client (no filter), grouped in-memory by
   // inbound_id. Cheaper than per-row queries — the Clients page uses the
   // same endpoint, so this cache hit is shared between tabs.
-  const { data: allClients = [] } = useQuery<Client[]>({
+  const clientsQ = useQuery<Client[]>({
     queryKey: ['clients-global', null],
     queryFn: async () => (await apiClient.get<Client[]>('/clients')).data,
   });
+  const { data: allClients = [] } = clientsQ;
   const clientCountByInbound = useMemo(() => {
     const m = new Map<string, number>();
     for (const c of allClients) m.set(c.inbound_id, (m.get(c.inbound_id) ?? 0) + 1);
@@ -88,13 +92,19 @@ export function Inbounds() {
   // backend `inbound_traffic` poller persists them across restarts. This is the
   // real per-inbound split — a client shared across inbounds no longer dumps its
   // whole per-email total onto a single one (the old front-end approximation).
-  const { data: inboundStats = {} } = useQuery<Record<string, InboundTraffic>>({
+  const statsQ = useQuery<Record<string, InboundTraffic>>({
     queryKey: ['inbounds-stats'],
     queryFn: async () =>
       (await apiClient.get<Record<string, InboundTraffic>>('/inbounds/stats')).data,
     refetchInterval: isActive ? 5_000 : false,
     staleTime: 4_000,
   });
+  const { data: inboundStats = {} } = statsQ;
+
+  // Only the inbound list gates the page. The client count and the traffic poll
+  // decorate it: losing either is worth a stale banner, but hiding every inbound
+  // because a stats poll 5xx'd would be trading a wrong number for a blank page.
+  const page = useLoadState([inboundsQ], [clientsQ, statsQ]);
   // Inbounds don't have quotas of their own — caps live on clients. The cell
   // shows the aggregate ↑/↓ that flowed through the inbound (xray's per-inbound
   // counters); the bar underneath stays empty (no quota semantics) and only
@@ -205,12 +215,20 @@ export function Inbounds() {
     setEditOpen(true);
   };
 
-  if (!data) {
+  // `!data` used to cover both of these, which is why a dead backend rendered
+  // an empty page instead of saying so: no table, no "Add inbound" button, not
+  // even the empty-state illustration — that one only shows for a list that
+  // really is empty.
+  if (page.blocked) {
     return null;
+  }
+  if (page.failed) {
+    return <LoadError state={page} />;
   }
 
   return (
     <div className="app-content-reveal">
+      <LoadStale state={page} />
       <div
         style={{
           display: 'flex',

@@ -25,7 +25,7 @@ export function SidebarStatus({
 
   // Seeded from the session snapshot, so a reload paints the filled plaque in
   // its first frame instead of an empty slab that fills in a round trip later.
-  const { data } = useDashboardOverview();
+  const { data, isError, error } = useDashboardOverview();
 
   const restart = useMutation({
     mutationFn: async () => apiClient.post('/xray/restart'),
@@ -40,12 +40,21 @@ export function SidebarStatus({
 
   const running = data?.xray.running ?? false;
 
+  // The 5s overview poll doubles as this plaque's heartbeat, so its failure
+  // is the one outage signal visible from every page — which is what lets the
+  // surfaces we deliberately leave silent elsewhere stay silent. Neither green
+  // nor red here: the last colour we saw would be asserting a state we can no
+  // longer observe. No retry button either — the next poll IS the retry.
+  const unreachable = isError;
+
   // "Запущен" / "Остановлен" → "Xray запущен" / "Xray остановлен" without a new
   // i18n key: lower-case the reused dashboard string and prefix the engine name.
-  const stateLabel = `Xray ${(running
-    ? t('dashboard.xrayRunning')
-    : t('dashboard.xrayStopped')
-  ).toLowerCase()}`;
+  const stateLabel = unreachable
+    ? t('common.unreachable')
+    : `Xray ${(running
+        ? t('dashboard.xrayRunning')
+        : t('dashboard.xrayStopped')
+      ).toLowerCase()}`;
 
   // One DOM structure for every state — the collapsed rail just hides the label,
   // version and restart via CSS (no React swap), so the plaque's width can
@@ -62,7 +71,11 @@ export function SidebarStatus({
   return (
     <Tooltip
       title={
-        narrow && data ? `${stateLabel}${data.xray.version ? ` · ${data.xray.version}` : ''}` : ''
+        narrow && data
+          ? unreachable
+            ? (apiErrorMessage(error) ?? t('common.unreachable'))
+            : `${stateLabel}${data.xray.version ? ` · ${data.xray.version}` : ''}`
+          : ''
       }
       placement="right"
       arrow={false}
@@ -73,14 +86,18 @@ export function SidebarStatus({
       >
         {data && (
           <div className="sidebar-status-head">
-            <span className={`sidebar-status-dot${running ? ' is-up' : ' is-down'}`} />
+            <span
+              className={`sidebar-status-dot${
+                unreachable ? ' is-stale' : running ? ' is-up' : ' is-down'
+              }`}
+            />
             <span className="sidebar-status-label">{stateLabel}</span>
             {data.xray.version && <span className="sidebar-status-ver">{data.xray.version}</span>}
             <button
               type="button"
               className="sidebar-status-restart"
               onClick={() => restart.mutate()}
-              disabled={!running || restart.isPending}
+              disabled={!running || unreachable || restart.isPending}
               aria-label={t('dashboard.xrayRestart')}
             >
               <ReloadOutlined spin={restart.isPending} />

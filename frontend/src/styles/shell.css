@@ -135,6 +135,11 @@
 .sidebar-status-dot.is-down {
   background: #ef4444;
 }
+/* Neither up nor down: the status poll itself stopped answering, so the last
+   colour we saw would be claiming a state we can no longer observe. */
+.sidebar-status-dot.is-stale {
+  background: #f59e0b;
+}
 .sidebar-status-label {
   overflow: hidden;
   text-overflow: ellipsis;

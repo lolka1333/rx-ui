@@ -29,6 +29,8 @@ import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/api/client';
 import { apiErrorMessage } from '@/api/errors';
+import { useLoadState } from '@/api/loadState';
+import { LoadError, LoadStale } from '@/components/LoadState';
 import type {
   CustomOutbound,
   OutboundTestResult,
@@ -102,19 +104,21 @@ export function Outbounds() {
   const [testingId, setTestingId] = useState<string | null>(null);
   const [form] = Form.useForm<OutboundFormValues>();
 
-  const { data } = useQuery<CustomOutbound[]>({
+  const outboundsQ = useQuery<CustomOutbound[]>({
     queryKey: ['outbounds'],
     queryFn: async () => (await apiClient.get<CustomOutbound[]>('/outbounds')).data,
   });
+  const { data } = outboundsQ;
   const outbounds = data ?? [];
 
   // `direct-ipv4` is only emitted into the bootstrap config when the IPv4-rules
   // list is non-empty or some enabled rule targets it — so only list it then,
   // mirroring `config_gen::build_bootstrap_config`'s `needs_ipv4`.
-  const { data: settings } = useQuery<PanelSettings>({
+  const settingsQ = useQuery<PanelSettings>({
     queryKey: ['panel-settings'],
     queryFn: async () => (await apiClient.get<PanelSettings>('/settings/panel')).data,
   });
+  const { data: settings } = settingsQ;
   const systemRows =
     settings && needsIpv4(settings.xray_ipv4_domains, settings.xray_custom_rules)
       ? [...SYSTEM_OUTBOUNDS, DIRECT_IPV4_ROW]
@@ -124,13 +128,21 @@ export function Outbounds() {
   // backend, survives xray restarts. Poll only while this tab is visible so a
   // hidden page doesn't hit the API every 5s.
   const isActive = useNav((s) => s.current === 'outbounds');
-  const { data: stats = {}, dataUpdatedAt } = useQuery<Record<string, OutboundTraffic>>({
+  const statsQ = useQuery<Record<string, OutboundTraffic>>({
     queryKey: ['outbounds-stats'],
     queryFn: async () =>
       (await apiClient.get<Record<string, OutboundTraffic>>('/outbounds/stats')).data,
     refetchInterval: isActive ? 5_000 : false,
     staleTime: 4_000,
   });
+  const { data: stats = {}, dataUpdatedAt } = statsQ;
+
+  // Only the outbound list gates the page. Settings decides whether the
+  // `direct-ipv4` built-in row is listed, and the stats poll fills the traffic
+  // column — both worth a stale banner, neither worth hiding every outbound for.
+  // Watching settings also fixes a quieter lie: on its failure the ternary above
+  // silently drops that row, which reads as "this server has no IPv4 route".
+  const page = useLoadState([outboundsQ], [settingsQ, statsQ]);
 
   // Live indicator: the endpoint returns cumulative totals, not a rate, so we
   // derive "currently flowing" by diffing each poll against the previous one —
@@ -256,12 +268,19 @@ export function Outbounds() {
     setEditOpen(true);
   };
 
-  if (!data) {
+  // `!data` covered both of these, so a failed fetch left a page with nothing on
+  // it at all — not even the Add button or the reverse wizard, so there was no
+  // way to tell a dead backend from an app that had stopped responding.
+  if (page.blocked) {
     return null;
+  }
+  if (page.failed) {
+    return <LoadError state={page} />;
   }
 
   return (
     <div className="app-content-reveal">
+      <LoadStale state={page} />
       <div
         style={{
           display: 'flex',

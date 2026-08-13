@@ -12,6 +12,12 @@ export const ru = {
     install: 'Установить',
     error: 'Ошибка',
     retry: 'Повторить',
+    // `stale` sits over content that is still on screen after a failed refresh.
+    // It deliberately does NOT name a cause: one dead endpoint looks the same
+    // from here as a dead panel, and only the sidebar plaque — driven by the
+    // status poll — is in a position to say `unreachable`.
+    stale: 'Данные не обновляются. Показано последнее известное состояние.',
+    unreachable: 'Панель недоступна',
     next: 'Далее',
     back: 'Назад',
     errorTimeout: 'Сервер не отвечает (таймаут). Проверьте, что бэкенд жив.',
@@ -264,7 +270,6 @@ export const ru = {
     xrayStart: 'Запустить',
     xrayStop: 'Остановить',
     xrayRestart: 'Перезапустить',
-    stale: 'Данные не обновляются — панель не отвечает. Показано последнее известное состояние.',
     xrayNotInstalled: 'не установлен',
     xrayStartedToast: 'Xray запущен',
     xrayStoppedToast: 'Xray остановлен',

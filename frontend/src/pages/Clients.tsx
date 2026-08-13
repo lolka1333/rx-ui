@@ -56,6 +56,8 @@ import dayjs, { type Dayjs } from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import { apiClient } from '@/api/client';
 import { apiErrorMessage } from '@/api/errors';
+import { useLoadState } from '@/api/loadState';
+import { LoadError, LoadStale } from '@/components/LoadState';
 import { useNav } from '@/stores/nav';
 import { QrCard } from '@/components/QrCard';
 import { TrafficCell } from '@/components/TrafficCell';
@@ -348,10 +350,11 @@ export function Clients() {
   // Inbounds — need both for the filter dropdown AND for the create-form
   // inbound select. Same query key as the Inbounds page so refetches are
   // shared.
-  const { data: inbounds = [], isPending: inboundsPending } = useQuery<Inbound[]>({
+  const inboundsQ = useQuery<Inbound[]>({
     queryKey: ['inbounds'],
     queryFn: async () => (await apiClient.get<Inbound[]>('/inbounds')).data,
   });
+  const { data: inbounds = [] } = inboundsQ;
 
   const inboundById = useMemo(() => {
     const m = new Map<string, Inbound>();
@@ -369,7 +372,7 @@ export function Clients() {
   // count) feeds the form's "this user already exists in inbounds X, Y"
   // pre-population so the multi-select shows the real assignment set
   // regardless of which inbound filter the page is currently scoped to.
-  const { data: clients = [], isPending: clientsPending } = useQuery<Client[]>({
+  const clientsQ = useQuery<Client[]>({
     queryKey: ['clients-global', inboundIdFilter],
     queryFn: async () => {
       const params: Record<string, string> = {};
@@ -389,28 +392,38 @@ export function Clients() {
     // until the next mutation invalidated the cache.
     refetchInterval: isActive ? 5_000 : false,
   });
+  const { data: clients = [] } = clientsQ;
 
   // Unfiltered global client list — needed by the form's multi-select
   // to show which inbounds the edited email is already assigned to,
   // even when the visible table is filtered down to one inbound.
   // Shares the cache key with the Inbounds page so the request is
   // deduped on tabs where both pages have been visited.
-  const { data: allClients = [] } = useQuery<Client[]>({
+  const allClientsQ = useQuery<Client[]>({
     queryKey: ['clients-global', null],
     queryFn: async () => (await apiClient.get<Client[]>('/clients')).data,
     refetchInterval: isActive ? 5_000 : false,
   });
+  const { data: allClients = [] } = allClientsQ;
 
   // Live online + traffic snapshot. Backend keeps a 5 s-warm in-memory
   // map populated by xray's StatsService; this query polls at the same
   // cadence so the UI rate matches the underlying delta window.
   // `refetchIntervalInBackground: false` (default) — we don't burn
   // CPU when the tab is hidden.
-  const { data: stats = {} } = useQuery<TrafficSnapshotMap>({
+  const statsQ = useQuery<TrafficSnapshotMap>({
     queryKey: ['clients-stats'],
     queryFn: async () => (await apiClient.get<TrafficSnapshotMap>('/clients/stats')).data,
     refetchInterval: isActive ? 5_000 : false,
   });
+  const { data: stats = {} } = statsQ;
+
+  // The table needs both the rows and the inbounds they belong to, so both gate
+  // the page. The unfiltered list (edit form) and the stats poll only decorate
+  // it — and a dead stats poll is the worst thing to hide behind silence, since
+  // the Online column then paints every client grey, which reads as an outage
+  // that isn't happening.
+  const page = useLoadState([clientsQ, inboundsQ], [allClientsQ, statsQ]);
 
   // Email-keyed groups for the table. One row per email — the
   // underlying per-inbound rows are accessible via `rows[]` so actions
@@ -843,12 +856,21 @@ export function Clients() {
   // the empty state, then snap to the populated rows a moment later —
   // ruining the smooth fade-in. `app-content-reveal` then animates the
   // already-populated content as a single unit.
-  if (clientsPending || inboundsPending) {
+  //
+  // The old `isPending` test did NOT hold for a failed request: with the global
+  // `retry: 0`, a 502 moves the query straight to `error`, so pending went false
+  // and the page rendered `[]` as though the server had answered "no clients" —
+  // "Нет клиентов — добавьте первого" over a backend that was simply down.
+  if (page.blocked) {
     return null;
+  }
+  if (page.failed) {
+    return <LoadError state={page} />;
   }
 
   return (
     <div className="app-content-reveal">
+      <LoadStale state={page} />
       <div
         style={{
           display: 'flex',
@@ -1501,14 +1523,22 @@ function SubscriptionPane({
   // browsing on); `sub_port` means subscriptions live on a different
   // port than the admin shell. Falls back to `window.location` when
   // either field is empty.
-  const settings = useQuery({
+  const settingsQ = useQuery({
     queryKey: ['panel-settings'],
     queryFn: async () => (await apiClient.get<PanelSettings>('/settings/panel')).data,
     staleTime: 30_000,
-  }).data;
+  });
+  const settings = settingsQ.data;
+  const state = useLoadState([settingsQ]);
   const url = buildSubscriptionUrl(client.sub_token, settings);
   return (
     <Space orientation="vertical" style={{ width: '100%' }} size={16}>
+      {/* The QR stays: falling back to the current origin is right for the
+          common single-host setup. But when the settings fetch failed we cannot
+          know whether this operator overrode the host or port, and the link
+          still looks authoritative — so say the settings could not be read
+          rather than let a wrong URL be copied out to a user. */}
+      <LoadError state={state} />
       <QrCard value={url} />
       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
         {t('clients.subHint')}

@@ -16,6 +16,8 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/api/client';
 import { apiErrorMessage } from '@/api/errors';
+import { useLoadState } from '@/api/loadState';
+import { LoadError } from '@/components/LoadState';
 import type { XrayRelease } from '@/api/types';
 
 interface Props {
@@ -82,7 +84,7 @@ export function XrayUpdatesModal({ open, onClose, currentVersion }: Props) {
   // just a same-tag build from another source).
   const installedHere = (repo || 'official') === installedSrc;
 
-  const { data: releases, isLoading, isError, error } = useQuery<XrayRelease[]>({
+  const releasesQ = useQuery<XrayRelease[]>({
     // Key by source so official and an empty custom link don't share a cache
     // entry (both have repo=""); switching sources then shows the right list.
     queryKey: ['xray-releases', source === 'official' ? 'official' : repo],
@@ -101,6 +103,8 @@ export function XrayUpdatesModal({ open, onClose, currentVersion }: Props) {
     // A malformed custom link is a 400 — retrying 3× just delays the error.
     retry: false,
   });
+  const { data: releases, isLoading } = releasesQ;
+  const state = useLoadState([releasesQ]);
 
   // Debounce the typed link (~400ms) so the release query fires once the
   // operator pauses, not once per keystroke (each partial link would 400).
@@ -279,13 +283,12 @@ export function XrayUpdatesModal({ open, onClose, currentVersion }: Props) {
                   </div>
                 )}
                 <Alert type="warning" showIcon title={t('xrayUpdates.warning')} />
-                {source === 'link' && isError && (
-                  <Alert
-                    type="error"
-                    showIcon
-                    title={apiErrorMessage(error) ?? t('xrayUpdates.linkError')}
-                  />
-                )}
+                {/* Was gated on `source === 'link'`, which meant the default
+                    (official) source had no failure surface at all: a 502 left
+                    a modal with a warning strip and a dead grey area. The state
+                    self-gates, so an idle query — link source with nothing typed
+                    yet — still renders nothing. */}
+                <LoadError state={state} fallback={t('xrayUpdates.linkError')} />
                 {isLoading && <ReleaseSkeletonList />}
                 {!isLoading && releases && (
                   <div

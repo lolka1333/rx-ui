@@ -4,6 +4,8 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useMemo } from 'react';
 import { apiClient } from '@/api/client';
+import { useLoadState } from '@/api/loadState';
+import { LoadError } from '@/components/LoadState';
 import { useLogsPrefs } from '@/stores/logsPrefs';
 import type { LogEntry } from '@/api/types';
 
@@ -27,7 +29,7 @@ export function LogsModal({ open, onClose }: Props) {
   const setLevel = useLogsPrefs((s) => s.setLevel);
   const setAutoRefresh = useLogsPrefs((s) => s.setAutoRefresh);
 
-  const { data: entries = [], isFetching, refetch } = useQuery<LogEntry[]>({
+  const logsQ = useQuery<LogEntry[]>({
     queryKey: ['logs', limit, level],
     queryFn: async () => {
       const params: Record<string, unknown> = { limit };
@@ -38,6 +40,8 @@ export function LogsModal({ open, onClose }: Props) {
     refetchInterval: open && autoRefresh ? 3000 : false,
     staleTime: 1000,
   });
+  const { data: entries = [], isFetching, refetch } = logsQ;
+  const state = useLoadState([logsQ]);
 
   // Stable React keys built from content + a within-batch counter for the
   // rare case of identical (timestamp, level, target, message) tuples. Memoised
@@ -178,7 +182,11 @@ export function LogsModal({ open, onClose }: Props) {
           borderRadius: 8,
         }}
       >
-      {entries.length === 0 && (
+      <LoadError state={state} />
+      {/* "No events yet" is a statement about the backend, so it must not be
+          what greets an operator whose log request just failed — this is the
+          one tool they open to find out why things are broken. */}
+      {!state.failed && entries.length === 0 && (
         <Typography.Text type="secondary">{t('logs.empty')}</Typography.Text>
       )}
       <div
