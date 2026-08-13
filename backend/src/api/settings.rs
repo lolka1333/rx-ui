@@ -140,6 +140,54 @@ pub async fn load_panel_settings(db: &crate::db::DbPool) -> AppResult<PanelSetti
     })
 }
 
+/// Everything `update_panel`'s helpers need to know about the row as it stands
+/// BEFORE the write. Read once: four helpers used to issue a SELECT each, which
+/// is four connections' worth of round-trips for one save and — worse — four
+/// separate snapshots, so a concurrent write could have them disagree about
+/// what "stored" meant.
+struct StoredPanel {
+    custom_rules: String,
+    rule_order: String,
+    blocked_ips: String,
+    blocked_domains: String,
+    ipv4_domains: String,
+    block_bittorrent: i64,
+    panel_tls_key: String,
+    sub_tls_mode: String,
+    sub_cert_pem: String,
+    sub_key_pem: String,
+}
+
+async fn read_stored_panel(db: &crate::db::DbPool) -> AppResult<StoredPanel> {
+    let r = sqlx::query!(
+        r#"SELECT xray_custom_rules    AS "custom_rules!: String",
+                  xray_rule_order      AS "rule_order!: String",
+                  xray_blocked_ips     AS "blocked_ips!: String",
+                  xray_blocked_domains AS "blocked_domains!: String",
+                  xray_ipv4_domains    AS "ipv4_domains!: String",
+                  xray_block_bittorrent,
+                  panel_tls_key        AS "panel_tls_key!: String",
+                  sub_tls_mode         AS "sub_tls_mode!: String",
+                  sub_cert_pem         AS "sub_cert_pem!: String",
+                  sub_key_pem          AS "sub_key_pem!: String"
+             FROM panel_settings WHERE id = 1"#
+    )
+    .fetch_one(db)
+    .await?;
+    Ok(StoredPanel {
+        custom_rules: r.custom_rules,
+        rule_order: r.rule_order,
+        blocked_ips: r.blocked_ips,
+        blocked_domains: r.blocked_domains,
+        ipv4_domains: r.ipv4_domains,
+        block_bittorrent: r.xray_block_bittorrent,
+        panel_tls_key: r.panel_tls_key,
+        sub_tls_mode: r.sub_tls_mode,
+        sub_cert_pem: r.sub_cert_pem,
+        sub_key_pem: r.sub_key_pem,
+    })
+}
+
 async fn update_panel(
     _user: AuthUser,
     State(state): State<AppState>,
@@ -160,37 +208,38 @@ async fn update_panel(
         xray_blocked_domains,
         xray_ipv4_domains,
     } = validate_panel_update(&body)?;
+    // The row as it stands, read once and shared by every helper below.
+    let stored = read_stored_panel(&state.db).await?;
     // Validate custom rules + order up front, so a bad rule aborts before any
     // DB write. Valid targets = the reserved built-ins ∪ the tags of currently-
     // enabled custom outbounds (a rule may route to an operator's relay).
     let valid_targets = valid_rule_targets(&state.db).await?;
-    let stored_targets = stored_rule_targets(&state.db).await?;
+    let stored_targets = stored_rule_targets(&stored);
     let (custom_rules_json, rule_order_json) =
         validate_custom_routing(&body, &valid_targets, &stored_targets)?;
 
     // Panel HTTPS: validate + resolve the cert/key (an empty incoming key keeps
     // the stored one) before persisting — a bad pair fails here as a clean 400
     // the operator sees in the form, not as a failed restart later.
-    let (tls_enabled_i, tls_cert, tls_key) = resolve_panel_tls(&state.db, &body).await?;
+    let (tls_enabled_i, tls_cert, tls_key) = resolve_panel_tls(&stored, &body).await?;
     // Subscription TLS is independent of the panel's: validate the mode + (for
     // `custom`) the separate cert/key pair, keeping the stored key when the
     // incoming one is blank — same convention as the panel cert above.
     let (sub_tls_mode, sub_cert, sub_key, sub_tls_changed) =
-        resolve_sub_tls(&state.db, &body).await?;
+        resolve_sub_tls(&stored, &body).await?;
 
     // Snapshot routing-relevant fields BEFORE the UPDATE, so we only hot-apply
     // routing when it actually changed. An unrelated save (brand / TLS / sub
     // port) must not touch the live router or risk a recovery restart.
     let routing_changed = routing_fields_changed(
-        &state.db,
+        &stored,
         &custom_rules_json,
         &rule_order_json,
         &xray_blocked_ips,
         &xray_blocked_domains,
         &xray_ipv4_domains,
         xray_block_bittorrent,
-    )
-    .await?;
+    );
 
     let sub_enabled_i = i64::from(body.sub_enabled);
     let xray_bittorrent_i = i64::from(xray_block_bittorrent);
@@ -305,32 +354,21 @@ fn routing_body(
 /// Whether a settings update touches anything the router cares about (rules,
 /// order, block/ipv4 lists, bittorrent), compared against the currently-stored
 /// values. Lets the caller skip the live-router push on unrelated saves.
-async fn routing_fields_changed(
-    db: &crate::db::DbPool,
+fn routing_fields_changed(
+    stored: &StoredPanel,
     custom_rules_json: &str,
     rule_order_json: &str,
     blocked_ips: &str,
     blocked_domains: &str,
     ipv4_domains: &str,
     block_bittorrent: bool,
-) -> AppResult<bool> {
-    let old = sqlx::query!(
-        r#"SELECT xray_custom_rules AS "xray_custom_rules!: String",
-                  xray_rule_order AS "xray_rule_order!: String",
-                  xray_blocked_ips AS "xray_blocked_ips!: String",
-                  xray_blocked_domains AS "xray_blocked_domains!: String",
-                  xray_ipv4_domains AS "xray_ipv4_domains!: String",
-                  xray_block_bittorrent
-             FROM panel_settings WHERE id = 1"#
-    )
-    .fetch_one(db)
-    .await?;
-    Ok(old.xray_custom_rules != custom_rules_json
-        || old.xray_rule_order != rule_order_json
-        || old.xray_blocked_ips != blocked_ips
-        || old.xray_blocked_domains != blocked_domains
-        || old.xray_ipv4_domains != ipv4_domains
-        || (old.xray_block_bittorrent != 0) != block_bittorrent)
+) -> bool {
+    stored.custom_rules != custom_rules_json
+        || stored.rule_order != rule_order_json
+        || stored.blocked_ips != blocked_ips
+        || stored.blocked_domains != blocked_domains
+        || stored.ipv4_domains != ipv4_domains
+        || (stored.block_bittorrent != 0) != block_bittorrent
 }
 
 /// Rebind the sub + panel listeners after a settings write. The sub listener
@@ -373,14 +411,10 @@ async fn apply_listener_changes(
 /// it); enabling HTTPS requires both halves and that they form a usable pair.
 /// Returns `(enabled_flag, cert_pem, key_pem)` ready to bind into the UPDATE.
 async fn resolve_panel_tls(
-    db: &crate::db::DbPool,
+    stored: &StoredPanel,
     body: &PanelSettingsUpdate,
 ) -> AppResult<(i64, String, String)> {
-    let stored_key: String = sqlx::query_scalar!(
-        r#"SELECT panel_tls_key AS "panel_tls_key!: String" FROM panel_settings WHERE id = 1"#
-    )
-    .fetch_one(db)
-    .await?;
+    let stored_key = stored.panel_tls_key.clone();
     let cert = body.panel_tls_cert.trim().to_owned();
     let key = if body.panel_tls_key.trim().is_empty() {
         stored_key
@@ -411,17 +445,9 @@ async fn resolve_panel_tls(
 /// `changed` (any of mode/cert/key differs from stored) drives the live
 /// force-rebind of the sub listener.
 async fn resolve_sub_tls(
-    db: &crate::db::DbPool,
+    stored: &StoredPanel,
     body: &PanelSettingsUpdate,
 ) -> AppResult<(String, String, String, bool)> {
-    let stored = sqlx::query!(
-        r#"SELECT sub_tls_mode AS "sub_tls_mode!: String",
-                  sub_cert_pem AS "sub_cert_pem!: String",
-                  sub_key_pem  AS "sub_key_pem!: String"
-            FROM panel_settings WHERE id = 1"#
-    )
-    .fetch_one(db)
-    .await?;
     let mode = match body.sub_tls_mode.trim() {
         "off" => "off",
         "custom" => "custom",
@@ -787,15 +813,15 @@ async fn valid_rule_targets(
 /// out would be to find and fix that rule first — with nothing in the UI saying
 /// so. Rules that arrive unchanged are therefore grandfathered; creating or
 /// re-pointing one still requires a live target.
-async fn stored_rule_targets(
-    db: &crate::db::DbPool,
-) -> AppResult<std::collections::HashSet<(String, String)>> {
-    Ok(load_panel_settings(db)
-        .await?
-        .xray_custom_rules
+fn stored_rule_targets(stored: &StoredPanel) -> std::collections::HashSet<(String, String)> {
+    // Parsed from the snapshot the rest of the save already holds. A malformed
+    // column means "no grandfathered rules", which is the safe reading: every
+    // incoming rule then has to point at a live target.
+    serde_json::from_str::<Vec<RoutingRule>>(&stored.custom_rules)
+        .unwrap_or_default()
         .into_iter()
         .map(|r| (r.id, r.outbound_tag))
-        .collect())
+        .collect()
 }
 
 /// Trim entries and drop blanks from a matcher list. Both rule emitters must
