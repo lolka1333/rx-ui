@@ -343,6 +343,41 @@ pub fn fold_stats_to_totals(
 /// subtraction. `skip` drops tags before diffing (e.g. the internal `api`
 /// inbound). Only tags with a non-zero delta are returned. Extracted so the
 /// per-outbound and per-inbound pollers share one tested implementation instead
+/// Define the per-tag delta flusher for one traffic table.
+///
+/// A macro and not a function because `sqlx::query!` checks its SQL against the
+/// schema at compile time and so needs a literal — the table name cannot be a
+/// parameter. What the two tables genuinely share is everything around the
+/// statement: one transaction per tick (one WAL fsync regardless of how many
+/// tags moved), per-row failures logged rather than raised, and the next tick
+/// left to retry. That was written out twice, once per direction, down to the
+/// wording of the warnings.
+macro_rules! define_delta_flusher {
+    ($name:ident, $label:literal, $sql:literal) => {
+        async fn $name(db: &$crate::db::DbPool, pending: &[(String, i64, i64)]) {
+            if pending.is_empty() {
+                return;
+            }
+            let mut tx = match db.begin().await {
+                Ok(t) => t,
+                Err(e) => {
+                    tracing::warn!("{} traffic tx begin failed: {e}", $label);
+                    return;
+                }
+            };
+            for (tag, up, down) in pending {
+                if let Err(e) = sqlx::query!($sql, tag, up, down).execute(&mut *tx).await {
+                    tracing::warn!("{} traffic persist failed for {tag}: {e}", $label);
+                }
+            }
+            if let Err(e) = tx.commit().await {
+                tracing::warn!("{} traffic tx commit failed: {e}", $label);
+            }
+        }
+    };
+}
+pub(crate) use define_delta_flusher;
+
 /// of each carrying its own copy of this subtle reset logic.
 pub fn tag_deltas(
     current: &HashMap<String, (u64, u64)>,

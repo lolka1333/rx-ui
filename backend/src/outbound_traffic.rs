@@ -89,38 +89,15 @@ async fn poll_once(
     flush_deltas(db, &pending).await;
 }
 
-/// Flush all per-tag deltas in one transaction — one WAL fsync regardless of how
-/// many tags changed. Failures are logged, not raised; the next tick retries.
-async fn flush_deltas(db: &DbPool, pending: &[(String, i64, i64)]) {
-    if pending.is_empty() {
-        return;
-    }
-    let mut tx = match db.begin().await {
-        Ok(t) => t,
-        Err(e) => {
-            tracing::warn!("outbound traffic tx begin failed: {e}");
-            return;
-        }
-    };
-    for (tag, up, down) in pending {
-        if let Err(e) = sqlx::query!(
-            r#"INSERT INTO outbound_traffic (tag, uplink_total, downlink_total, updated_at)
-               VALUES (?, ?, ?, datetime('now'))
-               ON CONFLICT(tag) DO UPDATE SET
-                   uplink_total   = uplink_total + excluded.uplink_total,
-                   downlink_total = downlink_total + excluded.downlink_total,
-                   updated_at     = datetime('now')"#,
-            tag,
-            up,
-            down,
-        )
-        .execute(&mut *tx)
-        .await
-        {
-            tracing::warn!("outbound traffic persist failed for {tag}: {e}");
-        }
-    }
-    if let Err(e) = tx.commit().await {
-        tracing::warn!("outbound traffic tx commit failed: {e}");
-    }
-}
+// Flush all per-tag deltas in one transaction — the shared shape lives in
+// `traffic::define_delta_flusher`; only the table differs.
+crate::traffic::define_delta_flusher!(
+    flush_deltas,
+    "outbound",
+    r#"INSERT INTO outbound_traffic (tag, uplink_total, downlink_total, updated_at)
+       VALUES (?, ?, ?, datetime('now'))
+       ON CONFLICT(tag) DO UPDATE SET
+           uplink_total   = uplink_total + excluded.uplink_total,
+           downlink_total = downlink_total + excluded.downlink_total,
+           updated_at     = datetime('now')"#
+);

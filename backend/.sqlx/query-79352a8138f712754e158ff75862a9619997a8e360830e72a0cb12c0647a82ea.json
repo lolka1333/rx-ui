@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO inbound_traffic (tag, uplink_total, downlink_total, updated_at)\n       VALUES (?, ?, ?, datetime('now'))\n       ON CONFLICT(tag) DO UPDATE SET\n           uplink_total   = uplink_total + excluded.uplink_total,\n           downlink_total = downlink_total + excluded.downlink_total,\n           updated_at     = datetime('now')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "79352a8138f712754e158ff75862a9619997a8e360830e72a0cb12c0647a82ea"
+}
