@@ -2,6 +2,12 @@
    account card, and the icon-only footer buttons — plus the collapse
    choreography they share.
 
+   The antd Menu rules further down belong to the same collapse and stay in
+   THIS file on purpose: they and nav.css's icon rules are equally specific
+   and both carry `!important`, so the tie breaks on import order alone.
+   Moving them up to nav.css flips it and the icons start animating again
+   during the collapse.
+
    The plaques animate their OWN max-width (184→40) so they shrink smoothly with
    the menu, INDEPENDENT of antd's Sider whose width transition starts ~300ms
    late (the heavy menu-collapse animation delays it) — which is what made them

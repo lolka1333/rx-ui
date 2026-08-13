@@ -47,7 +47,13 @@
   height: 7px;
   margin-right: 8px;
   border-radius: 50%;
-  background: var(--success, #22c55e);
+  /* `--success` is not one of the variables `applyCssVariables` publishes, so
+     this used to paint its literal fallback and only looked right by luck —
+     the same trap the dirty-bar dot was in. antd's token is real. Note it is
+     the DERIVED success colour (#20aa53 on the dark themes), not the #22c55e
+     seed in tokens.ts, so the dot now matches every other success surface antd
+     paints instead of sitting a shade off them. */
+  background: var(--ant-color-success, #22c55e);
   vertical-align: 1px;
 }
 /* Value and action share the right column: value against the column's left

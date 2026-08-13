@@ -1,10 +1,13 @@
 /* Panel stylesheet — split by surface, imported in cascade order.
  *
- * The order below is the order these rules had when they lived in one file,
- * and it has to stay that way: the bundler inlines each @import where it
- * stands, so reordering them reorders the cascade. Every file is a contiguous
- * run of the original, which is what makes the split provably behaviour-free —
- * the built bundle is byte-identical to the one before it.
+ * This order is load-bearing: the bundler inlines each @import where it stands,
+ * so moving a line here moves rules in the cascade. It is the order the rules
+ * had in the single file they came from, with one deliberate exception —
+ * forms.css was lifted out of the middle of motion.css, past the content-reveal
+ * block, after checking in the running app that the two never match the same
+ * element (so their relative order cannot matter). The first split was proven
+ * by a byte-identical bundle; that move was proven by an identical rule set,
+ * 354 rules either way, none added and none lost.
  *
  * Most of what is here overrides antd's own DOM (`.ant-*`), which is global by
  * nature and cannot live in a scoped/module stylesheet. Anything expressible as
@@ -27,6 +30,10 @@
 @import './styles/dashboard.css';
 /* Page-level motion: the transition between pages and the reveal of freshly loaded content. */
 @import './styles/motion.css';
+/* Field rhythm of the inbound / outbound / routing-rule forms. */
+@import './styles/forms.css';
+/* Settings page geometry: sections, tabs, field groups and their rows. */
+@import './styles/settings/layout.css';
 /* The Security tab's PEM drop fields: status ribbon, the Form.Item plumbing that lets a field own its row, and the drop textarea's rest / open / filled / drag states. */
 @import './styles/settings/tls.css';
 /* Geo match lists as antd multi-selects: the two-letter code prefix, chip sizing, and the scrollable whole-rows chip box. */

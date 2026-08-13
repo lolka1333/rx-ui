@@ -4,7 +4,7 @@
   text-align: right;
 }
 /* The Xray sub-tabs carry `app-settings-tabs` as well, so the ink bar and the
-   active label already come from the accent token in motion.css — the two
+   active label already come from the accent token in settings/layout.css — the two
    rules that used to repeat them here were a hardcoded copy of the same colour
    and a dead rule the token version outranks with `!important`.
 

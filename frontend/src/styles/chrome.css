@@ -15,11 +15,9 @@ button {
    Tooltips are UI hints, not selectable content. Highlighting the text
    inside them looks like an accidental drag, not a user action.
    v6 puts the text inside `.ant-tooltip-container`; older themes
-   sometimes still expose `.ant-tooltip-inner` — cover both.
    ==================================================================== */
 .ant-tooltip,
-.ant-tooltip-container,
-.ant-tooltip-inner {
+.ant-tooltip-container {
   -webkit-user-select: none;
   -moz-user-select: none;
   -ms-user-select: none;

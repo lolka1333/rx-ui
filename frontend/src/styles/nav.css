@@ -39,14 +39,6 @@
     flex-basis 0.28s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
-/* Drawer panel background — antd's dark algorithm doesn't override the
-   default white, so force it. The drawer IS the sidebar on a phone, so it
-   reads the same variable rather than repeating the three literals: the
-   "очень тёмная" copy here had already drifted a palette revision behind
-   (#0c0d10, from back when that palette still leaned blue) and showed a
-   different black than the rail it replaces. */
-.ant-drawer-section { background-color: var(--sidebar); }
-
 /* ====================================================================
    Inline submenu — minimise per-frame layout cost during height animation
    ==================================================================== */

@@ -2322,6 +2322,11 @@ function XraySection({
                         open={false}
                         tokenSeparators={[',', ' ']}
                         placeholder={t('settings.xrayListPlaceholder')}
+                        // Same chip renderer as the two lists above it. Without
+                        // it antd draws its own chip, 27.6px against their 21px,
+                        // so one field in the group wrapped on a different pitch
+                        // and clipped its last row against the shared height cap.
+                        tagRender={renderGeoTag}
                       />
                     </Form.Item>
                   </FieldGroup>

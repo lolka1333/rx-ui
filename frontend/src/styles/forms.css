@@ -1,0 +1,30 @@
+/* ====================================================================
+   Form rhythm — the inbound / outbound / routing-rule forms sit on a 12px
+   gap between fields, not antd's 24. It used to be written as an inline
+   `style={{ marginBottom: 12 }}` on every single Form.Item — a hundred-odd
+   copies of one decision — which is also why the value could not be seen or
+   changed in one place.
+
+   NOT the `Form.itemMarginBottom` token: that is global, and the client and
+   login forms deliberately keep antd's roomier default. The class marks the
+   surfaces that opted in. An item that wants something else still says so
+   inline, and wins — inline beats a class rule.
+   ==================================================================== */
+.app-form-rows .ant-form-item {
+  margin-bottom: 12px;
+}
+/* antd gives InputNumber a fixed 90px `controlWidth`, so every numeric field
+   in these forms carried `style={{ width: '100%' }}` to undo it — the same
+   line 28 times. The token cannot express this (it is typed as pixels), and
+   the settings page already solved it exactly this way one file over. A field
+   that genuinely wants a fixed width still says so inline. */
+.app-form-rows .ant-input-number {
+  width: 100%;
+}
+/* Two fields on one line — see `SideBySide` in pages/Inbounds/widgets.tsx,
+   which is the only thing that renders it. */
+.app-field-row {
+  display: flex;
+  gap: 12px;
+}
+

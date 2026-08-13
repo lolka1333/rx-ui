@@ -55,7 +55,8 @@
    background state (selected / active / hover) so only the inline
    control changes appearance.
 
-   The `.ant-menu-dark .ant-menu-item:hover` rule above wins on
+   The `.ant-menu-dark .ant-menu-item:hover` rule in nav.css (imported
+   just before this file) wins on
    specificity (3 classes vs our 2), so we mirror its leading `.ant-menu`
    ancestor and tack on the same `:hover`/`-active` pseudo-classes plus
    `!important`. Same dance for the light algorithm.

@@ -171,9 +171,12 @@
 .login-card input:-webkit-autofill:hover,
 .login-card input:-webkit-autofill:focus,
 .login-card input:-webkit-autofill:active {
-  -webkit-text-fill-color: #f1f5f9 !important;
-  -webkit-box-shadow: 0 0 0 1000px rgba(26, 36, 56, 0.6) inset !important;
-  caret-color: #f1f5f9 !important;
+  /* Driven by the palette, not by dark-theme literals: the card is themed
+     three ways, and the hardcoded pair rendered near-white ink on a light
+     card's blend — about 3.8:1, under the readable floor. */
+  -webkit-text-fill-color: var(--text, #f1f5f9) !important;
+  -webkit-box-shadow: 0 0 0 1000px var(--surface-2, rgb(26, 36, 56)) inset !important;
+  caret-color: var(--text, #f1f5f9) !important;
   transition: background-color 5000s ease-in-out 0s, color 5000s ease-in-out 0s;
   border-radius: 8px;
 }
@@ -181,10 +184,16 @@
 @media (prefers-reduced-motion: reduce) {
   .login-card,
   .login-anim-stagger,
-  .login-card-halo,
   .login-bg-orb {
     animation: none !important;
     opacity: 1 !important;
+    transform: none !important;
+  }
+  /* The halo rests at 0.55, not 1 — grouping it with the rest above handed
+     reduced-motion users the glow at nearly twice its intended strength. */
+  .login-card-halo {
+    animation: none !important;
+    opacity: 0.55 !important;
     transform: none !important;
   }
 }
