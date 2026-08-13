@@ -43,13 +43,10 @@ impl ScratchDir {
         #[cfg(unix)]
         {
             use std::os::unix::fs::DirBuilderExt as _;
-            std::fs::DirBuilder::new()
-                .recursive(true)
-                .mode(0o700)
-                .create(&path)
+            std::fs::DirBuilder::new().mode(0o700).create(&path)
         }
         #[cfg(not(unix))]
-        { std::fs::create_dir_all(&path) }
+        { std::fs::DirBuilder::new().create(&path) }
             .with_context(|| format!("create scratch dir for {kind}"))?;
         Ok(Self(path))
     }
