@@ -73,4 +73,5 @@ export type {
   PanelSettings,
   PanelSettingsUpdate,
   RoutingRule,
+  SystemToken,
 } from './settings';

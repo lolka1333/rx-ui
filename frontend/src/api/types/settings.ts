@@ -197,4 +197,15 @@ export type RoutingRule = { id: string, enabled: boolean,
  */
 name: string, domain: Array<string>, ip: Array<string>, source_ip: Array<string>, port: string, source_port: string, network: Array<string>, protocol: Array<string>, inbound_tag: Array<string>, user: Array<string>, outbound_tag: string, };
 
+/**
+ * A rule the panel emits by itself, as opposed to one the operator wrote.
+ *
+ * Declared as a type so it can cross into TypeScript: the routing editor keeps
+ * a label and a target for every system row, and typing that table by this
+ * union makes the compiler refuse a frontend that has not been taught about a
+ * token added here. The list used to be two hand-written arrays, one per
+ * language, each with a comment asking the next person to keep them in sync.
+ */
+export type SystemToken = "api" | "bittorrent" | "blocked_domains" | "blocked_ips" | "ipv4";
+
 export type UserView = { id: string, username: string, is_admin: boolean, };

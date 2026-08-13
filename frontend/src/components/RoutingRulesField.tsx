@@ -50,7 +50,13 @@ import {
 } from '@/lib/builtinOutbounds';
 import { GEOIP_PRESETS, GEOSITE_PRESETS } from '@/lib/geoPresets';
 import { uuid } from '@/lib/id';
-import type { Client, CustomOutbound, Inbound, RoutingRule } from '@/api/types';
+import type {
+  Client,
+  CustomOutbound,
+  Inbound,
+  RoutingRule,
+  SystemToken,
+} from '@/api/types';
 // Reuse the inbound editor's form widgets so this modal matches the rest of
 // the panel — compact 12px field spacing, pill ChipGroups, and the collapsible
 // Section header used across the app's forms.
@@ -330,11 +336,14 @@ export function RoutingRulesField({
   // custom ids) on `xray_rule_order`. The block rows are reorderable; the api
   // row is not, and the backend hoists it to the front regardless of what gets
   // saved (`ordered_rule_tokens`) — a rule above it could capture the panel's
-  // own control traffic and cut the channel needed to undo that. SYS_KEYS MUST
-  // stay in sync with the backend `SYSTEM_TOKENS` (xray/config_gen.rs) — the
-  // same reconcile-then-emit runs there over the saved order.
-  const SYS_KEYS = ['api', 'bittorrent', 'blocked_domains', 'blocked_ips', 'ipv4'];
-  const sysInfo: Record<string, { label: string; target: string }> = {
+  // own control traffic and cut the channel needed to undo that.
+  //
+  // The table below is keyed by `SystemToken`, the union ts-rs generates from
+  // the backend's own enum (xray/config_gen.rs). That is what keeps the two
+  // sides together: add a token there and this file stops compiling until the
+  // row it needs is written, and `isSystemToken` below reads its membership
+  // off the same table rather than a second hand-written list.
+  const sysInfo: Record<SystemToken, { label: string; target: string }> = {
     api: { label: t('settings.rulesSysApi'), target: 'api' },
     bittorrent: { label: 'BitTorrent', target: 'blocked' },
     blocked_domains: {
@@ -347,6 +356,10 @@ export function RoutingRulesField({
     },
     ipv4: { label: `${t('settings.xrayIpv4Domains')} · ${sysIpv4.length}`, target: 'direct-ipv4' },
   };
+  // A token in the evaluation order is either a system row or a custom rule id;
+  // this is what tells them apart, and it narrows the type so `sysInfo[tok]` is
+  // a lookup the compiler can check rather than an index into `any`.
+  const isSystemToken = (tok: string): tok is SystemToken => tok in sysInfo;
   const activeSys: string[] = ['api'];
   if (sysBittorrent) activeSys.push('bittorrent');
   if (sysBlockedDomains.length) activeSys.push('blocked_domains');
@@ -370,7 +383,7 @@ export function RoutingRulesField({
   });
   let insertAt = 0;
   order.forEach((tok, idx) => {
-    if (SYS_KEYS.includes(tok)) insertAt = idx + 1;
+    if (isSystemToken(tok)) insertAt = idx + 1;
   });
   order.splice(insertAt, 0, ...activeSys.filter((k) => !order.includes(k)));
   rules.forEach((r) => {
@@ -595,7 +608,7 @@ export function RoutingRulesField({
           const spine = (
             <>
               <span style={spineSeg(i === 0, false)} aria-hidden="true" />
-              <span style={spineNode(!SYS_KEYS.includes(tok))} aria-hidden="true" />
+              <span style={spineNode(!isSystemToken(tok))} aria-hidden="true" />
               <span style={ordStyle} aria-hidden="true">
                 {i + 1}
               </span>
@@ -604,7 +617,7 @@ export function RoutingRulesField({
 
           // System row — read-only content (edited in "Basic connections"),
           // but reorderable like any other.
-          if (SYS_KEYS.includes(tok)) {
+          if (isSystemToken(tok)) {
             const info = sysInfo[tok];
             // The api pin is pinned: no drag handle, and the backend puts it
             // first anyway, so offering the gesture would only mislead.
@@ -927,19 +940,24 @@ function RuleModal({
       }}
       destroyOnHidden
     >
-      <Form form={form} layout="vertical" autoComplete="off" onFinish={submit}>
-        <Form.Item name="name" label={t('settings.ruleName')} style={{ marginBottom: 12 }}>
+      <Form
+        className="app-form-rows"
+        form={form}
+        layout="vertical"
+        autoComplete="off"
+        onFinish={submit}
+      >
+        <Form.Item name="name" label={t('settings.ruleName')}>
           <Input placeholder={t('settings.ruleNamePlaceholder')} maxLength={60} />
         </Form.Item>
         <Form.Item
           name="outbound_tag"
           label={t('settings.ruleTarget')}
           rules={[{ required: true, message: t('settings.ruleTargetRequired') }]}
-          style={{ marginBottom: 12 }}
         >
           <Select options={targetOptions} />
         </Form.Item>
-        <Form.Item name="domain" label={t('settings.ruleDomain')} style={{ marginBottom: 12 }}>
+        <Form.Item name="domain" label={t('settings.ruleDomain')}>
           <Select
             mode="tags"
             options={GEOSITE_PRESETS}
@@ -949,7 +967,7 @@ function RuleModal({
             placeholder="geosite:netflix, full:example.com"
           />
         </Form.Item>
-        <Form.Item name="ip" label={t('settings.ruleIp')} style={{ marginBottom: 12 }}>
+        <Form.Item name="ip" label={t('settings.ruleIp')}>
           <Select
             mode="tags"
             options={GEOIP_PRESETS}
@@ -959,10 +977,10 @@ function RuleModal({
             placeholder="geoip:ru, 10.0.0.0/8"
           />
         </Form.Item>
-        <Form.Item name="port" label={t('settings.rulePort')} style={{ marginBottom: 12 }}>
+        <Form.Item name="port" label={t('settings.rulePort')}>
           <Input placeholder="443, 1024-65535" />
         </Form.Item>
-        <Form.Item name="network" label={t('settings.ruleNetwork')} style={{ marginBottom: 12 }}>
+        <Form.Item name="network" label={t('settings.ruleNetwork')}>
           <ChipGroup options={NETWORK_OPTIONS} />
         </Form.Item>
         <Form.Item name="protocol" label={t('settings.ruleProtocol')} style={{ marginBottom: 0 }}>
@@ -970,7 +988,7 @@ function RuleModal({
         </Form.Item>
 
         <Section itemKey="adv" labelKey="settings.ruleAdvanced">
-          <Form.Item name="source_ip" label={t('settings.ruleSourceIp')} style={{ marginBottom: 12 }}>
+          <Form.Item name="source_ip" label={t('settings.ruleSourceIp')}>
             <Select
               mode="tags"
               options={GEOIP_PRESETS}
@@ -983,14 +1001,12 @@ function RuleModal({
           <Form.Item
             name="source_port"
             label={t('settings.ruleSourcePort')}
-            style={{ marginBottom: 12 }}
           >
             <Input placeholder="1024-65535" />
           </Form.Item>
           <Form.Item
             name="inbound_tag"
             label={t('settings.ruleInboundTag')}
-            style={{ marginBottom: 12 }}
           >
             <Select
               mode="tags"
@@ -1021,8 +1037,7 @@ function RuleModal({
                   borderRadius: token.borderRadius,
                   background: token.colorFillTertiary,
                   color: token.colorTextSecondary,
-                  fontFamily:
-                    "ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace",
+                  fontFamily: 'var(--font-mono)',
                   fontSize: 12,
                   lineHeight: 1.6,
                   overflowX: 'auto',

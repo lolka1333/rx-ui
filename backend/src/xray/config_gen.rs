@@ -63,15 +63,58 @@ pub struct BootstrapSettings {
     pub rule_order: Vec<String>,
 }
 
-/// System rule tokens, in their natural default order. MUST stay in sync with
-/// the frontend `SYS_KEYS` (frontend/src/components/RoutingRulesField.tsx) —
-/// both run the same reconcile-then-emit over the saved `rule_order`.
+/// A rule the panel emits by itself, as opposed to one the operator wrote.
+///
+/// Declared as a type so it can cross into TypeScript: the routing editor keeps
+/// a label and a target for every system row, and typing that table by this
+/// union makes the compiler refuse a frontend that has not been taught about a
+/// token added here. The list used to be two hand-written arrays, one per
+/// language, each with a comment asking the next person to keep them in sync.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../frontend/src/api/types/settings.ts")]
+pub enum SystemToken {
+    Api,
+    Bittorrent,
+    BlockedDomains,
+    BlockedIps,
+    Ipv4,
+}
+
+impl SystemToken {
+    /// In their natural default order — the order `ordered_rule_tokens` falls
+    /// back to for a token the saved order does not mention.
+    pub const ALL: [Self; 5] = [
+        Self::Api,
+        Self::Bittorrent,
+        Self::BlockedDomains,
+        Self::BlockedIps,
+        Self::Ipv4,
+    ];
+
+    /// The wire spelling, which is what `rule_order` stores and what the
+    /// `system_rule` matches read.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Api => "api",
+            Self::Bittorrent => "bittorrent",
+            Self::BlockedDomains => "blocked_domains",
+            Self::BlockedIps => "blocked_ips",
+            Self::Ipv4 => "ipv4",
+        }
+    }
+}
+
+/// The same tokens as strings, spelled out so the `.contains(&str)` call sites
+/// stay cheap — but read out of [`SystemToken::ALL`], so the order and the
+/// membership have one source and an added variant cannot quietly miss this
+/// list (the length mismatch is asserted in the tests).
 pub const SYSTEM_TOKENS: &[&str] = &[
-    "api",
-    "bittorrent",
-    "blocked_domains",
-    "blocked_ips",
-    "ipv4",
+    SystemToken::ALL[0].as_str(),
+    SystemToken::ALL[1].as_str(),
+    SystemToken::ALL[2].as_str(),
+    SystemToken::ALL[3].as_str(),
+    SystemToken::ALL[4].as_str(),
 ];
 
 /// The xray rule JSON for a system token, or `None` when that token is inactive
@@ -495,6 +538,30 @@ fn condense_xray_error(raw: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// `SYSTEM_TOKENS` reads its entries out of `SystemToken::ALL`, so their
+    /// contents cannot disagree — but its length is written by hand, and a
+    /// sixth variant would leave the last token off the end. That is what this
+    /// asserts, along with every token actually earning its place.
+    #[test]
+    fn system_token_spellings_and_order_agree() {
+        let from_enum: Vec<&str> = SystemToken::ALL.iter().map(|t| t.as_str()).collect();
+        assert_eq!(
+            from_enum, SYSTEM_TOKENS,
+            "SYSTEM_TOKENS vs SystemToken::ALL"
+        );
+        // And every one of them must actually produce a rule for some settings,
+        // or the token is dead weight the UI would still offer to order.
+        let mut s = base(vec![], vec![]);
+        s.blocked_domains = vec!["geosite:category-ads-all".into()];
+        s.ipv4_domains = vec!["geosite:netflix".into()];
+        for token in SYSTEM_TOKENS {
+            assert!(
+                system_rule(token, &s).is_some(),
+                "system token '{token}' emits no rule even when everything is on"
+            );
+        }
+    }
+
     use super::*;
 
     /// Why every consumer of these errors formats with `{e:#}`.
