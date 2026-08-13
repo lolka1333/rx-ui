@@ -553,6 +553,17 @@ export function Clients() {
         }),
       ]);
       const failed = results.filter((r) => r.status === 'rejected').length;
+      // `allSettled` resolves even when every request rejected, so a total
+      // failure used to look like a successful mutation: `onError` never ran,
+      // the optimistic patch was never rolled back, and the compensating
+      // invalidate could not reach the server either — leaving the table
+      // asserting a change the backend refused. Re-throw when nothing got
+      // through, so the existing onError does its job and the operator sees
+      // the real reason. A genuinely mixed result still resolves and keeps the
+      // partial-failure toast.
+      if (failed === rows.length && failed > 0) {
+        throw (results[0] as PromiseRejectedResult).reason;
+      }
       return { total: rows.length, failed };
     },
     onMutate: ({ rows, enabled }) => {
@@ -585,10 +596,17 @@ export function Clients() {
       const results = await Promise.allSettled(
         rows.map((r) => apiClient.post(`/clients/${r.id}/reset-traffic`)),
       );
-      return {
-        total: rows.length,
-        failed: results.filter((r) => r.status === 'rejected').length,
-      };
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      // `allSettled` resolves even when every request rejected, so a total
+      // failure ran the SUCCESS path: the operator got "Traffic reset" over a
+      // backend that reset nothing. Nothing to roll back here (no optimistic
+      // update), but the toast was still a lie. Re-throw when nothing got
+      // through so the existing onError reports the real reason; a genuinely
+      // mixed result still resolves and keeps the partial-failure toast.
+      if (failed === rows.length && failed > 0) {
+        throw (results[0] as PromiseRejectedResult).reason;
+      }
+      return { total: rows.length, failed };
     },
     onSuccess: (r) => {
       qc.invalidateQueries({ queryKey: ['clients-stats'] });
@@ -615,10 +633,19 @@ export function Clients() {
       const results = await Promise.allSettled(
         rows.map((r) => apiClient.delete(`/clients/${r.id}`)),
       );
-      return {
-        total: rows.length,
-        failed: results.filter((r) => r.status === 'rejected').length,
-      };
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      // `allSettled` resolves even when every request rejected, so a total
+      // failure used to look like a successful mutation: `onError` never ran,
+      // the optimistic patch was never rolled back, and the compensating
+      // invalidate could not reach the server either — leaving the table
+      // asserting a change the backend refused. Re-throw when nothing got
+      // through, so the existing onError does its job and the operator sees
+      // the real reason. A genuinely mixed result still resolves and keeps the
+      // partial-failure toast.
+      if (failed === rows.length && failed > 0) {
+        throw (results[0] as PromiseRejectedResult).reason;
+      }
+      return { total: rows.length, failed };
     },
     // Optimistic removal: drop the rows from every `['clients-global', *]`
     // cache key synchronously so the table row disappears in the same
