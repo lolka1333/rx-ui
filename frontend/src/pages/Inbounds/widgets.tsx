@@ -250,7 +250,7 @@ export function NumberField({ name, labelKey, tooltipKey, last }: FieldProps) {
       tooltip={tooltipKey ? t(tooltipKey) : undefined}
       style={{ marginBottom: last ? 0 : 12 }}
     >
-      <InputNumber min={0} style={{ width: '100%' }} />
+      <InputNumber min={0} />
     </Form.Item>
   );
 }
@@ -431,8 +431,11 @@ function NumberWithUnit({ value, onChange, unit, min, placeholder }: NumberWithU
 
 /** Two children side-by-side with shared gap. Use for paired Form.Items where
  *  each carries its own label. */
+/** Two fields on one line, each with its own label. The layout lives in CSS
+ *  (`.app-field-row`) so the row is one named thing rather than a flex literal
+ *  repeated at every call site — the outbound form alone had fourteen. */
 export function SideBySide({ children }: { children: ReactNode }) {
-  return <div style={{ display: 'flex', gap: 12 }}>{children}</div>;
+  return <div className="app-field-row">{children}</div>;
 }
 
 interface RangePairProps {
@@ -455,10 +458,10 @@ export function RangePair({ labelKey, tooltipKey, minName, maxName, last }: Rang
     >
       <SideBySide>
         <Form.Item name={minName} noStyle>
-          <InputNumber min={0} placeholder="min" style={{ width: '100%' }} />
+          <InputNumber min={0} placeholder="min" />
         </Form.Item>
         <Form.Item name={maxName} noStyle>
-          <InputNumber min={0} placeholder="max" style={{ width: '100%' }} />
+          <InputNumber min={0} placeholder="max" />
         </Form.Item>
       </SideBySide>
     </Form.Item>
@@ -491,7 +494,7 @@ export function NumberUnitField({
       name={name}
       label={t(labelKey)}
       tooltip={tooltipKey ? t(tooltipKey) : undefined}
-      style={{ flex: 1, marginBottom: 12 }}
+      style={{ flex: 1 }}
     >
       <NumberWithUnit min={min} placeholder={placeholder} unit={unit} />
     </Form.Item>

@@ -7,7 +7,7 @@
 //!
 //! The `live` flag drives the blue-glow + diagonal-stripe overlay on
 //! the bar — `app-traffic-cell-live` / `app-quota-bar-live` are styled
-//! in `index.css`. CSS handles the motion so React doesn't re-render
+//! in `styles/motion.css`. CSS handles the motion so React doesn't re-render
 //! at animation frame rate.
 
 import { Progress, Typography } from 'antd';

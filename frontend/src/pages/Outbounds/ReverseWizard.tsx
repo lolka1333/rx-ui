@@ -320,7 +320,7 @@ export function ReverseWizard({
       <Alert type="success" showIcon title={t('reverse.portalCreated')} />
       <div>
         <Typography.Text type="secondary">{t('reverse.inviteHint')}</Typography.Text>
-        <Input.TextArea value={invite} readOnly autoSize={{ minRows: 3, maxRows: 6 }} style={{ marginTop: 4, fontFamily: 'monospace', fontSize: 12 }} />
+        <Input.TextArea value={invite} readOnly autoSize={{ minRows: 3, maxRows: 6 }} style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 12 }} />
         <Typography.Text
           copyable={{ text: invite, tooltips: [t('reverse.copyInvite'), t('reverse.copied')] }}
           style={{ marginTop: 8, display: 'inline-block' }}

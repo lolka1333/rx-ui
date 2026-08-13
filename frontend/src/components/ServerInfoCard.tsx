@@ -131,7 +131,7 @@ function IpItem({
           // so it wraps to a second line instead of forcing horizontal scroll.
           maxWidth: '100%',
           overflowWrap: 'anywhere',
-          fontFamily: 'ui-monospace, "JetBrains Mono", Consolas, monospace',
+          fontFamily: 'var(--font-mono)',
           fontSize: 13,
           fontVariantNumeric: 'tabular-nums',
           color: muted ? token.colorTextTertiary : token.colorTextSecondary,

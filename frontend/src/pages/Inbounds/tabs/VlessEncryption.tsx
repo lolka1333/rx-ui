@@ -121,7 +121,6 @@ export function VlessEncryption() {
             name="vless_encryption_auth"
             label={t('inbounds.vlessEncAuth')}
             tooltip={t('inbounds.vlessEncAuthTooltip')}
-            style={{ marginBottom: 12 }}
           >
             <Select
               options={[
@@ -148,7 +147,7 @@ export function VlessEncryption() {
               standard copyable suffix. Labels sit above the inputs at a
               consistent width; the regenerate action lives in a fixed
               footer row regardless of whether keys exist. */}
-          <Form.Item style={{ marginBottom: 12 }}>
+          <Form.Item>
             <div
               style={{
                 border: '1px solid var(--ant-color-border-secondary, rgba(0,0,0,0.08))',
@@ -201,7 +200,7 @@ export function VlessEncryption() {
                       onVisibleChange: setServerKeyShown,
                     }}
                     style={{
-                      fontFamily: 'ui-monospace, "JetBrains Mono", Consolas, monospace',
+                      fontFamily: 'var(--font-mono)',
                       fontSize: 11,
                       marginBottom: 10,
                     }}
@@ -226,7 +225,7 @@ export function VlessEncryption() {
                       />
                     }
                     style={{
-                      fontFamily: 'ui-monospace, "JetBrains Mono", Consolas, monospace',
+                      fontFamily: 'var(--font-mono)',
                       fontSize: 11,
                     }}
                   />
@@ -246,7 +245,6 @@ export function VlessEncryption() {
               name="vless_encryption_xor_mode"
               label={t('inbounds.vlessEncXorMode')}
               tooltip={t('inbounds.vlessEncXorModeTooltip')}
-              style={{ marginBottom: 12 }}
             >
               <Select
                 options={[
@@ -265,7 +263,7 @@ export function VlessEncryption() {
                 tooltip={t('inbounds.vlessEncSecondsTooltip')}
                 style={{ marginBottom: 12, flex: 1, minWidth: 120 }}
               >
-                <InputNumber min={1} style={{ width: '100%' }} />
+                <InputNumber min={1} />
               </Form.Item>
               <Form.Item
                 name="vless_encryption_seconds_to"
@@ -275,7 +273,6 @@ export function VlessEncryption() {
                 <InputNumber
                   min={0}
                   placeholder={t('inbounds.vlessEncSecondsToPlaceholder')}
-                  style={{ width: '100%' }}
                 />
               </Form.Item>
             </div>

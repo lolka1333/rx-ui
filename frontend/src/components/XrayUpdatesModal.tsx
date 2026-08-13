@@ -479,7 +479,7 @@ function ReleaseRow({
     >
       <span
         style={{
-          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+          fontFamily: 'var(--font-mono)',
           fontSize: 14,
           fontWeight: 500,
           color: pillFg,

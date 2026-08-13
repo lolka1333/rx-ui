@@ -162,7 +162,7 @@ export function LogsModal({ open, onClose }: Props) {
       </div>
 
       {/* Scrollable entries list — toolbar above stays fixed. Class lives
-          in index.css so the dedicated terminal-style background and
+          in styles/chrome.css so the dedicated terminal-style background and
           scrollbar are scoped here (no leak to other modals). */}
       <div
         className="app-logs-surface"
@@ -186,7 +186,7 @@ export function LogsModal({ open, onClose }: Props) {
           display: 'flex',
           flexDirection: 'column',
           gap: 4,
-          fontFamily: 'ui-monospace, "JetBrains Mono", Consolas, monospace',
+          fontFamily: 'var(--font-mono)',
           fontSize: 12.5,
           lineHeight: 1.65,
         }}

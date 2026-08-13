@@ -19,7 +19,6 @@ export function HysteriaTab() {
         name="hysteria_auth"
         label={t('inbounds.hysteriaAuth')}
         tooltip={t('inbounds.hysteriaAuthHint')}
-        style={{ marginBottom: 12 }}
       >
         <Input placeholder={t('inbounds.hysteriaAuthPlaceholder')} allowClear />
       </Form.Item>
@@ -28,16 +27,14 @@ export function HysteriaTab() {
         name="hysteria_udp_idle_timeout"
         label={t('inbounds.hysteriaUdpIdle')}
         tooltip={t('inbounds.hysteriaUdpIdleHint')}
-        style={{ marginBottom: 12 }}
       >
-        <InputNumber min={0} style={{ width: '100%' }} placeholder="60" />
+        <InputNumber min={0} placeholder="60" />
       </Form.Item>
 
       <Form.Item
         name="hysteria_masq_kind"
         label={t('inbounds.hysteriaMasq')}
         tooltip={t('inbounds.hysteriaMasqHint')}
-        style={{ marginBottom: 12 }}
       >
         <Select
           options={[
@@ -55,7 +52,6 @@ export function HysteriaTab() {
           label={t('inbounds.hysteriaMasqFileRoot')}
           tooltip={t('inbounds.hysteriaMasqFileRootHint')}
           rules={[{ required: true, message: t('inbounds.hysteriaMasqFileRootRequired') }]}
-          style={{ marginBottom: 12 }}
         >
           <Input placeholder="/var/www/decoy" />
         </Form.Item>
@@ -68,7 +64,6 @@ export function HysteriaTab() {
             label={t('inbounds.hysteriaMasqProxyUrl')}
             tooltip={t('inbounds.hysteriaMasqProxyUrlHint')}
             rules={[{ required: true, message: t('inbounds.hysteriaMasqProxyUrlRequired') }]}
-            style={{ marginBottom: 12 }}
           >
             <Input placeholder="https://example.com" />
           </Form.Item>
@@ -77,7 +72,7 @@ export function HysteriaTab() {
               name="hysteria_masq_proxy_rewrite_host"
               label={t('inbounds.hysteriaMasqProxyRewriteHost')}
               valuePropName="checked"
-              style={{ flex: 1, marginBottom: 12 }}
+              style={{ flex: 1 }}
             >
               <Switch />
             </Form.Item>
@@ -85,7 +80,7 @@ export function HysteriaTab() {
               name="hysteria_masq_proxy_insecure"
               label={t('inbounds.hysteriaMasqProxyInsecure')}
               valuePropName="checked"
-              style={{ flex: 1, marginBottom: 12 }}
+              style={{ flex: 1 }}
             >
               <Switch />
             </Form.Item>
@@ -98,7 +93,6 @@ export function HysteriaTab() {
           <Form.Item
             name="hysteria_masq_string_content"
             label={t('inbounds.hysteriaMasqStringContent')}
-            style={{ marginBottom: 12 }}
           >
             <Input.TextArea rows={4} placeholder="<html>...</html>" />
           </Form.Item>
@@ -107,7 +101,7 @@ export function HysteriaTab() {
             label={t('inbounds.hysteriaMasqStringStatus')}
             style={{ marginBottom: 12, maxWidth: 200 }}
           >
-            <InputNumber min={100} max={599} style={{ width: '100%' }} />
+            <InputNumber min={100} max={599} />
           </Form.Item>
         </>
       )}

@@ -178,7 +178,7 @@ export function TlsTab() {
                 usageOpts={usageOpts}
               />
             ))}
-            <Form.Item style={{ marginBottom: 12 }}>
+            <Form.Item>
               <Button
                 type="dashed"
                 onClick={() =>
@@ -206,7 +206,6 @@ export function TlsTab() {
         name="tls_server_name"
         label={t('inbounds.tlsServerName')}
         tooltip={t('inbounds.tlsServerNameTooltip')}
-        style={{ marginBottom: 12 }}
       >
         <Input placeholder="vless.example.com" />
       </Form.Item>
@@ -214,7 +213,6 @@ export function TlsTab() {
         name="tls_alpn"
         label={t('inbounds.tlsAlpn')}
         tooltip={t('inbounds.tlsAlpnTooltip')}
-        style={{ marginBottom: 12 }}
       >
         <ChipGroup options={ALPN_OPTIONS} />
       </Form.Item>
@@ -222,7 +220,6 @@ export function TlsTab() {
         name="tls_fingerprint"
         label={t('inbounds.fingerprint')}
         tooltip={t('inbounds.tlsFingerprintTooltip')}
-        style={{ marginBottom: 12 }}
       >
         <Select options={FINGERPRINT_OPTIONS} />
       </Form.Item>
@@ -248,7 +245,6 @@ export function TlsTab() {
         label={t('inbounds.tlsRejectUnknownSni')}
         tooltip={t('inbounds.tlsRejectUnknownSniTooltip')}
         valuePropName="checked"
-        style={{ marginBottom: 12 }}
       >
         <Switch size="small" />
       </Form.Item>
@@ -257,7 +253,6 @@ export function TlsTab() {
         label={t('inbounds.tlsSelfSigned')}
         tooltip={t('inbounds.tlsSelfSignedTooltip')}
         valuePropName="checked"
-        style={{ marginBottom: 12 }}
       >
         <Switch size="small" />
       </Form.Item>
@@ -272,7 +267,6 @@ export function TlsTab() {
           label={t('inbounds.tlsEnableSessionResumption')}
           tooltip={t('inbounds.tlsEnableSessionResumptionTooltip')}
           valuePropName="checked"
-          style={{ marginBottom: 12 }}
         >
           <Switch size="small" />
         </Form.Item>
@@ -280,7 +274,6 @@ export function TlsTab() {
           name="tls_cipher_suites"
           label={t('inbounds.tlsCipherSuites')}
           tooltip={t('inbounds.tlsCipherSuitesTooltip')}
-          style={{ marginBottom: 12 }}
         >
           <Select
             mode="multiple"
@@ -316,12 +309,11 @@ export function TlsTab() {
             </span>
           }
           tooltip={t('inbounds.tlsEchServerKeysTooltip')}
-          style={{ marginBottom: 12 }}
         >
           <Input.TextArea
             rows={3}
             placeholder={t('inbounds.tlsEchServerKeysPlaceholder')}
-            style={{ fontFamily: 'ui-monospace, "JetBrains Mono", Consolas, monospace', fontSize: 12 }}
+            style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
           />
         </Form.Item>
         {/* `ech_config_list` is registered as a hidden Form.Item so the
@@ -336,7 +328,6 @@ export function TlsTab() {
           name="tls_master_key_log"
           label={t('inbounds.tlsMasterKeyLog')}
           tooltip={t('inbounds.tlsMasterKeyLogTooltip')}
-          style={{ marginBottom: 12 }}
         >
           <Input placeholder="/var/log/xray/sslkey.log" />
         </Form.Item>
@@ -465,14 +456,13 @@ function CertificateRow({ name, onRemove, usageOpts }: CertificateRowProps) {
           tooltip={t('inbounds.tlsOcspStaplingTooltip')}
           style={{ marginBottom: 12, minWidth: 160 }}
         >
-          <InputNumber min={0} placeholder="0" style={{ width: '100%' }} size="small" />
+          <InputNumber min={0} placeholder="0" size="small" />
         </Form.Item>
         <Form.Item
           name={[name, 'build_chain']}
           label={t('inbounds.tlsBuildChain')}
           tooltip={t('inbounds.tlsBuildChainTooltip')}
           valuePropName="checked"
-          style={{ marginBottom: 12 }}
         >
           <Switch size="small" />
         </Form.Item>
@@ -484,7 +474,6 @@ function CertificateRow({ name, onRemove, usageOpts }: CertificateRowProps) {
             label={t('inbounds.tlsOneTimeLoading')}
             tooltip={t('inbounds.tlsOneTimeLoadingTooltip')}
             valuePropName="checked"
-            style={{ marginBottom: 12 }}
           >
             <Switch size="small" />
           </Form.Item>
@@ -521,13 +510,12 @@ function PemField({
       label={label}
       tooltip={tooltip}
       rules={isInline ? [pemRule(invalidMessage)] : []}
-      style={{ marginBottom: 12 }}
     >
       {isInline ? (
         <Input.TextArea
           rows={5}
           placeholder={inlinePlaceholder}
-          style={{ fontFamily: 'ui-monospace, "JetBrains Mono", Consolas, monospace', fontSize: 12 }}
+          style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
         />
       ) : (
         <Input placeholder={pathPlaceholder} />

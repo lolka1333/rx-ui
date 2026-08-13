@@ -44,7 +44,7 @@ export function GeneralTab() {
         <Form.Item
           name="tag"
           label={t('inbounds.tag')}
-          style={{ flex: 1, marginBottom: 12 }}
+          style={{ flex: 1 }}
           rules={[{ required: true, message: t('inbounds.tagRequired') }]}
         >
           <Input placeholder={t('inbounds.tagPlaceholder')} />
@@ -55,14 +55,13 @@ export function GeneralTab() {
           style={{ width: 110, marginBottom: 12 }}
           rules={[{ required: true }]}
         >
-          <InputNumber min={1} max={65535} style={{ width: '100%' }} />
+          <InputNumber min={1} max={65535} />
         </Form.Item>
       </SideBySide>
 
       <Form.Item
         name="listen"
         label={t('inbounds.listenAddress')}
-        style={{ marginBottom: 12 }}
       >
         <Input placeholder={t('inbounds.listenPlaceholder')} />
       </Form.Item>
@@ -70,7 +69,6 @@ export function GeneralTab() {
       <Form.Item
         name="protocol_kind"
         label={t('inbounds.protocol')}
-        style={{ marginBottom: 12 }}
         tooltip={!networkSelectable ? t('inbounds.protocolHysteriaHint') : undefined}
       >
         <Select
@@ -122,7 +120,6 @@ export function GeneralTab() {
                   ? t('inbounds.securityNoneHint')
                   : undefined
           }
-          style={{ marginBottom: 12 }}
         >
           <Radio.Group optionType="button">
             <Radio.Button
@@ -158,7 +155,6 @@ export function GeneralTab() {
                 ? t('inbounds.visionTcpOnly')
                 : undefined
             }
-            style={{ marginBottom: 12 }}
           >
             <Radio.Group optionType="button">
               <Radio.Button id="vless-flow-radio-first" value="none">
@@ -187,14 +183,12 @@ export function GeneralTab() {
           label={t('inbounds.sniffingEnabled')}
           tooltip={t('inbounds.sniffingEnabledHint')}
           valuePropName="checked"
-          style={{ marginBottom: 12 }}
         >
           <Switch />
         </Form.Item>
         <Form.Item
           name="sniffing_dest_override"
           label={t('inbounds.sniffingDestOverride')}
-          style={{ marginBottom: 12 }}
         >
           <ChipGroup
             options={[
@@ -210,7 +204,6 @@ export function GeneralTab() {
           label={t('inbounds.sniffingRouteOnly')}
           tooltip={t('inbounds.sniffingRouteOnlyHint')}
           valuePropName="checked"
-          style={{ marginBottom: 12 }}
         >
           <Switch />
         </Form.Item>
@@ -219,7 +212,6 @@ export function GeneralTab() {
           label={t('inbounds.sniffingMetadataOnly')}
           tooltip={t('inbounds.sniffingMetadataOnlyHint')}
           valuePropName="checked"
-          style={{ marginBottom: 12 }}
         >
           <Switch />
         </Form.Item>
@@ -227,7 +219,6 @@ export function GeneralTab() {
           name="sniffing_domains_excluded"
           label={t('inbounds.sniffingDomainsExcluded')}
           tooltip={t('inbounds.sniffingDomainsExcludedHint')}
-          style={{ marginBottom: 12 }}
         >
           <Select
             mode="tags"

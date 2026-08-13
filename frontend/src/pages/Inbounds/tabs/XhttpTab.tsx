@@ -67,7 +67,6 @@ export function XhttpTab() {
         name="xhttp_path"
         label={t('inbounds.xhttpPath')}
         tooltip={t('inbounds.xhttpPathTip')}
-        style={{ marginBottom: 12 }}
       >
         <Input placeholder={t('inbounds.xhttpPathPlaceholder')} />
       </Form.Item>
@@ -75,7 +74,6 @@ export function XhttpTab() {
         name="xhttp_host"
         label={t('inbounds.xhttpHost')}
         tooltip={t('inbounds.xhttpHostTip')}
-        style={{ marginBottom: 12 }}
       >
         <Input placeholder={t('inbounds.xhttpHostPlaceholder')} />
       </Form.Item>
@@ -83,7 +81,6 @@ export function XhttpTab() {
         name="xhttp_mode"
         label={t('inbounds.xhttpMode')}
         tooltip={t('inbounds.xhttpModeTip')}
-        style={{ marginBottom: 12 }}
       >
         <Select
           options={XHTTP_MODE_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
@@ -211,9 +208,8 @@ function XhttpAdvanced() {
                 name="xhttp_sc_max_buffered_posts"
                 label={t('inbounds.xhttpScMaxBufferedPosts')}
                 tooltip={t('inbounds.xhttpScMaxBufferedPostsHint')}
-                style={{ marginBottom: 12 }}
               >
-                <InputNumber min={0} style={{ width: '100%' }} />
+                <InputNumber min={0} />
               </Form.Item>
               <RangeField
                 name="xhttp_sc_stream_up_server_secs"

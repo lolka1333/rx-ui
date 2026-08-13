@@ -38,7 +38,6 @@ export function QuicTuning() {
         name="quic_congestion"
         label={t('inbounds.quicCongestion')}
         tooltip={t('inbounds.quicCongestionHint')}
-        style={{ marginBottom: 12 }}
       >
         <Select options={congestionOptions} />
       </Form.Item>
@@ -68,7 +67,6 @@ export function QuicTuning() {
           name="quic_bbr_profile"
           label={t('inbounds.quicBbrProfile')}
           tooltip={t('inbounds.quicBbrProfileHint')}
-          style={{ marginBottom: 12 }}
         >
           <Input placeholder="standard" allowClear />
         </Form.Item>
@@ -95,7 +93,6 @@ export function QuicTuning() {
         name="quic_udp_hop_ports"
         label={t('inbounds.quicUdpHopPorts')}
         tooltip={t('inbounds.quicUdpHopPortsHint')}
-        style={{ marginBottom: 12 }}
       >
         <Select mode="tags" tokenSeparators={[',', ' ']} placeholder="20000, 20001, 20002" />
       </Form.Item>
@@ -144,9 +141,8 @@ export function QuicTuning() {
         name="quic_max_incoming_streams"
         label={t('inbounds.quicMaxIncomingStreams')}
         tooltip={t('inbounds.quicMaxIncomingStreamsHint')}
-        style={{ marginBottom: 12 }}
       >
-        <InputNumber min={0} style={{ width: '100%' }} />
+        <InputNumber min={0} />
       </Form.Item>
 
       <Form.Item

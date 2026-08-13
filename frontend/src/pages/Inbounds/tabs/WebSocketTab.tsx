@@ -14,7 +14,6 @@ export function WebSocketTab() {
         name="ws_path"
         label={t('inbounds.wsPath')}
         tooltip={t('inbounds.wsPathTooltip')}
-        style={{ marginBottom: 12 }}
       >
         <Input placeholder={t('inbounds.wsPathPlaceholder')} />
       </Form.Item>
@@ -22,7 +21,6 @@ export function WebSocketTab() {
         name="ws_host"
         label={t('inbounds.wsHost')}
         tooltip={t('inbounds.wsHostTooltip')}
-        style={{ marginBottom: 12 }}
       >
         <Input placeholder={t('inbounds.wsHostPlaceholder')} />
       </Form.Item>
@@ -30,7 +28,6 @@ export function WebSocketTab() {
         <Form.Item
           label={t('inbounds.wsHeaders')}
           tooltip={t('inbounds.wsHeadersHint')}
-          style={{ marginBottom: 12 }}
         >
           <HeaderListField name="ws_headers" />
         </Form.Item>
@@ -41,7 +38,7 @@ export function WebSocketTab() {
           tooltip={t('inbounds.wsHeartbeatPeriodTooltip')}
           style={{ marginBottom: 0 }}
         >
-          <InputNumber min={0} max={3600} style={{ width: '100%' }} />
+          <InputNumber min={0} max={3600} />
         </Form.Item>
       </Section>
     </>

@@ -936,7 +936,7 @@ export function Clients() {
             // "checked" means for a mixed group). `loading` while the save
             // is in flight shows a spinner AND blocks re-clicks, so spamming
             // it back-and-forth can't flood the API or thrash the list. antd
-            // draws a not-allowed cursor on a loading switch; index.css
+            // draws a not-allowed cursor on a loading switch; styles/chrome.css
             // overrides it to a pointer so it reads as "saving", not "blocked".
             render: (_, g) => (
               <Switch
@@ -1462,7 +1462,7 @@ function ShareLinkPane({
         autoSize={{ minRows: 3, maxRows: 6 }}
         readOnly
         style={{
-          fontFamily: 'ui-monospace, "JetBrains Mono", Consolas, monospace',
+          fontFamily: 'var(--font-mono)',
           fontSize: 12,
         }}
       />
@@ -1513,7 +1513,7 @@ function SubscriptionPane({
         autoSize={{ minRows: 2, maxRows: 4 }}
         readOnly
         style={{
-          fontFamily: 'ui-monospace, "JetBrains Mono", Consolas, monospace',
+          fontFamily: 'var(--font-mono)',
           fontSize: 12,
         }}
       />

@@ -91,7 +91,6 @@ export function RealityTab({ editing, onRotate, rotating }: RealityTabProps) {
         label={t('inbounds.realityDest')}
         tooltip={t('inbounds.realityDestTooltip')}
         rules={[{ required: true, message: t('inbounds.realityDestRequired') }]}
-        style={{ marginBottom: 12 }}
       >
         <Input placeholder={t('inbounds.realityDestPlaceholder')} />
       </Form.Item>
@@ -108,7 +107,6 @@ export function RealityTab({ editing, onRotate, rotating }: RealityTabProps) {
                 : Promise.reject(new Error(t('inbounds.serverNamesRequired'))),
           },
         ]}
-        style={{ marginBottom: 12 }}
       >
         <Select
           mode="tags"
@@ -121,7 +119,6 @@ export function RealityTab({ editing, onRotate, rotating }: RealityTabProps) {
         name="reality_short_ids"
         label={t('inbounds.shortIds')}
         tooltip={t('inbounds.shortIdsTooltip')}
-        style={{ marginBottom: 12 }}
       >
         <Select
           mode="tags"
@@ -134,7 +131,7 @@ export function RealityTab({ editing, onRotate, rotating }: RealityTabProps) {
         <Form.Item
           name="reality_fingerprint"
           label={t('inbounds.fingerprint')}
-          style={{ flex: 1, marginBottom: 12 }}
+          style={{ flex: 1 }}
         >
           <Select options={FINGERPRINT_OPTIONS} />
         </Form.Item>
@@ -144,7 +141,7 @@ export function RealityTab({ editing, onRotate, rotating }: RealityTabProps) {
           tooltip={t('inbounds.xverTooltip')}
           style={{ width: 130, marginBottom: 12 }}
         >
-          <InputNumber min={0} max={2} style={{ width: '100%' }} />
+          <InputNumber min={0} max={2} />
         </Form.Item>
       </SideBySide>
 
@@ -152,7 +149,6 @@ export function RealityTab({ editing, onRotate, rotating }: RealityTabProps) {
         name="reality_spider_x"
         label={t('inbounds.realitySpiderX')}
         tooltip={t('inbounds.realitySpiderXTooltip')}
-        style={{ marginBottom: 12 }}
       >
         <Input placeholder="/" />
       </Form.Item>
@@ -190,7 +186,7 @@ export function RealityTab({ editing, onRotate, rotating }: RealityTabProps) {
           value={publicKey}
           placeholder={generating ? t('inbounds.realityGenerating') : undefined}
           style={{
-            fontFamily: 'ui-monospace, "JetBrains Mono", Consolas, monospace',
+            fontFamily: 'var(--font-mono)',
             fontSize: 12,
           }}
           suffix={

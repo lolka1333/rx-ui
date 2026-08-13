@@ -356,7 +356,6 @@ function SudokuFields() {
                 : Promise.reject(new Error(t('inbounds.finalmaskSudokuPasswordRequired'))),
           },
         ]}
-        style={{ marginBottom: 12 }}
       >
         <Input.Password
           placeholder={t('inbounds.finalmaskSudokuPasswordPlaceholder')}
@@ -367,7 +366,6 @@ function SudokuFields() {
         name="finalmask_sudoku_ascii"
         label={t('inbounds.finalmaskSudokuAscii')}
         tooltip={t('inbounds.finalmaskSudokuAsciiTooltip')}
-        style={{ marginBottom: 12 }}
       >
         <Select options={ASCII_OPTIONS} />
       </Form.Item>
@@ -378,14 +376,14 @@ function SudokuFields() {
           tooltip={t('inbounds.finalmaskSudokuPaddingTooltip')}
           style={{ flex: 1, marginBottom: 0 }}
         >
-          <InputNumber min={0} max={SUDOKU_PADDING_MAX} style={{ width: '100%' }} />
+          <InputNumber min={0} max={SUDOKU_PADDING_MAX} />
         </Form.Item>
         <Form.Item
           name="finalmask_sudoku_padding_max"
           label={t('inbounds.finalmaskSudokuPaddingMax')}
           style={{ flex: 1, marginBottom: 0 }}
         >
-          <InputNumber min={0} max={SUDOKU_PADDING_MAX} style={{ width: '100%' }} />
+          <InputNumber min={0} max={SUDOKU_PADDING_MAX} />
         </Form.Item>
       </SideBySide>
     </Section>
@@ -524,14 +522,12 @@ function NoiseItemRow({
         label={t('inbounds.finalmaskNoisePacketHex')}
         tooltip={t('inbounds.finalmaskNoisePacketHexTooltip')}
         rules={[hexRule]}
-        style={{ marginBottom: 12 }}
       >
         <Input placeholder="e.g. deadbeef or empty" allowClear />
       </Form.Item>
       <Form.Item
         label={t('inbounds.finalmaskNoiseRand')}
         tooltip={t('inbounds.finalmaskNoiseRandTooltip')}
-        style={{ marginBottom: 12 }}
       >
         <SideBySide>
           <Form.Item name={[field.name, 'rand_min']} noStyle>
@@ -539,7 +535,6 @@ function NoiseItemRow({
               min={0}
               disabled={hasLiteral}
               placeholder="min"
-              style={{ width: '100%' }}
             />
           </Form.Item>
           <Form.Item name={[field.name, 'rand_max']} noStyle>
@@ -547,7 +542,6 @@ function NoiseItemRow({
               min={0}
               disabled={hasLiteral}
               placeholder="max"
-              style={{ width: '100%' }}
             />
           </Form.Item>
         </SideBySide>
@@ -559,10 +553,10 @@ function NoiseItemRow({
       >
         <SideBySide>
           <Form.Item name={[field.name, 'delay_min']} noStyle>
-            <InputNumber min={0} placeholder="min" style={{ width: '100%' }} />
+            <InputNumber min={0} placeholder="min" />
           </Form.Item>
           <Form.Item name={[field.name, 'delay_max']} noStyle>
-            <InputNumber min={0} placeholder="max" style={{ width: '100%' }} />
+            <InputNumber min={0} placeholder="max" />
           </Form.Item>
         </SideBySide>
       </Form.Item>

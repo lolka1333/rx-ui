@@ -201,6 +201,7 @@ export const InboundForm = memo(function InboundForm({
 
   return (
     <Form
+      className="app-form-rows"
       key={formKey}
       form={form}
       layout="vertical"

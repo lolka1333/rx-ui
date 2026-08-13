@@ -23,6 +23,7 @@ import {
   InputField,
   Section,
   SelectField,
+  SideBySide,
   SwitchField,
 } from '@/pages/Inbounds/widgets';
 import {
@@ -156,6 +157,7 @@ export const OutboundForm = memo(function OutboundForm({
 
   return (
     <Form
+      className="app-form-rows"
       key={formKey}
       form={form}
       layout="vertical"
@@ -186,7 +188,7 @@ export const OutboundForm = memo(function OutboundForm({
         rules={[{ required: true, message: t('outbounds.tagRequired') }]}
       />
 
-      <Form.Item name="protocol_kind" label={t('outbounds.protocol')} style={{ marginBottom: 12 }}>
+      <Form.Item name="protocol_kind" label={t('outbounds.protocol')}>
         <Select
           options={PROTOCOL_OPTIONS}
           onChange={(val) => {
@@ -197,7 +199,7 @@ export const OutboundForm = memo(function OutboundForm({
       </Form.Item>
 
       {/* Endpoint — remote server address/port (shared by both protocols) */}
-      <div style={{ display: 'flex', gap: 12 }}>
+      <SideBySide>
         <Form.Item
           name="address"
           label={t('outbounds.address')}
@@ -210,11 +212,11 @@ export const OutboundForm = memo(function OutboundForm({
           name="port"
           label={t('outbounds.port')}
           rules={[{ required: true, message: t('outbounds.portRequired') }]}
-          style={{ flex: 1, marginBottom: 12 }}
+          style={{ flex: 1 }}
         >
-          <InputNumber min={1} max={65535} style={{ width: '100%' }} />
+          <InputNumber min={1} max={65535} />
         </Form.Item>
-      </div>
+      </SideBySide>
 
       {!isHysteria && (
         <>
@@ -224,8 +226,8 @@ export const OutboundForm = memo(function OutboundForm({
             rules={[{ required: true, message: t('outbounds.uuidRequired') }]}
           />
 
-          <div style={{ display: 'flex', gap: 12 }}>
-            <Form.Item name="flow" label={t('outbounds.flow')} style={{ flex: 1, marginBottom: 12 }}>
+          <SideBySide>
+            <Form.Item name="flow" label={t('outbounds.flow')} style={{ flex: 1 }}>
               <Select
                 options={[
                   { value: '', label: t('outbounds.flowNone') },
@@ -237,7 +239,7 @@ export const OutboundForm = memo(function OutboundForm({
               name="encryption_mode"
               label={t('outbounds.encryption')}
               tooltip={t('outbounds.encryptionHint')}
-              style={{ flex: 1, marginBottom: 12 }}
+              style={{ flex: 1 }}
             >
               <Select
                 options={[
@@ -246,13 +248,12 @@ export const OutboundForm = memo(function OutboundForm({
                 ]}
               />
             </Form.Item>
-          </div>
+          </SideBySide>
 
           <Form.Item
             name="reverse_tag"
             label={t('outbounds.reverseTag')}
             tooltip={t('outbounds.reverseTagHint')}
-            style={{ marginBottom: 12 }}
           >
             <Input placeholder={t('outbounds.reverseTagPlaceholder')} allowClear />
           </Form.Item>
@@ -266,7 +267,7 @@ export const OutboundForm = memo(function OutboundForm({
                 tooltipKey="outbounds.encClientKeyHint"
                 rules={[{ required: true, message: t('outbounds.encClientKeyRequired') }]}
               />
-              <div style={{ display: 'flex', gap: 12 }}>
+              <SideBySide>
                 <Form.Item
                   name="encryption_xor_mode"
                   label={t('outbounds.encXorMode')}
@@ -288,7 +289,7 @@ export const OutboundForm = memo(function OutboundForm({
                 >
                   <Input placeholder="100-111-1111.75-0-111" />
                 </Form.Item>
-              </div>
+              </SideBySide>
             </>
           )}
         </>
@@ -310,7 +311,6 @@ export const OutboundForm = memo(function OutboundForm({
             name="hy_congestion"
             label={t('outbounds.hyCongestion')}
             tooltip={t('outbounds.hyCongestionHint')}
-            style={{ marginBottom: 12 }}
           >
             <Select
               options={[
@@ -321,47 +321,46 @@ export const OutboundForm = memo(function OutboundForm({
             />
           </Form.Item>
           {hyCongestion === 'brutal' && (
-            <div style={{ display: 'flex', gap: 12 }}>
+            <SideBySide>
               <Form.Item
                 name="hy_brutal_up_mbps"
                 label={t('outbounds.hyBrutalUp')}
                 tooltip={t('outbounds.hyBrutalHint')}
-                style={{ flex: 1, marginBottom: 12 }}
+                style={{ flex: 1 }}
               >
-                <InputNumber min={1} placeholder="100" style={{ width: '100%' }} />
+                <InputNumber min={1} placeholder="100" />
               </Form.Item>
               <Form.Item
                 name="hy_brutal_down_mbps"
                 label={t('outbounds.hyBrutalDown')}
-                style={{ flex: 1, marginBottom: 12 }}
+                style={{ flex: 1 }}
               >
-                <InputNumber min={1} placeholder="100" style={{ width: '100%' }} />
+                <InputNumber min={1} placeholder="100" />
               </Form.Item>
-            </div>
+            </SideBySide>
           )}
-          <div style={{ display: 'flex', gap: 12 }}>
+          <SideBySide>
             <Form.Item
               name="hy_keep_alive_secs"
               label={t('outbounds.hyKeepAlive')}
               tooltip={t('outbounds.hyKeepAliveHint')}
-              style={{ flex: 1, marginBottom: 12 }}
+              style={{ flex: 1 }}
             >
-              <InputNumber min={0} placeholder="10" style={{ width: '100%' }} />
+              <InputNumber min={0} placeholder="10" />
             </Form.Item>
             <Form.Item
               name="hy_max_idle_secs"
               label={t('outbounds.hyMaxIdle')}
               tooltip={t('outbounds.hyMaxIdleHint')}
-              style={{ flex: 1, marginBottom: 12 }}
+              style={{ flex: 1 }}
             >
-              <InputNumber min={0} placeholder="30" style={{ width: '100%' }} />
+              <InputNumber min={0} placeholder="30" />
             </Form.Item>
-          </div>
+          </SideBySide>
           <Form.Item
             name="hy_udp_hop_ports"
             label={t('outbounds.hyUdpHopPorts')}
             tooltip={t('outbounds.hyUdpHopPortsHint')}
-            style={{ marginBottom: 12 }}
           >
             <Select
               mode="tags"
@@ -370,40 +369,40 @@ export const OutboundForm = memo(function OutboundForm({
               placeholder="20000, 20001, 20002"
             />
           </Form.Item>
-          <div style={{ display: 'flex', gap: 12 }}>
+          <SideBySide>
             <Form.Item
               name="hy_udp_hop_interval_min"
               label={t('outbounds.hyUdpHopMin')}
               tooltip={t('outbounds.hyUdpHopHint')}
-              style={{ flex: 1, marginBottom: 12 }}
+              style={{ flex: 1 }}
             >
-              <InputNumber min={1} placeholder="30" style={{ width: '100%' }} />
+              <InputNumber min={1} placeholder="30" />
             </Form.Item>
             <Form.Item
               name="hy_udp_hop_interval_max"
               label={t('outbounds.hyUdpHopMax')}
-              style={{ flex: 1, marginBottom: 12 }}
+              style={{ flex: 1 }}
             >
-              <InputNumber min={1} placeholder="60" style={{ width: '100%' }} />
+              <InputNumber min={1} placeholder="60" />
             </Form.Item>
-          </div>
+          </SideBySide>
         </>
       )}
 
-      <div style={{ display: 'flex', gap: 12 }}>
+      <SideBySide>
         {!isHysteria && (
           <Form.Item
             name="network"
             label={t('outbounds.network')}
-            style={{ flex: 1, marginBottom: 12 }}
+            style={{ flex: 1 }}
           >
             <Select options={NETWORK_OPTIONS} />
           </Form.Item>
         )}
-        <Form.Item name="security" label={t('outbounds.security')} style={{ flex: 1, marginBottom: 12 }}>
+        <Form.Item name="security" label={t('outbounds.security')} style={{ flex: 1 }}>
           <Select options={isHysteria ? HYSTERIA_SECURITY_OPTIONS : SECURITY_OPTIONS} />
         </Form.Item>
-      </div>
+      </SideBySide>
 
       {/* Transport sub-fields (VLESS only — hysteria IS its own transport) */}
       {!isHysteria && network === 'ws' && (
@@ -415,7 +414,6 @@ export const OutboundForm = memo(function OutboundForm({
             <Form.Item
               label={t('outbounds.wsHeaders')}
               tooltip={t('outbounds.wsHeadersHint')}
-              style={{ marginBottom: 12 }}
             >
               <HeaderListField name="ws_headers" />
             </Form.Item>
@@ -425,7 +423,7 @@ export const OutboundForm = memo(function OutboundForm({
               tooltip={t('outbounds.wsHeartbeatHint')}
               style={{ marginBottom: 0 }}
             >
-              <InputNumber min={0} max={3600} style={{ width: '100%' }} />
+              <InputNumber min={0} max={3600} />
             </Form.Item>
           </Section>
         </>
@@ -440,7 +438,6 @@ export const OutboundForm = memo(function OutboundForm({
             <Form.Item
               label={t('outbounds.xhttpHeaders')}
               tooltip={t('outbounds.xhttpHeadersHint')}
-              style={{ marginBottom: 12 }}
             >
               <HeaderListField name="xhttp_headers" />
             </Form.Item>
@@ -456,90 +453,90 @@ export const OutboundForm = memo(function OutboundForm({
             />
             {xhttpObfs && (
               <>
-                <div style={{ display: 'flex', gap: 12 }}>
+                <SideBySide>
                   <Form.Item
                     name="xhttp_x_padding_placement"
                     label={t('outbounds.xhttpPadPlacement')}
-                    style={{ flex: 1, marginBottom: 12 }}
+                    style={{ flex: 1 }}
                   >
                     <Input placeholder="header" />
                   </Form.Item>
                   <Form.Item
                     name="xhttp_x_padding_key"
                     label={t('outbounds.xhttpPadKey')}
-                    style={{ flex: 1, marginBottom: 12 }}
+                    style={{ flex: 1 }}
                   >
                     <Input />
                   </Form.Item>
-                </div>
-                <div style={{ display: 'flex', gap: 12 }}>
+                </SideBySide>
+                <SideBySide>
                   <Form.Item
                     name="xhttp_x_padding_header"
                     label={t('outbounds.xhttpPadHeader')}
-                    style={{ flex: 1, marginBottom: 12 }}
+                    style={{ flex: 1 }}
                   >
                     <Input />
                   </Form.Item>
                   <Form.Item
                     name="xhttp_x_padding_method"
                     label={t('outbounds.xhttpPadMethod')}
-                    style={{ flex: 1, marginBottom: 12 }}
+                    style={{ flex: 1 }}
                   >
                     <Input placeholder="GET" />
                   </Form.Item>
-                </div>
+                </SideBySide>
               </>
             )}
-            <div style={{ display: 'flex', gap: 12 }}>
+            <SideBySide>
               <Form.Item
                 name="xhttp_session_placement"
                 label={t('outbounds.xhttpSessionPlacement')}
-                style={{ flex: 1, marginBottom: 12 }}
+                style={{ flex: 1 }}
               >
                 <Input placeholder="path" />
               </Form.Item>
               <Form.Item
                 name="xhttp_session_key"
                 label={t('outbounds.xhttpSessionKey')}
-                style={{ flex: 1, marginBottom: 12 }}
+                style={{ flex: 1 }}
               >
                 <Input />
               </Form.Item>
-            </div>
-            <div style={{ display: 'flex', gap: 12 }}>
+            </SideBySide>
+            <SideBySide>
               <Form.Item
                 name="xhttp_session_id_table"
                 label={t('outbounds.xhttpSessionTable')}
                 tooltip={t('outbounds.xhttpSessionTableHint')}
-                style={{ flex: 1, marginBottom: 12 }}
+                style={{ flex: 1 }}
               >
                 <Input placeholder="Base62" />
               </Form.Item>
               <Form.Item
                 name="xhttp_session_id_length"
                 label={t('outbounds.xhttpSessionLength')}
-                style={{ flex: 1, marginBottom: 12 }}
+                style={{ flex: 1 }}
               >
                 <Input placeholder="16-32" />
               </Form.Item>
-            </div>
-            <div style={{ display: 'flex', gap: 12 }}>
+            </SideBySide>
+            <SideBySide>
               <Form.Item
                 name="xhttp_seq_placement"
                 label={t('outbounds.xhttpSeqPlacement')}
-                style={{ flex: 1, marginBottom: 12 }}
+                style={{ flex: 1 }}
               >
                 <Input placeholder="query" />
               </Form.Item>
               <Form.Item
                 name="xhttp_seq_key"
                 label={t('outbounds.xhttpSeqKey')}
-                style={{ flex: 1, marginBottom: 12 }}
+                style={{ flex: 1 }}
               >
                 <Input />
               </Form.Item>
-            </div>
-            <div style={{ display: 'flex', gap: 12 }}>
+            </SideBySide>
+            <SideBySide>
               <Form.Item
                 name="xhttp_uplink_data_placement"
                 label={t('outbounds.xhttpUplinkPlacement')}
@@ -554,7 +551,7 @@ export const OutboundForm = memo(function OutboundForm({
               >
                 <Input />
               </Form.Item>
-            </div>
+            </SideBySide>
           </Section>
         </>
       )}
@@ -568,7 +565,7 @@ export const OutboundForm = memo(function OutboundForm({
             labelKey="outbounds.tlsServerName"
             tooltipKey="outbounds.tlsServerNameHint"
           />
-          <Form.Item name="tls_alpn" label={t('outbounds.tlsAlpn')} style={{ marginBottom: 12 }}>
+          <Form.Item name="tls_alpn" label={t('outbounds.tlsAlpn')}>
             <Select mode="multiple" allowClear options={ALPN_OPTIONS} placeholder="http/1.1" />
           </Form.Item>
           <SelectField
@@ -580,7 +577,6 @@ export const OutboundForm = memo(function OutboundForm({
             name="tls_verify_peer_cert_by_name"
             label={t('outbounds.tlsVcn')}
             tooltip={t('outbounds.tlsVcnHint')}
-            style={{ marginBottom: 12 }}
           >
             <Select mode="tags" allowClear placeholder="example.com" />
           </Form.Item>
@@ -614,7 +610,7 @@ export const OutboundForm = memo(function OutboundForm({
             labelKey="outbounds.realityShortId"
             tooltipKey="outbounds.realityShortIdHint"
           />
-          <div style={{ display: 'flex', gap: 12 }}>
+          <SideBySide>
             <Form.Item
               name="reality_fingerprint"
               label={t('outbounds.fingerprint')}
@@ -629,7 +625,7 @@ export const OutboundForm = memo(function OutboundForm({
             >
               <Input placeholder="/" />
             </Form.Item>
-          </div>
+          </SideBySide>
         </>
       )}
 
@@ -642,7 +638,7 @@ export const OutboundForm = memo(function OutboundForm({
           tooltip={t('outbounds.muxConcurrencyHint')}
           style={{ marginBottom: 0 }}
         >
-          <InputNumber style={{ width: '100%' }} />
+          <InputNumber />
         </Form.Item>
       </Section>
 

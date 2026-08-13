@@ -139,7 +139,6 @@ export function FallbacksTab() {
                     label={t('inbounds.fallbacksDest')}
                     tooltip={t('inbounds.fallbacksDestHint')}
                     rules={[{ required: true, message: t('inbounds.fallbacksDestRequired') }]}
-                    style={{ marginBottom: 12 }}
                   >
                     <Input placeholder="127.0.0.1:8080" />
                   </Form.Item>
@@ -147,7 +146,6 @@ export function FallbacksTab() {
                     name={[field.name, 'type']}
                     label={t('inbounds.fallbacksType')}
                     tooltip={t('inbounds.fallbacksTypeHint')}
-                    style={{ marginBottom: 12 }}
                   >
                     <Select options={TYPE_OPTIONS} />
                   </Form.Item>
@@ -155,7 +153,6 @@ export function FallbacksTab() {
                     name={[field.name, 'name']}
                     label={t('inbounds.fallbacksName')}
                     tooltip={t('inbounds.fallbacksNameHint')}
-                    style={{ marginBottom: 12 }}
                   >
                     <Input placeholder="(any SNI)" />
                   </Form.Item>
@@ -163,7 +160,6 @@ export function FallbacksTab() {
                     name={[field.name, 'alpn']}
                     label={t('inbounds.fallbacksAlpn')}
                     tooltip={t('inbounds.fallbacksAlpnHint')}
-                    style={{ marginBottom: 12 }}
                   >
                     <Select options={ALPN_OPTIONS} />
                   </Form.Item>
@@ -191,7 +187,7 @@ export function FallbacksTab() {
                     tooltip={t('inbounds.fallbacksXverHint')}
                     style={{ marginBottom: 0 }}
                   >
-                    <InputNumber min={0} max={2} style={{ width: '100%' }} />
+                    <InputNumber min={0} max={2} />
                   </Form.Item>
                 </div>
               </div>
