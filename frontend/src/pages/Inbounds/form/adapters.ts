@@ -143,7 +143,12 @@ export function inboundToForm(inb: Inbound): FormValues {
     const s = inb.security;
     v.tls_certificates = s.certificates;
     v.tls_server_name = s.server_name ?? '';
-    v.tls_alpn = s.alpn ?? ['h2', 'http/1.1'];
+    // `null` means the operator never picked an ALPN, and the save path maps
+    // an empty selection straight back to `null` — so hydrating it as a pair
+    // of chips silently added h2 to a stored inbound the moment its form was
+    // opened and saved. On WS that is worse than cosmetic: the transport
+    // negotiates http/1.1, and an offered h2 is a lie about the listener.
+    v.tls_alpn = s.alpn ?? [];
     v.tls_fingerprint = s.fingerprint ?? 'chrome';
     v.tls_min_version = s.min_version ?? '';
     v.tls_max_version = s.max_version ?? '';
