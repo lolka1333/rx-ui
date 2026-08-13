@@ -1,0 +1,191 @@
+/* ====================================================================
+   Login page
+   Moved out of an inline <style> block in Login.tsx so the browser
+   caches it. The expensive bits — `filter: blur(60px)` on three orbs,
+   `backdrop-filter: blur(12px)` on the card, `filter: blur(40px)` on
+   the halo — are gone; the same soft-glow look is achieved with
+   radial-gradients that have a translucent center and a transparent
+   outer stop (zero GPU rasterisation cost).
+   ==================================================================== */
+@keyframes login-card-rise {
+  0% { opacity: 0; transform: translateY(40px) scale(0.94); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes login-halo-pulse {
+  0% { opacity: 0; transform: translateZ(0) scale(0.6); }
+  100% { opacity: 0.55; transform: translateZ(0) scale(1); }
+}
+@keyframes login-orb-fade-in {
+  from { opacity: 0; transform: translateZ(0) scale(0.3); }
+  to { opacity: var(--target-opacity, 1); transform: translateZ(0) scale(1); }
+}
+@keyframes login-stagger-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.login-card-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  z-index: 1;
+}
+
+.login-card-halo {
+  position: absolute;
+  inset: -40px;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(99, 102, 241, 0.28) 0%,
+    transparent 70%
+  );
+  opacity: 0;
+  pointer-events: none;
+  animation: login-halo-pulse 1.4s cubic-bezier(0.22, 1, 0.36, 1) 0.1s forwards;
+}
+
+.login-card {
+  position: relative;
+  padding: 36px;
+  border-radius: 16px;
+  /* `--surface-2` is the active theme's elevated surface — white on light,
+     dark navy on dark, near-black on darker. Pairs with antd's `colorText`
+     so the heading and labels stay readable on every palette. */
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4), 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+  opacity: 0;
+  transform: translateZ(0);
+  animation: login-card-rise 0.85s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+[data-theme="light"] .login-card {
+  /* Lighter shadow on white — the dark navy preset would look bruised. */
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.12), 0 1px 0 rgba(0, 0, 0, 0.02) inset;
+}
+
+@media (max-width: 480px) {
+  .login-card {
+    padding: 24px 20px;
+    border-radius: 14px;
+  }
+  .login-bg-orb,
+  .login-card-halo { display: none; }
+}
+
+.login-bg-mobile {
+  display: none;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 60% 40% at 30% 15%, rgba(99, 102, 241, 0.25), transparent 60%),
+    radial-gradient(ellipse 50% 35% at 75% 85%, rgba(139, 92, 246, 0.18), transparent 60%);
+}
+@media (max-width: 480px) {
+  .login-bg-mobile { display: block; }
+}
+@media (max-width: 480px) and (prefers-reduced-motion: no-preference) {
+  .login-card { animation-duration: 0.55s; }
+  .login-anim-stagger { animation-duration: 0.4s; }
+}
+
+/* Expiry DatePicker popup (Clients form): with showTime the calendar and the
+   time columns sit side-by-side, which overflows a phone screen. On narrow
+   viewports stack them vertically and cap the width so the popup fits. */
+@media (max-width: 480px) {
+  /* Stack the calendar over the time columns. The time panel spans the
+     calendar width and the columns share it evenly with centered numbers, so
+     the row is filled instead of leaving empty gaps on the sides. */
+  .expiry-picker-dropdown .ant-picker-datetime-panel {
+    flex-direction: column;
+  }
+  .expiry-picker-dropdown .ant-picker-time-panel {
+    border-inline-start: none;
+    border-block-start: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  .expiry-picker-dropdown .ant-picker-time-panel-column {
+    flex: 1;
+  }
+  /* Centre each number cell (and its selection highlight) within the stretched
+     column so the digits and the highlighted box line up instead of hugging
+     the left edge. */
+  .expiry-picker-dropdown .ant-picker-time-panel-cell {
+    display: flex;
+    justify-content: center;
+  }
+  .expiry-picker-dropdown .ant-picker-time-panel-cell-inner {
+    flex: none;
+    padding-inline: 0;
+    text-align: center;
+  }
+}
+
+.login-anim-stagger {
+  opacity: 0;
+  animation: login-stagger-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: var(--d, 0s);
+  /* Filter intentionally dropped from will-change — none of these animations
+     touch filter, so it was forcing extra GPU layers for nothing. */
+  will-change: transform, opacity;
+}
+
+.login-bg-orb {
+  position: absolute;
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateZ(0);
+}
+.login-bg-orb-1 {
+  width: 480px;
+  height: 480px;
+  left: 12%;
+  top: 8%;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.45) 0%, transparent 65%);
+  --target-opacity: 1;
+  animation: login-orb-fade-in 1.4s ease-out forwards;
+}
+.login-bg-orb-2 {
+  width: 440px;
+  height: 440px;
+  right: 12%;
+  bottom: 8%;
+  background: radial-gradient(circle, rgba(139, 92, 246, 0.45) 0%, transparent 65%);
+  --target-opacity: 1;
+  animation: login-orb-fade-in 1.6s ease-out 0.2s forwards;
+}
+.login-bg-orb-3 {
+  width: 380px;
+  height: 380px;
+  left: 50%;
+  top: 50%;
+  margin-left: -190px;
+  margin-top: -190px;
+  background: radial-gradient(circle, rgba(6, 182, 212, 0.32) 0%, transparent 70%);
+  --target-opacity: 1;
+  animation: login-orb-fade-in 1.8s ease-out 0.4s forwards;
+}
+
+.login-card input:-webkit-autofill,
+.login-card input:-webkit-autofill:hover,
+.login-card input:-webkit-autofill:focus,
+.login-card input:-webkit-autofill:active {
+  -webkit-text-fill-color: #f1f5f9 !important;
+  -webkit-box-shadow: 0 0 0 1000px rgba(26, 36, 56, 0.6) inset !important;
+  caret-color: #f1f5f9 !important;
+  transition: background-color 5000s ease-in-out 0s, color 5000s ease-in-out 0s;
+  border-radius: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-card,
+  .login-anim-stagger,
+  .login-card-halo,
+  .login-bg-orb {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+

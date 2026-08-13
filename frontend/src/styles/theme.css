@@ -1,0 +1,63 @@
+/* ====================================================================
+   Theme cross-fade
+   With Antd in cssVar mode (see tokens.ts), a theme switch is just a
+   CSS-variable swap — no <style> regeneration, no layout. All elements
+   below have an always-on transition on the color properties so when
+   their var()-resolved values change, the browser interpolates them
+   smoothly. Cheap because no regen happens.
+   ==================================================================== */
+html,
+body,
+.ant-layout,
+.ant-layout-sider,
+.ant-layout-content,
+.ant-layout-header,
+.ant-drawer-section,
+.ant-card,
+.ant-menu,
+.ant-menu-item,
+.ant-menu-submenu-title,
+.ant-modal-content,
+.ant-modal-header,
+.ant-modal-footer,
+.ant-table,
+.ant-table-thead > tr > th,
+.ant-table-tbody > tr > td,
+.ant-btn-default,
+.ant-input,
+.ant-input-affix-wrapper,
+.ant-input-number,
+.ant-input-number-input,
+.ant-input-number-handler-wrap,
+.ant-input-number-group-addon,
+.ant-input-password,
+.ant-input-search,
+.ant-select-content,
+.ant-select-dropdown,
+.ant-form-item-label > label,
+.ant-form-item-explain,
+.ant-typography,
+.ant-divider,
+.ant-tag,
+.ant-collapse-header,
+.ant-collapse-content,
+.ant-switch,
+.ant-switch-handle,
+.app-settings-section,
+.app-settings-dirtybar-inner {
+  transition:
+    background-color 0.22s ease,
+    color 0.22s ease,
+    border-color 0.22s ease,
+    box-shadow 0.22s ease;
+}
+
+/* A switch with `loading` is mid-save, not permanently disabled — antd gives
+   it a not-allowed cursor, which reads as an error mid-toggle. Keep the normal
+   pointer so the spinner says "saving". Genuinely disabled switches
+   (.ant-switch-disabled) are left alone and still show not-allowed. */
+.ant-switch-loading,
+.ant-switch-loading * {
+  cursor: pointer !important;
+}
+

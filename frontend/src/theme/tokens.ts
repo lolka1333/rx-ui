@@ -35,8 +35,10 @@ function build(mode: ThemeMode): ThemeConfig {
     darkPopupBg: p.surfaceElev,
     darkItemSelectedBg: active,
     darkItemSelectedColor: p.text,
-    // Kept in step with the hover rule in index.css, which is what actually
-    // paints (it carries `!important`; this token does not).
+    // Kept in step with the hover rule in styles/nav.css, which is what
+    // actually paints (it carries `!important`; this token does not). The rule
+    // stays in CSS because it also covers rc-menu's `-active` class, which has
+    // no token — one state written twice would be worse than one rule.
     darkItemHoverBg: 'rgba(255, 255, 255, 0.04)',
     // Antd's default here is pure white, which left a row you were merely
     // pointing at brighter than the row you were actually on. Hover now lands
@@ -71,7 +73,10 @@ function build(mode: ThemeMode): ThemeConfig {
     // baking literal values into class rules. Theme switching becomes a single
     // variable swap — no CSS-in-JS regen, no <style> tag rewrite, no layout
     // thrash. `hashed: false` keeps Antd's class names stable across renders.
-    cssVar: { key: 'xp' },
+    //
+    // The key is also the class antd stamps on every component it themes, so it
+    // shows up in the DOM and in our own selectors (see styles/base.css).
+    cssVar: { key: 'rxui' },
     hashed: false,
     algorithm: isLight ? antdTheme.defaultAlgorithm : antdTheme.darkAlgorithm,
     token: {

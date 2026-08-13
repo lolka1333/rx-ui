@@ -1,0 +1,434 @@
+/* ====================================================================
+   Drawer & Sider — slide animation
+   Standard Material easing (`cubic-bezier(0.4, 0, 0.2, 1)`) instead of
+   Antd's default `ease`, which front-loads motion and feels like a
+   snap on slow devices. 0.28s reads as a real slide.
+   ==================================================================== */
+.ant-drawer,
+.ant-drawer-content-wrapper,
+.ant-drawer-section {
+  height: 100dvh !important;
+  max-height: 100dvh !important;
+}
+
+.ant-drawer-content-wrapper {
+  /* Promote the panel to its own compositing layer so the open/close slide is
+     a pure GPU transform instead of repainting against the page behind it. */
+  will-change: transform;
+  /* Slide is transform-only — no box-shadow in the transition. Animating the
+     panel's elevation shadow repaints a large blurred region every frame
+     (janky on phones); the dark mask already separates the panel from the
+     page, so drop the shadow rather than animate or snap it. */
+  box-shadow: none !important;
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  /* Antd v6 sets opacity:0.7 on its `-leave-active` class. We only animate
+     transform, so opacity would snap and the panel would look translucent
+     mid-slide. Lock to 1. */
+  opacity: 1 !important;
+}
+
+.ant-drawer-mask {
+  transition: opacity 0.28s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.ant-layout-sider {
+  transition:
+    width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    min-width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    max-width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    flex-basis 0.28s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+/* Drawer panel background — antd's dark algorithm doesn't override the
+   default white, so force it. The drawer IS the sidebar on a phone, so it
+   reads the same variable rather than repeating the three literals: the
+   "очень тёмная" copy here had already drifted a palette revision behind
+   (#0c0d10, from back when that palette still leaned blue) and showed a
+   different black than the rail it replaces. */
+.ant-drawer-section { background-color: var(--sidebar); }
+
+/* ====================================================================
+   Inline submenu — minimise per-frame layout cost during height animation
+   ==================================================================== */
+.ant-menu-sub.ant-menu-inline {
+  contain: layout style;
+  will-change: height;
+}
+
+/* ====================================================================
+   Collapsed-sidebar icon snap fix — pin the icon's left coordinate.
+
+   The natural Antd behaviour swaps the menu item's padding from
+   `16px` (inline) to `calc(50% - 12px)` (inline-collapsed) at the
+   moment the class changes. While the Sider's width animates 208→64
+   over 0.28s, the calc() target *also* changes per frame (50% of a
+   shrinking parent). Combined with a real `transition` on padding,
+   the browser interpolates from `16px` toward "50% of width-at-start",
+   which is ~96px at width=208. The icon visibly swings rightward
+   (to ~44px from the sider's left) before the calc target catches
+   up and the icon drifts back to its final ~23px position. The eye
+   reads it as a U-shape, not a clean collapse.
+
+   We sidestep the calc entirely by forcing a constant 11px on both
+   inline-start and inline-end in BOTH states. The icon stays at the
+   same x throughout (item-left=12 + 11 + half-icon ≈ sider-centre at
+   width=64), and the Sider's width transition is the only motion
+   the eye has to track. `justify-content: flex-start` is kept so the
+   collapsed mode doesn't fight the explicit padding via flexbox
+   centering. Icon font-size + margin keep their own transitions
+   (synced to 0.28s) so the icon grows smoothly while staying put.
+   ==================================================================== */
+.ant-menu-inline > .ant-menu-item,
+.ant-menu-inline > .ant-menu-submenu > .ant-menu-submenu-title,
+.ant-menu-inline-collapsed > .ant-menu-item,
+.ant-menu-inline-collapsed > .ant-menu-submenu > .ant-menu-submenu-title {
+  padding-inline: 11px !important;
+}
+.ant-menu-inline-collapsed > .ant-menu-item,
+.ant-menu-inline-collapsed > .ant-menu-submenu > .ant-menu-submenu-title {
+  justify-content: flex-start;
+}
+.ant-menu-item,
+.ant-menu-submenu-title {
+  transition:
+    border-color 0.18s,
+    background-color 0.18s !important;
+}
+.ant-menu-item .anticon,
+.ant-menu-submenu-title .anticon {
+  transition:
+    font-size 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    margin 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    color 0.18s !important;
+}
+
+/* ====================================================================
+   Menu hover — subtle white/black tint, not Antd's teal fallback
+
+   These beat the equivalent Menu tokens (`darkItemHoverBg` / `itemHoverBg`),
+   because `!important` here outranks antd's own un-flagged rule regardless of
+   insertion order. Tune hover HERE; editing the token alone changes nothing.
+
+   The tint has to stay clearly under the active row's wash. At 6% white the
+   two sat 1.18:1 and 1.22:1 off the rail — a 3% difference in lightness — so
+   a row you were merely pointing at looked as lit as the one you were on.
+   ==================================================================== */
+.ant-menu-dark .ant-menu-item:hover:not(.ant-menu-item-selected),
+.ant-menu-dark .ant-menu-item-active:not(.ant-menu-item-selected),
+.ant-menu-dark .ant-menu-submenu-title:hover,
+.ant-menu-dark .ant-menu-submenu-active > .ant-menu-submenu-title {
+  background-color: rgba(255, 255, 255, 0.04) !important;
+}
+
+.ant-menu-light .ant-menu-item:hover:not(.ant-menu-item-selected),
+.ant-menu-light .ant-menu-item-active:not(.ant-menu-item-selected),
+.ant-menu-light .ant-menu-submenu-title:hover,
+.ant-menu-light .ant-menu-submenu-active > .ant-menu-submenu-title {
+  background-color: rgba(0, 0, 0, 0.04) !important;
+}
+
+/* ====================================================================
+   Inline accordion (submenu) reveal — antd animates the sub's HEIGHT with
+   its "front-loaded" ease, which reads as a snap. Retime it to the app's
+   Material curve, and deal the rows out from under the title: each one
+   starts a touch above its place and a hair small, then drops into it,
+   one after another. Opacity and transform only, so it is composited.
+   The `!important` overrides the inline transition rc-motion sets.
+   ==================================================================== */
+.ant-menu-submenu-inline > .ant-menu-sub {
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1) !important;
+  /* The rows start ABOVE where they belong, so the list has to clip them —
+     otherwise they slide across the title on the way in. rc-motion only clips
+     while its own height transition runs, which is shorter than the row
+     animation, and the tail end would spill. */
+  overflow: hidden;
+}
+/* A group is held together by a rail down its left edge, not by a filled box.
+   Without something the children came out pixel-identical to top-level entries
+   — same width, same margins, and their icons on the very same x as the
+   parent's, because the blanket item padding further down cancels antd's
+   `inlineIndent`. Nothing said they belonged to the item above them, so they
+   read as two new menu entries that had appeared out of nowhere.
+
+   The rail carries one meaning and spends the accent once: you are inside this
+   section. It therefore keys off `-selected` — which antd keeps on the group
+   whether it is open or shut — and not off `-open`. Shutting the group while
+   you are in one of its pages then still answers "where am I", and an open
+   group you are merely browsing (the theme switcher) stays unmarked.
+
+   Every measurement here is unconditional, and that is the point: antd drops
+   the `-open` class the instant a close BEGINS, while the rows are still on
+   screen collapsing. Anything keyed on that class snapped on the first frame of
+   the close — the row jumped 6px left, grew 12px wider and its icon lost the
+   16px indent, all before the list had moved at all. */
+:is(.ant-layout-sider, .ant-drawer) .ant-menu-submenu-inline {
+  position: relative;
+  margin: 3px 12px;
+  /* Room for the rail. Applied to every group so the rows never shift when the
+     rail appears or goes. */
+  padding-left: 8px;
+  /* The accent marker below is placed at a fixed offset from this box's top. As
+     the group collapses the box gets shorter while the marker does not move, so
+     without clipping it hangs on below the shut group like a stray tick. Clipped
+     here it is eaten by the closing edge instead, which is what the eye expects
+     of something that lives inside the group. */
+  overflow: hidden;
+}
+/* A hairline, not an accent bar. In colour it read as a status marker parked at
+   the edge with nothing to attach to; its actual job is structural — tie the
+   unfolded rows to the title above them. So it is neutral, and it is tied to
+   the group being OPEN: there is nothing to hold together while it is shut. */
+:is(.ant-layout-sider, .ant-drawer) .ant-menu-submenu-inline::before {
+  content: '';
+  position: absolute;
+  left: 1px;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  opacity: 0;
+  /* Waits a beat before coming in, so the line arrives after the list has
+     started opening rather than snapping into an empty group and waiting there
+     for the rows. It lands at 220ms, inside the list's 260ms. */
+  transition: opacity 0.14s ease 0.08s;
+}
+[data-theme='light'] :is(.ant-layout-sider, .ant-drawer) .ant-menu-submenu-inline::before {
+  background: rgba(0, 0, 0, 0.1);
+}
+/* "Open" for the purposes of the rail and the marker below means open OR on its
+   way shut. Antd drops `-open` on the first frame of a close, with the list
+   still at full height, so keying on it alone made both of them blink out from
+   under a list that was still standing there. rc-motion's `-leave` class on the
+   list covers exactly the missing stretch. */
+:is(.ant-layout-sider, .ant-drawer) .ant-menu-submenu-inline.ant-menu-submenu-open::before,
+:is(.ant-layout-sider, .ant-drawer)
+  .ant-menu-submenu-inline:has(> .ant-menu-sub.ant-motion-collapse-leave)::before {
+  opacity: 1;
+}
+/* …and the stretch of it beside the page you are on carries the accent. The
+   line stays a structural hairline; the colour marks a position ON it, which is
+   the one thing a vertical line is good at. It rides on the group rather than
+   on the row because the list clips its own overflow for the deal-out
+   animation, and a marker hung off a row's left edge would be cut off.
+   The offsets come from the rows themselves: the title sits 3 from the group's
+   top and is 40 tall, the list starts 6 below it, and each child is 34 tall on
+   a 3px margin — so the rows begin at 49 and 86. (Measure these with the
+   sidebar's transitions disabled: mid-animation a row is still scaled 0.97 and
+   reports a box a few pixels off, which is exactly how the marker ended up 3px
+   high the first time.) Sliding `top` between the two means switching pages
+   moves the marker instead of teleporting it.
+   WHERE it sits and WHETHER it shows are deliberately separate. The offset is
+   set on the group whenever a child is active, open or not; only the opacity
+   reacts to the group's state. Carrying the offset on the same rules as the
+   opacity meant that on a close — where antd drops `-open` at once — the marker
+   lost its `top` in the same frame and jumped to the group's edge on its way
+   out. */
+:is(.ant-layout-sider, .ant-drawer)
+  .ant-menu-submenu-inline:has(> .ant-menu-sub > .ant-menu-item:nth-child(1).ant-menu-item-selected) {
+  --marker-top: 49px;
+}
+:is(.ant-layout-sider, .ant-drawer)
+  .ant-menu-submenu-inline:has(> .ant-menu-sub > .ant-menu-item:nth-child(2).ant-menu-item-selected) {
+  --marker-top: 86px;
+}
+:is(.ant-layout-sider, .ant-drawer) .ant-menu-submenu-inline::after {
+  content: '';
+  position: absolute;
+  left: 1px;
+  top: var(--marker-top, 49px);
+  width: 2px;
+  height: 34px;
+  border-radius: 2px;
+  background: var(--accent, #6366f1);
+  opacity: 0;
+  transition:
+    /* Same beat as the rail above: the accent belongs to a row, so it must not
+       be on screen before that row is. */
+    opacity 0.14s ease 0.08s,
+    top 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* Shown while the group is open, and held through the close: the group clips
+   its own overflow, so a marker that simply stays put is eaten by the closing
+   edge — which is what the list beside it is doing anyway. Fading it on its own
+   140ms while the list took 260ms was the "snap" — the accent was gone a full
+   frame-and-a-half before the rows it belonged to. */
+:is(.ant-layout-sider, .ant-drawer)
+  .ant-menu-submenu-inline:is(
+    .ant-menu-submenu-open,
+    :has(> .ant-menu-sub.ant-motion-collapse-leave)
+  ):has(> .ant-menu-sub > .ant-menu-item-selected)::after {
+  opacity: 1;
+}
+/* Shut the group while inside one of its pages and the highlight goes with the
+   children. The title then carries it — the same wash every other active row
+   gets, so "a tinted row" means the same thing at every level. A submenu title
+   is the one navigation row antd has no selected-background token for, which
+   is why this is the only place the wash is spelled out in CSS; `--nav-active`
+   is the same value the Menu tokens use (theme/tokens.ts). `!important` beats
+   the hover rule above, which would otherwise wipe the wash off this row on
+   mouse-over while every other active row keeps it.
+   The guard says `-inline-open`, not just `-open`, because those mean two
+   different things. Unfolded in place, the children are on screen and carry
+   the highlight themselves. On the collapsed rail antd sets `-open` too — for
+   the hover flyout — but there the children live in a portal, so the title is
+   still the only thing standing for them. Guarding on bare `-open` stripped
+   the wash and the accent glyph off "Настройки" at the exact moment you
+   pointed at it. */
+:is(.ant-layout-sider, .ant-drawer)
+  .ant-menu-submenu-selected:not(.ant-menu-submenu-inline.ant-menu-submenu-open)
+  > .ant-menu-submenu-title {
+  background: var(--nav-active, rgba(99, 102, 241, 0.18)) !important;
+  color: var(--text, #f1f5f9);
+}
+/* Rows sit against the rail, so they drop their own side margins. */
+:is(.ant-layout-sider, .ant-drawer) .ant-menu-submenu-inline > .ant-menu-submenu-title,
+:is(.ant-layout-sider, .ant-drawer) .ant-menu-submenu-inline > .ant-menu-sub > .ant-menu-item {
+  margin-left: 0;
+  margin-right: 0;
+  width: auto;
+}
+/* …except the title, which reaches back across the group's rail gutter. The
+   8px above is room for a line that belongs to the CHILDREN; the title is a
+   top-level row like Clients or Nodes and has to start on the same x as they
+   do. Left as-is it sat 8px in, with its icon and label out of column with
+   every row above it — visible as soon as two of them are stacked. */
+:is(.ant-layout-sider, .ant-drawer) .ant-menu-submenu-inline > .ant-menu-submenu-title {
+  margin-left: -8px;
+  width: calc(100% + 8px);
+}
+:is(.ant-layout-sider, .ant-drawer) .ant-menu-submenu-inline > .ant-menu-sub > .ant-menu-item {
+  /* The whole row is indented, fill included — not just its contents. The eye
+     reads a filled row by its left EDGE, not by where the icon sits inside it:
+     with the fill starting a few pixels from the title's edge the child looked
+     like a sibling of its own parent, however far in the icon was. Stepping the
+     row itself in by 16px (the indent antd's `inlineIndent` would have given if
+     the constant-padding rule above did not cancel it for these rows — a
+     submenu's <ul> is `.ant-menu-inline` too) puts the step where it can be
+     seen. Padding then matches the title's 11px, so the icons land at 47 as
+     before. Slightly shorter than a top-level row, too: size carries hierarchy
+     as much as position does. `!important` only because that rule is; it is not
+     fighting antd. */
+  margin-inline: 16px 6px;
+  border-radius: 9px;
+  padding-left: 11px !important;
+  height: 34px;
+}
+/* The colour lives in the active row, and only there. A solid accent slab read
+   as a plate dropped on top of the rail; a bar off at the edge read as a
+   marker attached to nothing; no colour at all read as grey. A tinted row with
+   an accent glyph is the middle: the hue is on the thing it is actually about —
+   the page you are on — and it is a wash rather than a block. The wash itself
+   comes from the Menu tokens now, so it lands on every navigation row at once;
+   what's left here is the glyph, which antd has no selected-icon token for.
+   The navigation menu shows up in three containers, none of which nests in
+   another: the rail, the phone's drawer, and the flyout the collapsed rail
+   portals to <body>. Listing them keeps the accent on navigation and off any
+   other menu in the app. Antd pins these glyphs to `color: inherit` — at three
+   classes in the rail and four inside a popup — so each selector here is
+   deliberately one class heavier than the rule it has to outrank, rather than
+   reaching for `!important`. */
+:is(.ant-layout-sider, .ant-drawer) .ant-menu .ant-menu-item-selected .ant-menu-item-icon,
+:is(.ant-layout-sider, .ant-drawer)
+  .ant-menu-submenu-selected:not(.ant-menu-submenu-inline.ant-menu-submenu-open)
+  > .ant-menu-submenu-title
+  .ant-menu-item-icon,
+.ant-menu-submenu-popup
+  > .ant-menu
+  .ant-menu-item.ant-menu-item-selected
+  .ant-menu-item-icon {
+  color: var(--accent, #6366f1);
+}
+/* Third carrier, and the only one that owes nothing to the palette. A wash of
+   translucent indigo can never separate itself from its own background by much
+   — even at full opacity it tops out around 2:1 — so on the light rail the
+   active row and a hovered one sit within a tenth of each other. Weight does
+   not care: it reads at any tint, at any size, and on the collapsed rail it
+   simply has nothing to act on, which is correct there. */
+:is(.ant-layout-sider, .ant-drawer, .ant-menu-submenu-popup)
+  .ant-menu-item-selected
+  > .ant-menu-title-content,
+:is(.ant-layout-sider, .ant-drawer)
+  .ant-menu-submenu-selected:not(.ant-menu-submenu-inline.ant-menu-submenu-open)
+  > .ant-menu-submenu-title
+  > .ant-menu-title-content {
+  font-weight: 500;
+}
+.ant-menu-submenu-inline.ant-menu-submenu-open > .ant-menu-sub > .ant-menu-item {
+  animation: app-submenu-item-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+/* Stagger: each row waits for the one above it to be on its way. 70ms apart is
+   enough to read as an order without the last row feeling late. */
+.ant-menu-submenu-open > .ant-menu-sub > .ant-menu-item:nth-child(1) { animation-delay: 0.02s; }
+.ant-menu-submenu-open > .ant-menu-sub > .ant-menu-item:nth-child(2) { animation-delay: 0.09s; }
+.ant-menu-submenu-open > .ant-menu-sub > .ant-menu-item:nth-child(3) { animation-delay: 0.16s; }
+.ant-menu-submenu-open > .ant-menu-sub > .ant-menu-item:nth-child(4) { animation-delay: 0.23s; }
+.ant-menu-submenu-open > .ant-menu-sub > .ant-menu-item:nth-child(5) { animation-delay: 0.3s; }
+@keyframes app-submenu-item-in {
+  from {
+    opacity: 0;
+    /* Above its place and slightly small: the row reads as coming out from
+       under the title rather than fading in where it already was. */
+    transform: translateY(-18px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* Opening and closing run on the same clock. Antd's own collapse is 0.14s,
+   which against rows that take 0.3s to deal out meant the box flew open and
+   the content arrived afterwards — and once the close was retimed to 0.26s the
+   two directions no longer matched at all. The list's opacity is pinned for the
+   same reason it is on the way out: with the list fading too, a row is dimmed
+   twice and the deal-out reads as a blur instead of an order. */
+.ant-menu-submenu-inline > .ant-menu-sub.ant-motion-collapse-enter,
+.ant-menu-submenu-inline > .ant-menu-sub.ant-motion-collapse-appear {
+  transition-duration: 0.26s !important;
+  opacity: 1 !important;
+}
+/* Closing is the same deal collected back up. It cannot hang off `-open`: antd
+   drops that class on the first frame of a close (measured at 7ms, with the
+   list still at full height), which is exactly why shutting the group used to
+   be a bare 160ms height collapse against an opening that reads for ~390ms —
+   the rows simply blinked out of existence. rc-motion's own `-leave` class sits
+   on the list for the whole close, so the rows hang off that instead. */
+.ant-menu-submenu-inline > .ant-menu-sub.ant-motion-collapse-leave {
+  /* Long enough for the rows to be seen leaving before the list shuts over
+     them — still a touch quicker than opening, which is how a close should
+     feel. */
+  transition-duration: 0.26s !important;
+  /* rc-motion fades the whole list inline. Let the rows carry the fade: with
+     both running, a row is already invisible before its movement can be read. */
+  opacity: 1 !important;
+}
+.ant-menu-submenu-inline > .ant-menu-sub.ant-motion-collapse-leave > .ant-menu-item {
+  animation: app-submenu-item-out 0.18s cubic-bezier(0.4, 0, 1, 1) both;
+}
+/* Reversed order: the last row goes first, so the list is drawn back under the
+   title from the bottom rather than unzipping from the top. */
+.ant-menu-sub.ant-motion-collapse-leave > .ant-menu-item:nth-last-child(1) { animation-delay: 0s; }
+.ant-menu-sub.ant-motion-collapse-leave > .ant-menu-item:nth-last-child(2) { animation-delay: 0.05s; }
+.ant-menu-sub.ant-motion-collapse-leave > .ant-menu-item:nth-last-child(3) { animation-delay: 0.1s; }
+.ant-menu-sub.ant-motion-collapse-leave > .ant-menu-item:nth-last-child(4) { animation-delay: 0.15s; }
+.ant-menu-sub.ant-motion-collapse-leave > .ant-menu-item:nth-last-child(5) { animation-delay: 0.2s; }
+@keyframes app-submenu-item-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    /* Shorter travel than the way in — on the way out the row only has to be
+       seen leaving, and the list is closing over it at the same time. */
+    transform: translateY(-14px) scale(0.97);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ant-menu-submenu-open > .ant-menu-sub > .ant-menu-item,
+  .ant-menu-sub.ant-motion-collapse-leave > .ant-menu-item {
+    animation: none !important;
+  }
+}
+

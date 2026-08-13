@@ -1,0 +1,356 @@
+/* The three plaques pinned below the page navigation — xray status, the
+   account card, and the icon-only footer buttons — plus the collapse
+   choreography they share.
+
+   The plaques animate their OWN max-width (184→40) so they shrink smoothly with
+   the menu, INDEPENDENT of antd's Sider whose width transition starts ~300ms
+   late (the heavy menu-collapse animation delays it) — which is what made them
+   hang wide. max-width (not width) transitions reliably on a flex item, and the
+   status block is unified (no DOM swap on collapse) so the transition isn't
+   reset. 184 = 208px rail − 24px margin; 40 = 64px collapsed − 24px. Scoped to
+   the Sider so the mobile drawer keeps full-width plaques. */
+.ant-layout-sider .sidebar-status,
+.ant-layout-sider .sidebar-account,
+.ant-layout-sider .sidebar-footer {
+  max-width: 184px;
+  transition:
+    max-width 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+    padding 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+    height 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* The footer's two buttons sit side by side while the rail is wide and stack
+   once it is narrow, which added 36px of plaque height in a single frame — the
+   rail was still 208px wide and the bottom had already grown. Pinning both
+   heights puts that growth on the same curve as the width, so the second button
+   is revealed from under the clipped edge instead of shoving the plaque open.
+   42 = 32px button + 2×5 padding; 78 = 2×32 + 4 gap + 2×5. */
+.ant-layout-sider .sidebar-footer {
+  height: 42px;
+}
+.ant-layout-sider .sidebar-footer--collapsed {
+  height: 78px;
+}
+/* Pin the plaques' contents to the width they occupy while expanded, so the row
+   inside never re-lays-out as the plaque shrinks. Collapsing used to hide the
+   label / name / buttons with `display: none`, which deleted them in the very
+   first frame while the rail was still 208px wide — the text vanished and left
+   a wide empty rail behind for the whole 260ms of the width animation. With the
+   contents pinned, nothing is removed: the plaque's own edge wipes across them
+   (they are clipped by `overflow: hidden`), so the rail always looks full right
+   up to its edge. 160 = 184 plaque − 24 padding; 120 = 162 content − 32 avatar
+   − 10 gap. Scoped to the Sider, so the mobile drawer's wider plaques still lay
+   out fluidly. */
+.ant-layout-sider .sidebar-status-head {
+  width: 160px;
+}
+.ant-layout-sider .sidebar-account-main {
+  width: 120px;
+  flex: 0 0 auto;
+}
+.ant-layout-sider .sidebar-status--collapsed,
+.ant-layout-sider .sidebar-account--collapsed,
+.ant-layout-sider .sidebar-footer--collapsed {
+  max-width: 40px;
+}
+/* antd animates every menu item's label-collapse when the rail toggles, and
+   that motion blocks the rail's other transitions (plaques, width) from
+   starting for ~250ms. Snap the menu items instantly instead so the rest can
+   animate smoothly from frame one — the labels just hide, which is unobtrusive
+   compared to the plaques sliding. */
+.ant-layout-sider .ant-menu-item,
+.ant-layout-sider .ant-menu-submenu-title,
+.ant-layout-sider .ant-menu-item *,
+.ant-layout-sider .ant-menu-submenu-title * {
+  transition: none !important;
+}
+/* …and don't delete the labels either. Collapsing flips antd's menu from
+   `inline` to `vertical` mode, and two things happen in that same frame, long
+   before the rail has moved: the label drops to `opacity: 0`, and it loses the
+   `flex: 1 1 auto` that gave it its width, so it snaps from 132px to 0. The
+   text was gone while the rail was still 208px wide — that is the "text just
+   disappears and leaves empty space".
+   Keep both: opaque, and sized as it is when expanded. The label then simply
+   shares the item's box, which narrows with the rail, so it is wiped away by
+   the moving edge and is fully clipped by the time the rail reaches 64px
+   (the item is 40px there — 16px of icon and nothing left over). `min-width: 0`
+   is what lets it shrink past its own text instead of shoving the icon.
+   The child combinators mirror antd's own selectors one class deeper, which is
+   what wins the tie — its styles are injected after this sheet. */
+.ant-layout-sider .ant-menu-inline-collapsed > .ant-menu-item > .ant-menu-title-content,
+.ant-layout-sider
+  .ant-menu-inline-collapsed
+  > .ant-menu-submenu
+  > .ant-menu-submenu-title
+  > .ant-menu-title-content {
+  opacity: 1;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* Xray status + server load, pinned above the account card — turns the empty
+   stretch of the rail into a glanceable health readout. */
+.sidebar-status {
+  margin: 0 12px 7px;
+  padding: 11px 12px;
+  flex-shrink: 0;
+  /* One head row (22px) plus the padding. Fixed so the placeholder rendered
+     before the first payload occupies exactly the same box as the loaded
+     plaque — otherwise the block appears out of nowhere and pushes the account
+     card and footer down on every reload. */
+  min-height: 44px;
+  box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.045);
+  border-radius: 12px;
+  /* Clip the content to the plaque so it reveals/hides cleanly as the rail
+     width animates, instead of spilling onto the bare rail or squishing. */
+  overflow: hidden;
+}
+.sidebar-status-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text, #e6e6e6);
+}
+.sidebar-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  /* Grows to 9px when the rail collapses; ride the same curve as the plaque so
+     the two read as one motion instead of a resize on top of a resize. */
+  transition:
+    width 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+    height 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.sidebar-status-dot.is-up {
+  background: #22c55e;
+}
+.sidebar-status-dot.is-down {
+  background: #ef4444;
+}
+.sidebar-status-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-status-ver {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 400;
+  color: #c9caf7;
+  background: rgba(99, 102, 241, 0.16);
+  border-radius: 6px;
+}
+.sidebar-status-restart {
+  flex: 0 0 auto;
+  margin-left: auto;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-2, #a8a8a8);
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    opacity 0.12s ease 0.14s;
+}
+.sidebar-status-restart:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text, #e6e6e6);
+}
+.sidebar-status-restart:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+/* Collapsed rail: just the status dot, centred. Nothing is taken out of the
+   layout — the label, version chip and restart button stay exactly where they
+   are and are wiped away by the plaque's shrinking edge. Only the left padding
+   travels, from 12 to 15.5, which is what lands the dot in the middle of the
+   40px plaque: (40 − 9) / 2 = 15.5. */
+.sidebar-status--collapsed {
+  padding-left: 15.5px;
+  padding-right: 0;
+}
+.sidebar-status--collapsed .sidebar-status-dot {
+  width: 9px;
+  height: 9px;
+}
+/* The wipe does the work; the fade only clears what the wipe cannot. Centring a
+   9px dot in a 40px plaque leaves ~8px of the label still inside the clip box,
+   which would sit there permanently as a sliver of cut-off text. The delay is
+   deliberate: the label stays crisp while the edge sweeps across it and only
+   dissolves over the last stretch — and on the way back out the rail widens
+   before the text reappears. */
+.sidebar-status-label,
+.sidebar-status-ver,
+.sidebar-account-main {
+  transition: opacity 0.12s ease 0.14s;
+}
+.sidebar-status--collapsed .sidebar-status-label,
+.sidebar-status--collapsed .sidebar-status-ver,
+.sidebar-status--collapsed .sidebar-status-restart,
+.sidebar-account--collapsed .sidebar-account-main {
+  opacity: 0;
+}
+[data-theme='light'] .sidebar-status {
+  background: rgba(0, 0, 0, 0.04);
+}
+[data-theme='light'] .sidebar-status-restart {
+  background: rgba(0, 0, 0, 0.05);
+}
+[data-theme='light'] .sidebar-status-restart:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.09);
+}
+/* Account card — who's signed in, pinned above the footer; fills the empty
+   stretch of the rail. Collapses to just the avatar when narrow. */
+.sidebar-account {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 12px;
+  padding: 9px 11px;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.045);
+  border-radius: 12px;
+  overflow: hidden;
+}
+/* 4px on each side of the 32px avatar fills the 40px collapsed card exactly.
+   The name and role are not hidden — like the status plaque, they are wiped by
+   the card's shrinking edge. */
+.sidebar-account--collapsed {
+  padding: 4px;
+}
+.sidebar-account-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--accent, #6366f1);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 500;
+  flex: 0 0 auto;
+}
+.sidebar-account-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+.sidebar-account-name {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text, #e6e6e6);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-account-role {
+  font-size: 10.5px;
+  color: var(--text-3, #7c7c7c);
+}
+[data-theme='light'] .sidebar-account {
+  background: rgba(0, 0, 0, 0.04);
+}
+[data-theme='light'] .sidebar-account-name {
+  color: #0f172a;
+}
+/* One cohesive plaque (subtle raised fill) holding both icons, rather than
+   two separate boxes floating at the bottom. */
+.sidebar-footer {
+  display: flex;
+  gap: 4px;
+  margin: 6px 12px 8px;
+  padding: 5px;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.045);
+  border-radius: 11px;
+  overflow: hidden;
+}
+.sidebar-footer--collapsed {
+  flex-direction: column;
+}
+/* In the column layout `flex: 1 1 0` would zero the buttons' height (basis 0
+   on the main axis); pin them to their natural height and full width. */
+.sidebar-footer--collapsed .sidebar-footer-btn {
+  flex: 0 0 auto;
+  width: 100%;
+}
+/* Ghost buttons inside the plaque — no individual fill, just the icon; the
+   hover fill is what separates them. */
+.sidebar-footer-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2, #94a3b8);
+  font-size: 16px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.sidebar-footer-btn:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text, #e7ecf5);
+}
+.sidebar-footer-btn--danger:hover {
+  background: rgba(239, 68, 68, 0.14);
+  color: #ef4444;
+}
+/* Collapse toggle sits in the footer plaque, set off from the nav actions by a
+   hairline in the gap before it — drawn as a pseudo-element so it doesn't touch
+   the button's own rounding or hover fill. Vertical in the row, horizontal when
+   the plaque stacks (collapsed rail). */
+.sidebar-footer-btn--toggle {
+  position: relative;
+}
+.sidebar-footer-btn--toggle::before {
+  content: '';
+  position: absolute;
+  left: -2px;
+  top: 20%;
+  bottom: 20%;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.sidebar-footer--collapsed .sidebar-footer-btn--toggle::before {
+  left: 20%;
+  right: 20%;
+  top: -2px;
+  bottom: auto;
+  width: auto;
+  height: 1px;
+}
+[data-theme='light'] .sidebar-footer-btn--toggle::before {
+  background: rgba(0, 0, 0, 0.1);
+}
+[data-theme='light'] .sidebar-footer {
+  background: rgba(0, 0, 0, 0.04);
+}
+[data-theme='light'] .sidebar-footer-btn {
+  color: #64748b;
+}
+[data-theme='light'] .sidebar-footer-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #0f172a;
+}
+[data-theme='light'] .sidebar-footer-btn--danger:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}

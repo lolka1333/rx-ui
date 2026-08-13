@@ -1,0 +1,97 @@
+/* 2-letter country/category code shown before a geo preset's name, both in
+   the dropdown option and on the selected chip (e.g. "RU Russia"). */
+.geo-code {
+  display: inline-block;
+  min-width: 1.7em;
+  margin-right: 7px;
+  font-size: 0.72em;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3, #8a93a5);
+  vertical-align: middle;
+}
+/* Multi-select tag lists (routing match lists) collect many chips — cap the
+   chip container and scroll inside, instead of growing the settings row
+   unbounded. (This antd v6 build holds the chips in `.ant-select-content`, not
+   the older `.ant-select-selector`.) Single strategy selects are one line and
+   unaffected.
+   The cap MUST come out to a whole number of chip rows. It used to be a flat
+   84px, which is 3.65 rows of the 23px pitch below — so once the chips needed a
+   fourth row, that row sat sliced through the middle at the bottom edge of the
+   field. That is what "a lot of countries" looked like. Deriving it from the
+   chip metrics keeps it exact: four chips plus the three gaps between them. */
+.app-settings-group .ant-select-multiple {
+  /* Declared here and imposed on the chips further down, so the height the cap
+     is computed from and the height the chips actually get cannot drift apart.
+     It has to be imposed rather than inferred: antd's border token is 0.8px in
+     this build, so a chip left to size itself came out 20.6px — and a cap
+     computed from a guessed 21px sliced 1.6px off the last row again. */
+  --geo-chip-h: 21px;
+  --geo-chip-gap: 2px;
+  /* The height antd gives the search input — and therefore the height an empty
+     control has to keep, so these fields still line up with every other input
+     on the page once the input itself is chip-sized below. */
+  --geo-control-h: 32px;
+}
+/* The search input shares a wrap line with the chips, and antd sizes it to the
+   full control height — 11px taller than a chip. That line was therefore 11px
+   taller than every other line: the chips sitting on it dropped 5.5px below the
+   rhythm of the rows above, with the same slack left underneath them. That
+   uneven last row is what "everything inside looks crooked" was. Chip-sized,
+   every wrap line has the same pitch. */
+.app-settings-group .ant-select-multiple .ant-select-content-item-suffix,
+.app-settings-group .ant-select-multiple .ant-select-content-item-suffix input {
+  height: var(--geo-chip-h);
+  line-height: var(--geo-chip-h);
+}
+.app-settings-group .ant-select-multiple .ant-select-content {
+  max-height: calc(
+    4 * var(--geo-chip-h) + 3 * var(--geo-chip-gap) + var(--geo-control-h) - var(--geo-chip-h)
+  );
+  /* Symmetric slack, so an empty or single-row field still measures the full
+     control height even though nothing inside it is that tall any more. */
+  padding: calc((var(--geo-control-h) - var(--geo-chip-h)) / 2) 0;
+  overflow-y: auto;
+  justify-content: flex-start !important;
+  align-content: flex-start !important;
+  margin-right: 0 !important;
+  gap: var(--geo-chip-gap) var(--geo-chip-gap) !important;
+}
+/* Chips don't grow and carry no margin of their own — the container `gap`
+   above is the single, tight source of spacing, so the chips read as one
+   dense block instead of sparse, spaced-out rows. */
+.app-settings-group .ant-select-multiple .ant-select-content-item {
+  margin: 0 !important;
+  flex: 0 0 auto !important;
+}
+.app-settings-group .ant-select-multiple .ant-tag {
+  margin: 0 !important;
+  padding: 0 5px;
+  font-size: 12px;
+  /* The other half of the row pitch the container's max-height is built from.
+     `box-sizing` is border-box (antd's reset), so this is the whole chip,
+     border included — which is the point: it no longer depends on whatever the
+     border token happens to be. Change this without changing the cap above and
+     a partial row of chips reappears at the bottom edge. */
+  height: var(--geo-chip-h);
+  line-height: 19px;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+}
+.app-settings-group .ant-select-multiple .ant-tag .geo-code {
+  font-size: 10px;
+  min-width: 0;
+  margin-right: 3px;
+}
+/* No dropdown arrow on these tag lists — it never sits right across the
+   empty/short vs tall states. Click-to-open + the placeholder are enough. */
+.app-settings-group .ant-select-multiple .ant-select-suffix {
+  display: none;
+}
+/* Trim the right padding to ~3px so the scroll-thumb sits right against the
+   field edge (no arrow occupies that space anymore). */
+.app-settings-group .ant-select-multiple {
+  padding-right: 3px !important;
+}

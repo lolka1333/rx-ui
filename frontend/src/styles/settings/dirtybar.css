@@ -1,0 +1,178 @@
+
+/* "Dirty bar" — page-level action strip that hovers above the
+   rail+content row when ANY section in the settings page has
+   unsaved changes. Lives outside the per-section frame so swapping
+   between sections doesn't unmount it; the wrapper's max-height
+   animation lets it grow/collapse in the document flow without
+   covering the page below. The inner card carries the visible
+   styling so the wrapper's clipping doesn't crop the rounded
+   border or the surrounding shadow. */
+.app-settings-dirtybar {
+  /* Sticky to the top of the scroll container so the operator can edit
+     a section halfway down the page, scroll back up only if they want
+     to — the Save / Discard buttons follow them. `top: 0` rides under
+     the panel's content padding (the AppLayout's main column already
+     supplies the offset from the global header). z-index sits above
+     form controls but below modals/popovers. */
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  max-height: 0;
+  overflow: hidden;
+  /* Reveal the row height (and its bottom margin) smoothly; the fade + slide
+     lives on the inner element below so the entrance eases in instead of
+     snapping open with the height clip. */
+  transition:
+    max-height 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    margin-bottom 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  margin-bottom: 0;
+  pointer-events: none;
+}
+/* The entrance is an ANIMATION, not a transition, on purpose. A transition only
+   fires when a property changes on an already-painted element — so returning to
+   the settings page with unsaved edits (the page un-hides with the bar already
+   in its visible state) snapped it in with no motion at all. An animation
+   replays whenever the element gets displayed, which covers that case too. The
+   base rule keeps a transition for the EXIT, where there is a real state
+   change. */
+.app-settings-dirtybar.is-visible {
+  max-height: 88px;
+  margin-bottom: 20px;
+  pointer-events: auto;
+  animation: app-settings-dirtybar-in 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* The exit mirrors the entrance, and for the same reason: an animation replays
+   from a known start value, while a transition would have started from whatever
+   the entrance animation was showing at that instant — discarding a moment
+   after the bar appeared collapsed it with no motion at all. `forwards` holds
+   the collapsed end state for the ~40ms between the animation finishing and the
+   node unmounting, so it cannot flash back open. */
+.app-settings-dirtybar.is-out {
+  animation: app-settings-dirtybar-out 0.3s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+.app-settings-dirtybar.is-out .app-settings-dirtybar-inner {
+  animation: app-settings-dirtybar-inner-out 0.24s ease forwards;
+}
+@keyframes app-settings-dirtybar-out {
+  from {
+    max-height: 88px;
+    margin-bottom: 20px;
+  }
+  to {
+    max-height: 0;
+    margin-bottom: 0;
+  }
+}
+@keyframes app-settings-dirtybar-inner-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+@keyframes app-settings-dirtybar-in {
+  from {
+    max-height: 0;
+    margin-bottom: 0;
+  }
+  to {
+    max-height: 88px;
+    margin-bottom: 20px;
+  }
+}
+@keyframes app-settings-dirtybar-inner-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.app-settings-dirtybar-inner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 18px;
+  /* Opaque surface fill — needed because the parent now sticks to the
+     top of the scroll container, so form content scrolling underneath
+     must not bleed through. `--surface-2` is the design-system token
+     for "elevated" surfaces, set per theme (dark / darker / light) by
+     `theme/tokens.applyCssVariables`. The primary accent on the left
+     bar + pulsing dot carry the "unsaved" signal; tinting the whole
+     background amber/warning reads as alarm and clashes with the
+     panel's purple palette. */
+  background: var(--surface-2, #1a2438);
+  border: 1px solid var(--border, rgba(148, 163, 184, 0.14));
+  border-left: 3px solid var(--accent, #6366f1);
+  border-radius: 12px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  /* Eases in (fade + small drop) so the bar glides into place rather than
+     appearing abruptly with the parent's height reveal. */
+  opacity: 0;
+  transform: translateY(-8px);
+  transition:
+    opacity 0.3s ease,
+    transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.app-settings-dirtybar.is-visible .app-settings-dirtybar-inner {
+  opacity: 1;
+  transform: translateY(0);
+  animation: app-settings-dirtybar-inner-in 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+}
+[data-theme='light'] .app-settings-dirtybar-inner {
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
+}
+/* Pulsing dot on the left signals "this is a state notice", not
+   just a passive label. Slow pulse so it doesn't compete with the
+   form for attention. */
+.app-settings-dirtybar-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  /* One accent, one spelling. `--accent-primary` was never defined by
+     `applyCssVariables`, so the dot had been quietly rendering in the
+     fallback rgb(87,90,208) while the bar beside it used #6366f1 — two
+     different colours 8px apart. The ring is mixed from the same variable
+     rather than hardcoded, so a re-themed accent takes the pulse with it. */
+  background: var(--accent, #6366f1);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent, #6366f1) 55%, transparent);
+  animation: app-settings-dirtybar-pulse 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+@keyframes app-settings-dirtybar-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent, #6366f1) 55%, transparent); }
+  70% { box-shadow: 0 0 0 9px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-settings-dirtybar,
+  .app-settings-dirtybar.is-visible,
+  .app-settings-dirtybar.is-out { transition: none; animation: none; }
+  .app-settings-dirtybar-inner,
+  .app-settings-dirtybar.is-visible .app-settings-dirtybar-inner,
+  .app-settings-dirtybar.is-out .app-settings-dirtybar-inner { transition: none; animation: none; }
+  .app-settings-dirtybar-dot { animation: none; }
+}
+/* The "unsaved changes" label: keep it on one line, ellipsized — never let the
+   long word wrap character-by-character and blow past the bar's max-height. */
+.app-settings-dirtybar-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Phones: the label + both buttons can't share such a narrow row. Drop the
+   label (the pulsing dot + accent border already signal "unsaved") and let the
+   two buttons split the width into comfortable tap targets. */
+@media (max-width: 575px) {
+  .app-settings-dirtybar-text {
+    display: none;
+  }
+  .app-settings-dirtybar-inner .ant-btn {
+    flex: 1 1 0;
+  }
+}

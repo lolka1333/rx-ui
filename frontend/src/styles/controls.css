@@ -1,0 +1,75 @@
+/* ====================================================================
+   Skeleton blocks — used by XrayUpdatesModal while GitHub is fetched.
+   Linear shimmer-wave instead of opacity pulse: the eye reads constant
+   motion as "loading", whereas a fade-in-fade-out has plateaus at the
+   peaks that read as "stuck". Per-block animationDelay set inline lets
+   the wave march down the list.
+   ==================================================================== */
+.app-skeleton-block {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.04) 0%,
+    rgba(255, 255, 255, 0.12) 50%,
+    rgba(255, 255, 255, 0.04) 100%
+  );
+  background-size: 200% 100%;
+  animation: app-skeleton-shimmer 1.2s linear infinite;
+}
+[data-theme='light'] .app-skeleton-block {
+  background: linear-gradient(
+    90deg,
+    rgba(0, 0, 0, 0.04) 0%,
+    rgba(0, 0, 0, 0.1) 50%,
+    rgba(0, 0, 0, 0.04) 100%
+  );
+  background-size: 200% 100%;
+}
+@keyframes app-skeleton-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-skeleton-block {
+    animation: none;
+    background: rgba(255, 255, 255, 0.08);
+  }
+}
+
+/* ====================================================================
+   Select focus — antd v6 leaves the border in a low-contrast `colorText`
+   tint when the dropdown opens, which reads as "the input went grey".
+   Pin it to the primary color with a soft glow.
+   ==================================================================== */
+.ant-select-focused .ant-select-content,
+.ant-select.ant-select-focused:not(.ant-select-disabled) .ant-select-content {
+  border-color: #6366f1 !important;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15) !important;
+}
+.ant-select:hover:not(.ant-select-disabled):not(.ant-select-focused) .ant-select-content {
+  border-color: #6366f1 !important;
+}
+
+/* ====================================================================
+   Theme submenu items — Switch/Checkbox lives inside the row so the row
+   itself shouldn't behave like a clickable nav target. Strip every menu
+   background state (selected / active / hover) so only the inline
+   control changes appearance.
+
+   The `.ant-menu-dark .ant-menu-item:hover` rule above wins on
+   specificity (3 classes vs our 2), so we mirror its leading `.ant-menu`
+   ancestor and tack on the same `:hover`/`-active` pseudo-classes plus
+   `!important`. Same dance for the light algorithm.
+   ==================================================================== */
+.ant-menu li.ant-menu-item[data-menu-id$="theme-dark"],
+.ant-menu li.ant-menu-item[data-menu-id$="theme-darker"],
+.ant-menu li.ant-menu-item[data-menu-id$="theme-dark"]:hover,
+.ant-menu li.ant-menu-item[data-menu-id$="theme-darker"]:hover,
+.ant-menu li.ant-menu-item[data-menu-id$="theme-dark"]:active,
+.ant-menu li.ant-menu-item[data-menu-id$="theme-darker"]:active,
+.ant-menu li.ant-menu-item[data-menu-id$="theme-dark"].ant-menu-item-active,
+.ant-menu li.ant-menu-item[data-menu-id$="theme-darker"].ant-menu-item-active,
+.ant-menu li.ant-menu-item[data-menu-id$="theme-dark"].ant-menu-item-selected,
+.ant-menu li.ant-menu-item[data-menu-id$="theme-darker"].ant-menu-item-selected {
+  background-color: transparent !important;
+}
+

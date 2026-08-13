@@ -1,0 +1,47 @@
+:root {
+  /* Inter is preferred when locally installed; otherwise fall back to the
+     platform's native UI font (San Francisco on macOS, Segoe UI on Windows,
+     Roboto on Android, Cantarell/Ubuntu on Linux). No external @import — the
+     panel must work fully offline and not leak a referer to a third-party
+     CDN on first paint. */
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  /* Key material, share links, logs and version pills all want the same
+     typeface. It was written out at fourteen call sites and had already
+     drifted into three different stacks — JetBrains here, SFMono/Menlo in two
+     components, bare `monospace` in a third — so the same screen rendered the
+     same kind of value in different fonts. Sizes still vary per surface, which
+     is why this is a variable and not a class. */
+  --font-mono: ui-monospace, 'JetBrains Mono', Consolas, monospace;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'ss01';
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100dvh;
+  min-height: 100dvh;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--text);
+}
+
+/* Antd derives `--ant-color-border-disabled` by blending `colorPrimary`
+   (#6366f1, blue-violet) into the page background. On the `dark` palette
+   that produces a neutral-ish grey, but on `darker` (#050505 bg) the
+   blend skews bluish (#2e4064) and disabled inputs look like they have
+   a stray focus ring against the near-black surface. We override the
+   token to the same neutral border antd uses for enabled inputs — the
+   "disabled" signal is then carried entirely by the dimmed text +
+   bg-container tint, which is consistent across all three themes. */
+:root .rxui,
+[data-theme='dark'] .rxui,
+[data-theme='darker'] .rxui {
+  --ant-color-border-disabled: var(--border);
+}
+

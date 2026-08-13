@@ -1,0 +1,92 @@
+
+/* Account rows ride the same two-column grid as the form rows on the other
+   tabs — the tracks are repeated here rather than shared, because those rows
+   are antd-generated (.ant-form-item-row) and this markup is ours; keep the
+   two in step by hand. Name on the left, value + action together on the
+   right. Keeping the action beside its value instead of flush with the row's
+   far edge is what closes the ~700px void that made the tab look unfinished
+   at panel width. */
+.app-settings-inforow {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(200px, 460px);
+  column-gap: 36px;
+  align-items: center;
+  padding: 13px 18px;
+}
+/* Left column: an icon tile, then the name with its description — the same
+   two-line block the form rows carry, so this tab stops reading thinner than
+   the ones next to it. The tile repeats the icon language already used by the
+   tab strip above. */
+.app-settings-inforow-id {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.app-settings-inforow-icon {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  /* A wash over whatever the group fill is, so the tile tracks the theme
+     instead of pinning a colour per theme. */
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-3, #8a94a6);
+  font-size: 15px;
+}
+[data-theme='light'] .app-settings-inforow-icon {
+  background: rgba(15, 23, 42, 0.05);
+}
+/* The session is the only row whose value is a live STATE, so it gets a
+   status marker; the stored settings above it don't need one. */
+.app-settings-inforow-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--success, #22c55e);
+  vertical-align: 1px;
+}
+/* Value and action share the right column: value against the column's left
+   edge, action against its right, so every action in the tab lines up with
+   the inputs and switches on the other tabs. */
+.app-settings-inforow-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+.app-settings-inforow-value {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text, #e7ecf5);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The "Edit" button keeps its own size in the row instead of stretching with
+   the value beside it. Its appearance is not set here — it comes from the antd
+   props on the element (variant=filled, color=default). */
+.app-settings-editbtn {
+  flex: 0 0 auto;
+}
+/* Sign-out — neutral by default (visually consistent with the Edit buttons
+   in the same card), revealing a soft red intent only on hover. The old
+   `danger` variant painted a loud red outline that read as an alarm in an
+   otherwise calm settings list. */
+.app-settings-logout.ant-btn {
+  flex: 0 0 auto;
+}
+.app-settings-logout.ant-btn:hover,
+.app-settings-logout.ant-btn:focus-visible {
+  color: #ef4444 !important;
+  background: rgba(239, 68, 68, 0.12) !important;
+}
+.app-settings-logout.ant-btn:hover .anticon {
+  color: #ef4444;
+}
+

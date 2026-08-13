@@ -1,0 +1,32 @@
+/* ====================================================================
+   Dashboard gauge meta — `ЦП · 16 ядер` inline on tablet+, two-row stack
+   on phones (where the detail string would wrap awkwardly with the · as
+   a leading character).
+   ==================================================================== */
+.app-gauge-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  column-gap: 8px;
+  row-gap: 2px;
+  padding: 0 4px;
+}
+
+.app-gauge-detail::before {
+  content: '· ';
+}
+
+@media (max-width: 575px) {
+  .app-gauge-meta {
+    flex-direction: column;
+    /* `baseline` is a row-axis concept; for a column flex it falls back to
+       `start`, pulling the label and detail to the left of the gauge. */
+    align-items: center;
+    row-gap: 4px;
+  }
+  .app-gauge-detail::before {
+    content: '';
+  }
+}
+

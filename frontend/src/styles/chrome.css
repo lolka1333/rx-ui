@@ -1,0 +1,123 @@
+/* ====================================================================
+   Mobile tap-highlight off on interactive surfaces
+   ==================================================================== */
+.ant-menu-item,
+.ant-menu-submenu,
+.ant-menu-submenu-title,
+.ant-btn,
+.ant-drawer,
+.ant-drawer-mask,
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ====================================================================
+   Tooltips are UI hints, not selectable content. Highlighting the text
+   inside them looks like an accidental drag, not a user action.
+   v6 puts the text inside `.ant-tooltip-container`; older themes
+   sometimes still expose `.ant-tooltip-inner` — cover both.
+   ==================================================================== */
+.ant-tooltip,
+.ant-tooltip-container,
+.ant-tooltip-inner {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+/* ====================================================================
+   Server-IP toggle: new value slides up by 6px while fading in.
+   Triggered by a `key` change on the span (React remounts → animation
+   plays on the fresh element). Out-easing only — no overshoot.
+   ==================================================================== */
+.app-ip-reveal {
+  animation: app-ip-slide-up 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes app-ip-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-ip-reveal { animation: none; }
+}
+
+/* ====================================================================
+   Logs surface — used by LogsModal. Sits on the same elevated card
+   palette as the rest of the UI, with only a 1px border to set it apart
+   from the modal body. Scrollbar uses the global thin style.
+   ==================================================================== */
+.app-logs-surface {
+  background-color: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+.app-logs-surface:hover {
+  border-color: var(--border-strong);
+}
+[data-theme='light'] .app-logs-surface {
+  background-color: rgba(0, 0, 0, 0.02);
+}
+
+/* ====================================================================
+   Scrollbar (WebKit/Blink + Firefox)
+   `--border` from the dark palette is almost invisible against the panel
+   background; bumping to a translucent white/black gives the thumb enough
+   contrast to read as a scroll affordance, especially on phones where the
+   bar appears only briefly.
+   ==================================================================== */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background-color: rgba(255, 255, 255, 0.3); }
+[data-theme='light'] ::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.18);
+}
+[data-theme='light'] ::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0.3);
+}
+/* Firefox. `scrollbar-color: thumb track`. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+[data-theme='light'] * {
+  scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
+}
+
+/* ====================================================================
+   No text selection inside chrome (sidebar / drawer / login). Inputs stay
+   selectable so users can edit credentials.
+   ==================================================================== */
+.ant-layout-sider,
+.ant-layout-sider *,
+.ant-drawer-content-wrapper,
+.ant-drawer-content-wrapper *,
+.login-card,
+.login-card * {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+.login-card input,
+.login-card textarea {
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+  user-select: text;
+}
+

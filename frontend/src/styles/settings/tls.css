@@ -1,0 +1,444 @@
+/* ====================================================================
+   HTTPS tab — compact PEM "drop rows". Each field is a short dashed drop
+   target that grows on focus/content, with an upload invitation that
+   fades once the field is focused or filled. Colours come from theme
+   tokens (never hardcoded per-theme); the indigo accent is theme-stable
+   (--accent is #6366f1 in every theme) so its rgba tints are used raw.
+   ==================================================================== */
+/* One-line status ribbon: cert stored / key stored / HTTPS active. */
+.app-tls-ribbon {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-top: 14px;
+  padding: 10px 14px;
+  background: var(--surface-2, #1a2438);
+  border: 1px solid var(--border, #1e2a44);
+  border-radius: 12px;
+  font-size: 12.5px;
+  color: var(--text-2, #94a3b8);
+}
+.app-tls-live {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  margin-right: 2px;
+  border-radius: 50%;
+  background: var(--text-3, #64748b);
+}
+.app-tls-live[data-on='true'] {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.16);
+}
+.app-tls-rb-main {
+  font-weight: 500;
+  color: var(--text, #f1f5f9);
+}
+.app-tls-sep {
+  color: var(--text-3, #64748b);
+}
+.app-tls-rb-badge {
+  margin-left: auto;
+  padding: 2px 9px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+/* Section divider above the drop pair. */
+.app-tls-sec {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+.app-tls-sec-title {
+  flex: none;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text, #f1f5f9);
+}
+.app-tls-sec-sub {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--text-3, #64748b);
+}
+.app-tls-sec-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border, #1e2a44);
+}
+/* The pair. */
+.app-tls-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-top: 12px;
+}
+/* A block that is revealed by a choice elsewhere in the form (the
+   subscription's own cert/key pair, shown when "custom" is picked). It stays
+   mounted and collapses here, which is what lets it animate BOTH ways — a
+   conditionally rendered node is gone before an exit could play. Same
+   max-height technique as the unsaved-changes bar; the cap only has to exceed
+   the pair's real height, it is not a layout size. */
+.app-reveal {
+  /* A grid row from 0fr to 1fr, not a max-height cap. The cap has to be picked
+     larger than the content can ever be, and the transition then spends the
+     difference travelling through empty space: the pair is 202px inside a 460px
+     cap, so 56% of the duration moved nothing. Opening looked like it stalled
+     at the end, closing like it hung before it started. `1fr` resolves to the
+     content's real height, so the whole duration is spent on visible motion and
+     the block no longer has to be re-measured when the fields inside change. */
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  overflow: hidden;
+  /* The block's breathing room belongs to the block itself, not to the child:
+     a child's margin sits outside the animated row, and a child's padding does
+     not collapse with it — measured, 26px of it survives and leaves a sliver of
+     the block standing while it is shut. On the block it is padding rather than
+     margin so that the hairline above (drawn on this element's border-top)
+     lands flush against the previous row like every other separator, instead of
+     floating 12px below it, and so the pair clears the hairlines by the same
+     13px every other row does. Zero here, the row's inset when open — see the
+     two overrides under the group rules. */
+  transform: translateY(-6px);
+  transition:
+    grid-template-rows 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+    padding-top 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+    padding-bottom 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.22s ease,
+    transform 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* Grid children carry an automatic minimum size; without this the row cannot
+   actually shrink to 0fr. The spacing above the pair has to move inside the row
+   too: a child's margin sits OUTSIDE the row and does not collapse with it,
+   which left 12px of the block standing while it was supposed to be shut. */
+.app-reveal > * {
+  min-height: 0;
+  margin-top: 0;
+}
+.app-reveal.is-in {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transform: translateY(0);
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-reveal {
+    transition: none;
+  }
+}
+.app-tls-fitem.ant-form-item {
+  margin-bottom: 0;
+}
+/* A drop field carries its own name, chip and hint INSIDE the control, so it
+   must not be split by the group's label/control grid. Inside a FieldGroup (the
+   Subscription tab) that grid squeezed the field into the 460px control track
+   and forced its name to wrap over three lines, while the Security tab looked
+   right only because its pair happens to sit outside any group. Opt out
+   explicitly so placement stops deciding whether the field renders correctly. */
+.app-settings-tabs .app-settings-group .ant-form-item.app-tls-fitem .ant-form-item-row {
+  /* Column, not the group's two-track grid: the name, the field and the hint
+     stack, and each keeps the full width of the row. */
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+/* The two halves of a pair used to be forced to share a height, so that a box
+   holding a stored certificate wouldn't tower over its empty neighbour. That
+   is gone, and deliberately: every version of it — `:focus`, `.is-open`, or
+   just the filled state — worked by growing a field nobody had touched.
+   The cost was worse than the ragged bottoms it avoided. A panel with TLS
+   already configured has a filled certificate box, which pinned the EMPTY key
+   box open too: a tall blank rectangle with one line of hint floating in its
+   middle, unable to collapse or to animate, because a box that is already at
+   its open height has no height left to travel. Each field now reflects its own
+   content: a stored certificate is tall, an empty key is a strip, and both
+   still open and close under their own steam. */
+
+.app-settings-tabs .app-settings-group .ant-form-item.app-tls-fitem .ant-form-item-control {
+  max-width: none;
+}
+.app-settings-tabs
+  .app-settings-group
+  .app-tls-fitem
+  .ant-form-item-control-input-content {
+  justify-content: flex-start;
+}
+/* That content box is a flex container, so the field would otherwise shrink to
+   its text and sit at ~315px inside a 462px column. */
+.app-tls-fitem .app-tls-field-inner {
+  width: 100%;
+}
+/* The group aligns help text to the right, under a right-hand control. These
+   fields fill the row, so their hint belongs on the left with everything else.
+   Carries the group class to outrank that rule, which is equally specific but
+   declared later in this file. */
+.app-settings-group .ant-form-item.app-tls-fitem .ant-form-item-extra,
+.app-settings-group .ant-form-item.app-tls-fitem .ant-form-item-explain {
+  text-align: left;
+}
+.app-tls-pair > .app-tls-fitem,
+.app-settings-group .app-tls-fitem .ant-form-item-control,
+.app-settings-group .app-tls-fitem .ant-form-item-control-input,
+.app-settings-group .app-tls-fitem .ant-form-item-control-input-content,
+.app-tls-fitem .app-tls-field-inner {
+  display: flex;
+  flex-direction: column;
+  /* The group centres control content, which in a column axis means "shrink to
+     the text" — that is what left the field at 315px inside a 462px cell. */
+  align-items: stretch;
+}
+/* Hint text under a drop field. */
+.app-tls-fitem .ant-form-item-extra {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-3, #64748b);
+}
+.app-tls-field-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+/* Always-visible name row (the concept kept the name inside the fading
+   hint; a real cert field can be pre-filled, so the name stays put). */
+.app-tls-flabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.app-tls-tile-sm {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.26);
+  color: var(--accent, #6366f1);
+  font-size: 12px;
+}
+.app-tls-fname {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text, #f1f5f9);
+}
+.app-tls-chip {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 11px;
+  white-space: nowrap;
+  color: var(--text-3, #64748b);
+  background: var(--bg, rgba(11, 18, 32, 0.5));
+  border: 1px solid var(--border, #1e2a44);
+}
+.app-tls-chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22c55e;
+  flex: none;
+}
+/* The drop target. */
+.app-tls-drop {
+  position: relative;
+}
+.app-tls-ta {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  /* One strip at rest. It was 66px, which left a band of empty field under a
+     single line of hint — two of them side by side read as a hole in the page.
+     Everything the resting state has to say now fits on one row (see
+     .app-tls-hint), and the field still opens to 128px the moment it is
+     focused or filled — see the two rules below, which set `height` outright.
+     It has to be `height`, not `min-height`, for two reasons: a textarea is two
+     rows tall by default, so a 44px floor does nothing to shrink it; and the
+     open/close has to animate, which means both ends of the transition must be
+     the SAME property, set to an explicit length. Expanding via `min-height`
+     against a fixed `height` leaves the transition with nothing to interpolate
+     that the layout follows, and the field snapped open. */
+  height: 44px;
+  resize: vertical;
+  /* Vertical padding has to leave one whole line inside the resting strip:
+     44 − 2 borders − 2×11 = 20 against a 19.2px line box (12px × 1.6, both
+     literal just below). At 12px it came to 18.4 — one pixel short, which is
+     enough for the textarea to decide it is scrollable and take a permanent
+     12px scrollbar gutter out of an EMPTY field. That gutter was visible as a
+     stray track down the right edge of the closed strip, and it squeezed the
+     hint text sitting over it. */
+  padding: 11px 13px;
+  /* At rest the box shows a one-line summary, never content — so it must not
+     be scrollable. A closed field holding a stored certificate would otherwise
+     take a 12px scrollbar gutter for 1000+ characters nobody can read at this
+     height, and the wheel would scroll them invisibly behind the strip.
+     Restored to `auto` the moment it opens, below. */
+  overflow: hidden;
+  border: 1px dashed var(--border-strong, #2a3a5c);
+  border-radius: 10px;
+  background: var(--bg, rgba(11, 18, 32, 0.45));
+  color: var(--text, #f1f5f9);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  outline: none;
+  transition:
+    height 0.16s ease,
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+/* Placeholder hidden at rest (the hint speaks for the empty field), shown
+   on focus as the field takes over. */
+.app-tls-ta::placeholder {
+  color: transparent;
+}
+.app-tls-ta:hover {
+  border-color: var(--text-3, rgba(148, 163, 184, 0.4));
+}
+/* Open state, driven by a class from the component rather than by `:focus`.
+   Chrome creates the height transition for the `:focus` trigger too —
+   `transitionrun` fires and `transitionend` arrives on schedule — but the used
+   height never interpolates, so the field jumped straight to 128px. The very
+   same declarations reached through an ordinary class animate normally
+   (measured side by side: 11 intermediate frames against none). */
+/* `--open-h` is set on the wrapper when the operator drags the resize grip, so
+   the box reopens at the size they chose; 128px until then. */
+.app-tls-drop.is-open .app-tls-ta,
+.app-tls-ta:focus {
+  height: var(--open-h, 128px);
+  overflow: auto;
+  border-style: solid;
+  border-color: var(--accent, #6366f1);
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.35);
+}
+.app-tls-drop.is-open .app-tls-ta::placeholder,
+.app-tls-ta:focus::placeholder {
+  color: var(--text-3, rgba(100, 116, 139, 0.85));
+}
+/* A filled field rests as the same strip an empty one does — it only trades
+   the dashed edge for a solid one. It used to stay expanded, which is what made
+   a configured pair look broken: a stored certificate towered at 128px beside
+   its untouched key at 44px, and the two hints under them ended up 84px apart.
+   Growing the empty half to match was tried first and is worse (see the note
+   above .app-tls-fitem). Shrinking the filled half costs one click to read the
+   certificate back, and the click opens it on the same animation as everything
+   else here. */
+.app-tls-ta:not(:placeholder-shown) {
+  border-style: solid;
+  border-color: var(--border-strong, #2a3a5c);
+}
+/* While the grip is being dragged the height must follow the pointer exactly.
+   The open/close easing turns a drag into a rubber band. */
+.app-tls-drop.is-resizing .app-tls-ta {
+  transition: none;
+}
+.app-tls-drop.is-drag .app-tls-ta {
+  border-style: solid;
+  border-color: var(--accent, #6366f1);
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.35);
+}
+/* Upload invitation overlaid on the empty field: click-through, and gone the
+   moment the field is focused or has content. Read left to right — mark, what
+   goes here, how to put it there. Nothing is centred and nothing needs to be:
+   the row spans the field, so there is no empty half left to look like a
+   mistake. */
+.app-tls-hint {
+  position: absolute;
+  /* The strip must cover exactly what the field can paint — its padding box,
+     which is where `overflow` clips. Insetting by a flat 1px does not: the
+     field's border is 1px of CSS and scales with page zoom and with a
+     fractional device pixel ratio, while the inset stays 1 device pixel. At
+     150% the overlay finished 0.7px short of the clip edge, at 200% a full
+     pixel — and through that hairline came the top row of pixels of the
+     certificate's SECOND line, reading as a row of dashes under the strip.
+     A transparent border of the same 1px, with the fill clipped to the padding
+     box, puts the two boundaries on the same arithmetic at any scale. */
+  inset: 0;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border-radius: 10px;
+  /* Opaque, and the same fill the field itself uses, so it covers a stored
+     certificate's first line instead of letting it read through the strip.
+     Over an empty field it is invisible — same colour, same place. */
+  background-color: var(--bg, #0b1220);
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+.app-tls-hint-ic {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  /* Filled, no dashed outline: at 24px a dashed edge inside a dashed field is
+     just noise, and the field's own border already carries "drop here". */
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--accent, #6366f1);
+  font-size: 13px;
+}
+/* The PEM header the field expects, in the same monospace the field itself
+   uses — so the resting state looks like a preview of its own content. */
+.app-tls-hint-ghost {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  color: var(--text-2, #94a3b8);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-tls-hint-sub {
+  /* Pushed to the far edge: the two halves are different kinds of information
+     and shouldn't read as one run-on sentence. */
+  margin-left: auto;
+  flex: none;
+  font-size: 11.5px;
+  color: var(--text-3, #64748b);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Both keys, for the same reason as the height above: the class covers the
+   animation window before the caret lands, `:focus` covers everything after.
+   A filled field is NOT in this list: at rest it shows the strip like any
+   other, and the strip's opaque fill is what hides the content behind it. */
+.app-tls-drop.is-open .app-tls-hint,
+.app-tls-ta:focus ~ .app-tls-hint {
+  opacity: 0;
+}
+@media (max-width: 760px) {
+  .app-tls-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .app-tls-rb-badge {
+    margin-left: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-tls-ta {
+    transition: none;
+  }
+  .app-tls-hint {
+    transition: none;
+  }
+}

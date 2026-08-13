@@ -1,0 +1,84 @@
+/* Help/error text sits under the control in the right column. */
+.app-settings-group .ant-form-item-explain,
+.app-settings-group .ant-form-item-extra {
+  text-align: right;
+}
+/* The Xray sub-tabs carry `app-settings-tabs` as well, so the ink bar and the
+   active label already come from the accent token in motion.css — the two
+   rules that used to repeat them here were a hardcoded copy of the same colour
+   and a dead rule the token version outranks with `!important`.
+
+   What stays is the one genuine difference: these tabs light up indigo on
+   hover, where the page-level tabs go to plain text colour. */
+.xray-tabs .ant-tabs-tab:hover .ant-tabs-tab-btn {
+  color: #8b88f5;
+}
+/* Standalone (non-Form) row — the language picker — same grid as a field. */
+.app-settings-group .app-settings-plaque {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 18px;
+  min-height: 38px;
+}
+.app-settings-plaque-control {
+  display: flex;
+  justify-content: flex-end;
+}
+.app-settings-plaque-control .ant-select {
+  width: 100%;
+}
+/* Narrow viewport (phone): the 200px label column + control no longer fit
+   side by side, so labels shred into a tall stack. Below this width the row
+   collapses to a single column — label on its own line above a full-width
+   control. */
+@media (max-width: 500px) {
+  .app-settings-group .ant-form-item-row,
+  .app-settings-group .app-settings-plaque {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 8px;
+    min-height: 0;
+  }
+  /* Stacked rows are taller than the side-by-side ones, so the 11px the
+     desktop layout uses reads as cramped — give the label/control a touch
+     more vertical breathing room. */
+  .app-settings-group {
+    --settings-row-block: 15px;
+  }
+  .app-settings-group .ant-form-item-control-input-content,
+  .app-settings-plaque-control {
+    justify-content: flex-start;
+  }
+}
+[data-theme='light'] .app-settings-group {
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 4px 14px rgba(15, 23, 42, 0.05);
+}
+[data-theme='light'] .app-settings-group > * + * {
+  border-top-color: #eef1f6;
+}
+/* Titled row groups within a section ("Account information", "Password &
+   security") — a small uppercase eyebrow above each card. Secondary to
+   the section title so the hierarchy reads section › group › rows. */
+/* Clear air above every group's header so it reads as belonging to the card
+   below it (8px) rather than crowding the card above. Applied per-group, not
+   to the adjacent-sibling pair: the language group lives under a different
+   parent (outside the <Form>) than the panel group, so `+` would skip it and
+   leave the "ИНТЕРФЕЙС" header glued to the card above. The first group in a
+   section resets to 0. */
+.app-settings-fieldgroup {
+  margin-top: 24px;
+}
+.app-settings-fieldgroup:first-child {
+  margin-top: 0;
+}
+.app-settings-fieldgroup-title {
+  margin: 0 0 8px;
+  padding-left: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3, #8a94a6);
+}
