@@ -40,14 +40,20 @@ impl ScratchDir {
         // `create_new` rather than `create_dir_all`: the name already carries a
         // pid and a nanosecond stamp, so an existing entry means someone else
         // put it there — adopting it would hand them the probe config.
+        // Bind the outcome on both platforms and add the context once. The
+        // earlier shape put `.with_context(...)?` directly on the `not(unix)`
+        // block, so on Unix — where cfg deletes that block and the trailing `?`
+        // with it — the remaining block was left as a bare `Result` expression
+        // in statement position. That does not compile on Linux at all, and it
+        // only ever built here because Windows takes the other branch.
         #[cfg(unix)]
-        {
+        let created = {
             use std::os::unix::fs::DirBuilderExt as _;
             std::fs::DirBuilder::new().mode(0o700).create(&path)
-        }
+        };
         #[cfg(not(unix))]
-        { std::fs::DirBuilder::new().create(&path) }
-            .with_context(|| format!("create scratch dir for {kind}"))?;
+        let created = std::fs::DirBuilder::new().create(&path);
+        created.with_context(|| format!("create scratch dir for {kind}"))?;
         Ok(Self(path))
     }
 
