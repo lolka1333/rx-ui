@@ -13,8 +13,12 @@
 //!   * `security=Reality` requires a non-empty `dest` and a non-empty
 //!     `server_names` list.
 //!   * `port` must be unique across inbounds.
-//!   * `security=Reality + finalmask=Sudoku` — Sudoku must run server-side
-//!     and Reality can't wrap its socket (xray-core panics).
+//!   * `security=Reality + finalmask=XMC` — XMC runs on both sides, and
+//!     Reality type-asserts `CloseWriteConn` on the conn it wraps, which
+//!     `xmc.serverConn` does not implement (xray-core panics on the first
+//!     connection). Sudoku used to be refused here for the same stated
+//!     reason; that reason was wrong and the rule is gone — see
+//!     `validate_finalmask_security`.
 //!   * `FinalMask` invariants: Fragment ranges (`min <= max`) and the Noise
 //!     per-item rules, shared with the outbound write path so neither can
 //!     crash the same xray process.
@@ -1364,9 +1368,12 @@ pub async fn fetch_inbound(state: &AppState, id: &str) -> AppResult<Inbound> {
 /// `ids` with a single `WHERE id IN (…)` SELECT and returns them keyed by
 /// id. Hot-path callers (subscription bundle, bulk-assign post-commit
 /// gRPC sync) used to round-trip per row — this turns `O(N)` SQL calls
-/// into one. Rows that fail `row_to_inbound` hydration are silently
-/// skipped; the caller's `HashMap::get` returning `None` is treated as
-/// "inbound vanished" and handled the same way an explicit 404 would.
+/// into one.
+///
+/// A row that fails to hydrate is an ERROR, not an omission: the map is keyed
+/// by id, and a caller reads a missing key as "this inbound is gone" — so
+/// dropping a corrupt row would surface DB corruption as a plausible-looking
+/// 404 somewhere else entirely.
 pub async fn fetch_inbounds_batch(
     state: &AppState,
     ids: &[String],

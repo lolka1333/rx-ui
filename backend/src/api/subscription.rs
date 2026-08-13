@@ -210,7 +210,17 @@ async fn subscription(
     let inbounds = super::inbounds::fetch_inbounds_batch(&state, &inbound_ids).await?;
 
     let host = if subscription_cfg.host_override.is_empty() {
-        best_host(&state).await.unwrap_or_default()
+        // No detected address and no override means there is no host to put in
+        // a share-link. Defaulting to `""` produced `vless://<uuid>@:443?…` for
+        // every profile in the bundle — a 200 the client app imports happily and
+        // then fails to dial, with nothing anywhere saying why. The per-client
+        // endpoint already treats this as fatal (`api::clients`), so the bundle
+        // does too.
+        best_host(&state).await.ok_or_else(|| {
+            AppError::Internal(anyhow::anyhow!(
+                "no IPv4/IPv6 detected for the subscription host: set the host override in settings"
+            ))
+        })?
     } else {
         subscription_cfg.host_override
     };

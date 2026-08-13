@@ -524,8 +524,27 @@ fn normalize_base_path(raw: &str) -> AppResult<String> {
             "panel_base_path may only contain letters, digits, '-', '_', '/'".to_owned(),
         ));
     }
+    // The panel is nested UNDER this prefix while three paths stay mounted at
+    // the root beside it (`main::build_router`). Taking one of their names is
+    // not a routing curiosity: `healthz` makes axum panic on the duplicate
+    // route, and with `panic = "abort"` in the release profile that kills the
+    // process — after the new prefix is already committed, so the panel would
+    // abort again on every boot until someone edited the row by hand. `sub` and
+    // `assets` do not panic; they shadow the public subscription endpoint and
+    // the asset files, which is its own kind of unrecoverable.
+    let head = trimmed.split('/').next().unwrap_or(trimmed);
+    if ROOT_MOUNTED_PATHS.contains(&head) {
+        return Err(AppError::BadRequest(format!(
+            "panel_base_path may not start with '{head}': that path is served at the root ({})",
+            ROOT_MOUNTED_PATHS.join(", ")
+        )));
+    }
     Ok(format!("/{trimmed}"))
 }
+
+/// Paths `main::build_router` mounts at the root, outside the panel's prefix.
+/// A prefix may not begin with any of them — see `normalize_base_path`.
+pub const ROOT_MOUNTED_PATHS: &[&str] = &["healthz", "sub", "assets"];
 
 /// Validate and normalise an incoming panel-settings PATCH. Pure (no DB,
 /// no listener state) — every bound here is an operator mistake the OS or
@@ -1483,6 +1502,42 @@ pub async fn load_for_boot(db: &crate::db::DbPool) -> (Option<u16>, String, i32)
 
 #[cfg(test)]
 mod tests {
+    /// A prefix that shadows one of the root mounts is refused at the door.
+    /// `healthz` is the fatal one — axum panics on the duplicate route, and the
+    /// release profile aborts on panic, after the value is already stored. The
+    /// second half of this test is the proof of that: the router shape
+    /// `build_router` produces really does panic, so the validator above is the
+    /// only thing standing between an operator and a panel that cannot boot.
+    #[test]
+    fn base_path_may_not_shadow_a_root_mount() {
+        for taken in ROOT_MOUNTED_PATHS {
+            let err = normalize_base_path(taken).unwrap_err().to_string();
+            assert!(err.contains(taken), "{taken} must be refused, got: {err}");
+            let nested = normalize_base_path(&format!("{taken}/panel")).unwrap_err();
+            assert!(
+                nested.to_string().contains(taken),
+                "{taken}/panel must be refused"
+            );
+        }
+        // A name that merely CONTAINS a reserved word is fine.
+        assert_eq!(normalize_base_path("healthzone").unwrap(), "/healthzone");
+        assert_eq!(normalize_base_path("my/sub").unwrap(), "/my/sub");
+    }
+
+    /// The panic the rule above exists to prevent, demonstrated on the same
+    /// router shape `main::build_router` assembles.
+    #[test]
+    fn nesting_under_healthz_would_panic_the_router() {
+        let build = || {
+            let inner = axum::Router::<()>::new().route("/", axum::routing::get(|| async { "" }));
+            axum::Router::<()>::new()
+                .nest("/healthz", inner)
+                .route("/healthz", axum::routing::get(|| async { "ok" }))
+        };
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(build)).is_err();
+        assert!(panicked, "axum accepted the overlapping /healthz route");
+    }
+
     use super::*;
 
     /// Ports are stored canonicalised because the two emitters disagree on

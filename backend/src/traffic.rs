@@ -336,13 +336,6 @@ pub fn fold_stats_to_totals(
     totals
 }
 
-/// Per-tag byte deltas between two [`fold_stats_to_totals`] snapshots, with the
-/// xray-restart detection the tag pollers share: a counter that dropped below
-/// its cached previous value means xray reset its session counters, so the
-/// current value is credited whole instead of producing a giant wraparound via
-/// subtraction. `skip` drops tags before diffing (e.g. the internal `api`
-/// inbound). Only tags with a non-zero delta are returned. Extracted so the
-/// per-outbound and per-inbound pollers share one tested implementation instead
 /// Define the per-tag delta flusher for one traffic table.
 ///
 /// A macro and not a function because `sqlx::query!` checks its SQL against the
@@ -378,6 +371,13 @@ macro_rules! define_delta_flusher {
 }
 pub(crate) use define_delta_flusher;
 
+/// Per-tag byte deltas between two [`fold_stats_to_totals`] snapshots, with the
+/// xray-restart detection the tag pollers share: a counter that dropped below
+/// its cached previous value means xray reset its session counters, so the
+/// current value is credited whole instead of producing a giant wraparound via
+/// subtraction. `skip` drops tags before diffing (e.g. the internal `api`
+/// inbound). Only tags with a non-zero delta are returned. Extracted so the
+/// per-outbound and per-inbound pollers share one tested implementation instead
 /// of each carrying its own copy of this subtle reset logic.
 pub fn tag_deltas(
     current: &HashMap<String, (u64, u64)>,
