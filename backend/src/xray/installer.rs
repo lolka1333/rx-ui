@@ -13,7 +13,7 @@ use ts_rs::TS;
 /// Upstream repo the version picker defaults to. A custom source (operator's
 /// own fork) overrides it per request.
 pub const DEFAULT_REPO: &str = "XTLS/Xray-core";
-const USER_AGENT: &str = concat!("panel/", env!("CARGO_PKG_VERSION"));
+pub const USER_AGENT: &str = concat!("panel/", env!("CARGO_PKG_VERSION"));
 
 /// Extract `owner/repo` from an operator-supplied source link. Accepts a full
 /// GitHub URL (`https://github.com/owner/repo`, with optional `.git`, trailing

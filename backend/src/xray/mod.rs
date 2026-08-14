@@ -1,6 +1,7 @@
 pub mod cli;
 pub mod config_gen;
 pub mod control;
+pub mod geofiles;
 pub mod grpc;
 pub mod installer;
 pub mod keygen;

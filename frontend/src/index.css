@@ -46,5 +46,8 @@
 @import './styles/settings/dirtybar.css';
 /* The Account tab's read-only rows: the two-column grid, the identity block, and the value cell with its actions. */
 @import './styles/settings/inforow.css';
+/* Geofiles block in the Xray-updates modal: reuses the settings row grid,
+   declares only its own rhythm and the modal-width adjustments. */
+@import './styles/settings/geofiles.css';
 /* The live xray status dot. */
 @import './styles/status.css';

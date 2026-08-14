@@ -1,0 +1,15 @@
+-- Split "keep the files fresh" from "apply them", because those have very
+-- different costs.
+--
+-- The nightly refresh downloads and replaces the dat files, which is harmless:
+-- xray does not hold them open, and the running process keeps serving from the
+-- lists it parsed at startup. Applying them is the expensive half — xray caches
+-- geo matchers by FILE NAME (`common/geodata`, key `file:code@attrs`), so new
+-- bytes on disk are invisible until the process restarts, and a restart drops
+-- every live connection.
+--
+-- Sources like Loyalsoldier publish every 24h, so auto-applying would have
+-- meant a daily disconnect for every user at an arbitrary hour. Instead the
+-- files go current on their own and this flag records that a restart is owed;
+-- the operator applies it when it suits them.
+ALTER TABLE panel_settings ADD COLUMN geo_apply_pending INTEGER NOT NULL DEFAULT 0;

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE panel_settings\n            SET geo_source = ?, geo_custom_geoip_url = ?, geo_custom_geosite_url = ?,\n                geo_auto_update = ?\n          WHERE id = 1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "c1360319ec88cd84a37a771489e4977d3c175cdefb181554d9345751eaaac961"
+}

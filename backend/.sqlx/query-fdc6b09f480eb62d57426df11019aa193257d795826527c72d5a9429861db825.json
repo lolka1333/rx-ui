@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE panel_settings\n                    SET geo_geoip_sha = ?, geo_geosite_sha = ?, geo_updated_at = ?\n                  WHERE id = 1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "fdc6b09f480eb62d57426df11019aa193257d795826527c72d5a9429861db825"
+}

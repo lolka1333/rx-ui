@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE panel_settings SET geo_apply_pending = 0 WHERE id = 1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": []
+  },
+  "hash": "4c9e9b4216a21c9296e07197818b5fd14408bbcada3d73177f2ad0f11b6851ed"
+}

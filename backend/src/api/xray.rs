@@ -2,6 +2,7 @@ use crate::{
     AppState,
     auth::AuthUser,
     error::{AppError, AppResult},
+    xray::geofiles as geo,
     xray::installer,
 };
 use axum::{
@@ -20,6 +21,8 @@ pub fn routes() -> Router<AppState> {
         .route("/stop", post(stop))
         .route("/restart", post(restart))
         .route("/test-outbound", post(test_outbound))
+        .route("/geofiles", get(geofiles).put(save_geofiles))
+        .route("/geofiles/update", post(update_geofiles))
 }
 
 #[derive(Deserialize)]
@@ -136,6 +139,7 @@ async fn install(
         // re-push every enabled inbound so clients keep working without a
         // panel restart (otherwise AddUser later fails "handler not found").
         crate::resync_xray_state(&state).await;
+        clear_geo_apply_pending(&state).await;
     }
 
     Ok(Json(serde_json::json!({
@@ -187,6 +191,7 @@ async fn start(
         crate::xray::reload::note_routing_in_sync(&state).await;
     }
     crate::resync_xray_state(&state).await;
+    clear_geo_apply_pending(&state).await;
     Ok(Json(serde_json::json!({ "started": true })))
 }
 
@@ -221,6 +226,7 @@ async fn restart(
     crate::xray::reload::note_live_ipv4(&state, has_ipv4);
     crate::xray::reload::note_routing_in_sync(&state).await;
     crate::resync_xray_state(&state).await;
+    clear_geo_apply_pending(&state).await;
     Ok(Json(serde_json::json!({ "restarted": true })))
 }
 
@@ -315,4 +321,296 @@ async fn test_outbound(
             "error": last_error.unwrap_or_else(|| "request failed".to_owned()),
         }))),
     }
+}
+
+/// Geofile panel: what is on disk, where it should come from, and whether the
+/// panel refreshes it on its own. Deliberately separate from `/settings/panel`
+/// — this belongs to the xray-updates surface, and folding it into that big
+/// row would make every unrelated settings save carry it.
+#[derive(serde::Serialize, ts_rs::TS)]
+#[ts(export, export_to = "../../frontend/src/api/types/geofiles.ts")]
+pub struct GeoPanel {
+    /// A preset id, `custom`, or `xray` for "whatever the release archive
+    /// installed".
+    pub source: String,
+    pub custom_geoip_url: String,
+    pub custom_geosite_url: String,
+    pub auto_update: bool,
+    /// RFC 3339 of the last refresh that WROTE something; empty if never.
+    pub updated_at: String,
+    /// Preset ids this build knows, so the UI can never offer one the backend
+    /// would reject.
+    pub sources: Vec<String>,
+    /// The files on disk are newer than what the running xray parsed — it needs
+    /// a restart before the new lists mean anything.
+    pub apply_pending: bool,
+    pub files: Vec<geo::GeoFileStatus>,
+}
+
+/// The stored geo choice. Its own narrow SELECT rather than a field on
+/// `PanelSettings`: that struct is fetched by the whole settings page, and the
+/// geofile surface has a different lifetime and a different reader.
+struct GeoRow {
+    source: String,
+    custom_geoip: String,
+    custom_geosite: String,
+    auto: bool,
+    updated_at: String,
+    apply_pending: bool,
+}
+
+async fn read_geo_row(db: &crate::db::DbPool) -> AppResult<GeoRow> {
+    let r = sqlx::query!(
+        r#"SELECT geo_source             AS "geo_source!: String",
+                  geo_custom_geoip_url   AS "geo_custom_geoip_url!: String",
+                  geo_custom_geosite_url AS "geo_custom_geosite_url!: String",
+                  geo_auto_update        AS "geo_auto_update!: i64",
+                  geo_updated_at         AS "geo_updated_at!: String",
+                  geo_apply_pending      AS "geo_apply_pending!: i64"
+           FROM panel_settings WHERE id = 1"#
+    )
+    .fetch_one(db)
+    .await?;
+    Ok(GeoRow {
+        source: r.geo_source,
+        custom_geoip: r.geo_custom_geoip_url,
+        custom_geosite: r.geo_custom_geosite_url,
+        auto: r.geo_auto_update != 0,
+        updated_at: r.geo_updated_at,
+        apply_pending: r.geo_apply_pending != 0,
+    })
+}
+
+async fn geofiles(_user: AuthUser, State(state): State<AppState>) -> AppResult<Json<GeoPanel>> {
+    let row = read_geo_row(&state.db).await?;
+    let dir = geo::dir_for_binary(&state.xray.binary);
+    Ok(Json(GeoPanel {
+        source: row.source,
+        custom_geoip_url: row.custom_geoip,
+        custom_geosite_url: row.custom_geosite,
+        auto_update: row.auto,
+        updated_at: row.updated_at,
+        sources: geo::SOURCES.iter().map(|s| s.id.to_owned()).collect(),
+        apply_pending: row.apply_pending,
+        files: geo::status(&dir).await,
+    }))
+}
+
+#[derive(Deserialize)]
+struct GeoSave {
+    source: String,
+    #[serde(default)]
+    custom_geoip_url: String,
+    #[serde(default)]
+    custom_geosite_url: String,
+    #[serde(default)]
+    auto_update: bool,
+}
+
+async fn save_geofiles(
+    user: AuthUser,
+    State(state): State<AppState>,
+    Json(body): Json<GeoSave>,
+) -> AppResult<Json<GeoPanel>> {
+    // Validate before storing. A source the updater cannot resolve would turn
+    // every later refresh — including the silent nightly one — into a failure
+    // the operator would only ever find in the log.
+    if body.source != "xray" {
+        geo::urls_for(
+            &body.source,
+            &body.custom_geoip_url,
+            &body.custom_geosite_url,
+        )
+        .map_err(|e| AppError::BadRequest(format!("{e:#}")))?;
+    }
+    let auto = i64::from(body.auto_update);
+    let geoip = body.custom_geoip_url.trim();
+    let geosite = body.custom_geosite_url.trim();
+    sqlx::query!(
+        "UPDATE panel_settings
+            SET geo_source = ?, geo_custom_geoip_url = ?, geo_custom_geosite_url = ?,
+                geo_auto_update = ?
+          WHERE id = 1",
+        body.source,
+        geoip,
+        geosite,
+        auto
+    )
+    .execute(&state.db)
+    .await?;
+    geofiles(user, State(state)).await
+}
+
+#[derive(serde::Serialize, ts_rs::TS)]
+#[ts(export, export_to = "../../frontend/src/api/types/geofiles.ts")]
+pub struct GeoUpdateResult {
+    pub outcomes: Vec<geo::GeoFileOutcome>,
+    /// True when at least one file's bytes differed and it was replaced.
+    pub changed: bool,
+    /// True when xray was running and got restarted to pick the new files up.
+    pub restarted: bool,
+}
+
+async fn update_geofiles(
+    _user: AuthUser,
+    State(state): State<AppState>,
+) -> AppResult<Json<GeoUpdateResult>> {
+    let row = read_geo_row(&state.db).await?;
+    let (source, custom_ip, custom_site) = (row.source, row.custom_geoip, row.custom_geosite);
+    if source == "xray" {
+        return Err(AppError::BadRequest(
+            "geofiles currently come from the xray release archive; pick a source to refresh them independently"
+                .to_owned(),
+        ));
+    }
+    let (ip_url, site_url) = geo::urls_for(&source, &custom_ip, &custom_site)
+        .map_err(|e| AppError::BadRequest(format!("{e:#}")))?;
+    // The operator pressed the button, so applying now is what they asked for.
+    Ok(Json(
+        run_geo_refresh(&state, &ip_url, &site_url, true).await?,
+    ))
+}
+
+/// Any path that (re)starts xray has just made it re-read `geoip.dat` /
+/// `geosite.dat`, so a restart owed for an earlier geofile download is paid —
+/// whoever triggered it. Without this the "restart to apply" banner survived an
+/// actual restart and kept asking for one.
+async fn clear_geo_apply_pending(state: &AppState) {
+    if let Err(e) = sqlx::query!("UPDATE panel_settings SET geo_apply_pending = 0 WHERE id = 1")
+        .execute(&state.db)
+        .await
+    {
+        tracing::warn!("could not clear the pending geofile apply: {e}");
+    }
+}
+
+/// Shared by the button and the nightly task: download, replace what differs,
+/// record it, and restart xray only if something actually changed.
+async fn run_geo_refresh(
+    state: &AppState,
+    ip_url: &str,
+    site_url: &str,
+    apply: bool,
+) -> AppResult<GeoUpdateResult> {
+    // Download OUTSIDE the lock. Two ~20 MB transfers can take minutes, and the
+    // same mutex serialises start/stop/restart/install and the boot reconcile —
+    // holding it across the network would freeze the panel's whole xray surface
+    // for the duration.
+    let fetched = geo::fetch(ip_url, site_url)
+        .await
+        .map_err(AppError::Internal)?;
+
+    // Everything past here is local and quick, so the lock covers exactly what
+    // it must: the file swap and the restart that follows it.
+    let _guard = state.xray_apply.lock().await;
+    let dir = geo::dir_for_binary(&state.xray.binary);
+    let outcomes = geo::apply(&dir, &fetched)
+        .await
+        .map_err(AppError::Internal)?;
+    let changed = outcomes.iter().any(|o| o.changed);
+    // A restart is owed either because this run wrote new bytes, or because an
+    // earlier one did and nobody has applied it yet. Without the second half
+    // the banner's Apply button was unreachable: it re-downloads, finds the
+    // files identical, and would take no action at all.
+    let was_pending = read_geo_row(&state.db).await?.apply_pending;
+
+    let mut restarted = false;
+    if changed || was_pending {
+        if changed {
+            let sha_of = |n: &str| {
+                outcomes
+                    .iter()
+                    .find(|o| o.name == n)
+                    .map_or_else(String::new, |o| o.sha256.clone())
+            };
+            let ip_sha = sha_of(geo::GEOIP);
+            let site_sha = sha_of(geo::GEOSITE);
+            let now = chrono::Utc::now().to_rfc3339();
+            sqlx::query!(
+                "UPDATE panel_settings
+                    SET geo_geoip_sha = ?, geo_geosite_sha = ?, geo_updated_at = ?
+                  WHERE id = 1",
+                ip_sha,
+                site_sha,
+                now
+            )
+            .execute(&state.db)
+            .await?;
+        }
+
+        // New bytes on disk mean nothing to a running xray: it parses these at
+        // startup and then caches its geo matchers by FILE NAME (see the core's
+        // `common/geodata`), so even re-pushing the routing rules reuses the old
+        // in-memory lists. Only a restart applies them — and a restart drops
+        // every live connection, which is why the nightly path never takes it.
+        let running = state.xray.status().await.running;
+        if apply && running {
+            match state.xray.restart().await {
+                Ok(()) => {
+                    restarted = true;
+                    // The new process starts with EMPTY in-memory handlers: the
+                    // bootstrap config carries only the api inbound, and every
+                    // user inbound, client and custom outbound lives in xray's
+                    // HandlerService, pushed over gRPC. Skipping this took the
+                    // whole VPN down until someone restarted xray again by hand.
+                    // Mirrors `/xray/restart`.
+                    crate::xray::reload::note_routing_in_sync(state).await;
+                    crate::resync_xray_state(state).await;
+                }
+                Err(e) => tracing::warn!("geofiles updated but xray restart failed: {e:#}"),
+            }
+        }
+        // Owed a restart: the files are ahead of what the live process parsed.
+        // Not set when xray is down — the next start reads them anyway.
+        let pending = i64::from(!restarted && running);
+        sqlx::query!(
+            "UPDATE panel_settings SET geo_apply_pending = ? WHERE id = 1",
+            pending
+        )
+        .execute(&state.db)
+        .await?;
+    }
+    Ok(GeoUpdateResult {
+        outcomes,
+        changed,
+        restarted,
+    })
+}
+
+/// Nightly refresh. Off unless the operator turned it on, and the setting is
+/// re-read every tick so flipping the switch takes effect without a restart.
+pub fn spawn_geofile_updater(state: AppState) {
+    tokio::spawn(async move {
+        const PERIOD: Duration = Duration::from_hours(24);
+        // Wait before the first check so a panel that is crash-looping can
+        // never turn into a download loop against someone else's release page.
+        tokio::time::sleep(Duration::from_mins(2)).await;
+        let mut tick = tokio::time::interval(PERIOD);
+        loop {
+            tick.tick().await;
+            let Ok(row) = read_geo_row(&state.db).await else {
+                continue;
+            };
+            let source = row.source;
+            if !row.auto || source == "xray" {
+                continue;
+            }
+            let Ok((ip_url, site_url)) =
+                geo::urls_for(&source, &row.custom_geoip, &row.custom_geosite)
+            else {
+                tracing::warn!("geofile auto-update skipped: source '{source}' does not resolve");
+                continue;
+            };
+            // apply = false: never restart behind the operator's back. The
+            // source publishes daily, so applying here would mean a daily
+            // disconnect for every user at whatever hour the panel booted.
+            match run_geo_refresh(&state, &ip_url, &site_url, false).await {
+                Ok(r) if r.changed => {
+                    tracing::info!("geofiles auto-updated from '{source}'; restart xray to apply");
+                }
+                Ok(_) => tracing::debug!("geofiles already current"),
+                Err(e) => tracing::warn!("geofile auto-update failed: {e}"),
+            }
+        }
+    });
 }

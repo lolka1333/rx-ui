@@ -16,6 +16,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/api/client';
 import { apiErrorMessage } from '@/api/errors';
+import { GeofilesPanel } from '@/components/GeofilesPanel';
 import { useLoadState } from '@/api/loadState';
 import { LoadError } from '@/components/LoadState';
 import type { XrayRelease } from '@/api/types';
@@ -348,11 +349,7 @@ export function XrayUpdatesModal({ open, onClose, currentVersion }: Props) {
                 Geofiles
               </span>
             ),
-            children: (
-              <Typography.Text type="secondary" style={{ fontSize: 13 }}>
-                {t('xrayUpdates.geofilesNote')}
-              </Typography.Text>
-            ),
+            children: <GeofilesPanel />,
           },
         ]}
       />

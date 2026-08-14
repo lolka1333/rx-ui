@@ -235,6 +235,12 @@ async fn main() -> anyhow::Result<()> {
         sub_listener_shutdown: Arc::new(RwLock::new(None)),
     };
 
+    // Whether an xray was ALREADY running before we touched anything. Decides
+    // below whether a pending geofile apply counts as paid: an adopted process
+    // is still serving the lists it parsed before the panel came up.
+    let adopted_running_xray =
+        xray::control::XrayController::detect_external_pid_for(&state.xray.binary).is_some();
+
     // Attach to a running xray, or lay down the bootstrap config and start
     // one. Failure here is logged but does not abort the panel — login still
     // works and the operator can diagnose via `/api/logs` and `/api/xray/*`.
@@ -246,29 +252,17 @@ async fn main() -> anyhow::Result<()> {
         tracing::warn!("xray bootstrap skipped: {e:#}");
     }
 
-    // Start the per-user traffic + online poll. Runs every 5 s,
-    // populates `state.traffic` from xray's StatsService. The REST
-    // handler reads the latest snapshot under a short read lock.
-    traffic::spawn_traffic_poller(
-        state.xray_client.clone(),
-        state.traffic.clone(),
-        state.db.clone(),
-    );
+    // A pending geofile apply is paid off only if the core actually re-read the
+    // files — i.e. only when the panel STARTED xray rather than attaching to one
+    // that was already running (see `reload::bootstrap`). Clearing it
+    // unconditionally hid a genuinely pending apply behind a panel-only restart.
+    if !adopted_running_xray {
+        let _ = sqlx::query!("UPDATE panel_settings SET geo_apply_pending = 0 WHERE id = 1")
+            .execute(&state.db)
+            .await;
+    }
 
-    // Per-outbound lifetime traffic — same cadence, persisted into
-    // `outbound_traffic` so the Outbounds page totals survive xray restarts
-    // (xray's per-outbound counters are session-only).
-    outbound_traffic::spawn_outbound_traffic_poller(state.xray_client.clone(), state.db.clone());
-
-    // Per-inbound lifetime traffic — same cadence, persisted into
-    // `inbound_traffic` so the Inbounds page shows an accurate per-inbound
-    // split (xray's per-inbound counters are session-only, and its per-user
-    // counters can't attribute a shared client's bytes to a single inbound).
-    inbound_traffic::spawn_inbound_traffic_poller(
-        state.xray_client.clone(),
-        state.db.clone(),
-        state.inbound_live.clone(),
-    );
+    spawn_background_tasks(&state);
 
     // Reconcile in-memory xray state with the panel DB. xray's
     // HandlerService stores inbounds in memory only — every cold start
@@ -345,7 +339,40 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Resolve the xray binary + bootstrap-config paths. Defaults to the
+/// Long-lived background tasks, all detached and all tolerant of xray being
+/// down: each either polls on its own cadence or sits idle until a setting
+/// turns it on. Grouped out of `main` because they are one concern — what the
+/// panel does on a timer — and because reading `main` should not mean reading
+/// four spawn sites.
+fn spawn_background_tasks(state: &AppState) {
+    // Per-user traffic + online poll, every 5s, into `state.traffic`. The REST
+    // handler reads the latest snapshot under a short read lock.
+    traffic::spawn_traffic_poller(
+        state.xray_client.clone(),
+        state.traffic.clone(),
+        state.db.clone(),
+    );
+
+    // Per-outbound lifetime traffic — same cadence, persisted into
+    // `outbound_traffic` so the Outbounds page totals survive xray restarts
+    // (xray's per-outbound counters are session-only).
+    outbound_traffic::spawn_outbound_traffic_poller(state.xray_client.clone(), state.db.clone());
+
+    // Per-inbound lifetime traffic — same cadence, persisted into
+    // `inbound_traffic` so the Inbounds page shows an accurate per-inbound
+    // split (xray's per-inbound counters are session-only, and its per-user
+    // counters can't attribute a shared client's bytes to a single inbound).
+    inbound_traffic::spawn_inbound_traffic_poller(
+        state.xray_client.clone(),
+        state.db.clone(),
+        state.inbound_live.clone(),
+    );
+
+    // Nightly geofile refresh; idle unless the operator picked a source AND
+    // enabled auto-update, both re-read on every tick.
+    api::xray::spawn_geofile_updater(state.clone());
+}
+
 /// auto-install location under `data/xray/`; `XRAY_BINARY` / `XRAY_CONFIG`
 /// override for a system-managed xray (e.g. `/usr/local/bin/xray`).
 fn resolve_xray_paths() -> (PathBuf, PathBuf) {

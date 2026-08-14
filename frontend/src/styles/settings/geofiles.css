@@ -1,0 +1,65 @@
+/* Geofiles section of the Xray-updates modal.
+ *
+ * The section reuses `app-settings-inforow` for its rows (see inforow.css), so
+ * the only thing declared here is the section's own rhythm and the two places
+ * where a modal is tighter than a settings page. The first version of this
+ * panel carried its geometry in inline styles and referenced a class that was
+ * never written, which is why its inputs rendered as bare browser controls. */
+
+.app-geo {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Explanation above the controls: same muted step the field descriptions use,
+   so the block opens at the weight the rest of the panel opens at. */
+.app-geo-note,
+.app-geo-hint {
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+/* Source picker + its action. Wraps on a narrow modal rather than squeezing
+   the select down to a stub. */
+.app-geo-source {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.app-geo-source .app-geo-select {
+  flex: 1 1 240px;
+  min-width: 200px;
+  max-width: 340px;
+}
+
+.app-geo-urls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* The rows are written for a settings page that is wider than this modal: at
+   modal width the two-column grid leaves the value hard against the edge, so
+   pull the horizontal inset in and let the columns share what is left. */
+.app-geo .app-settings-inforow {
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 20px;
+  padding: 11px 0;
+}
+/* No icon tile on the switch row — an icon there would imply the row names a
+   thing, and it names a behaviour. */
+.app-geo-auto .app-settings-inforow-id {
+  padding-left: 2px;
+}
+
+/* Files read as a list, not as three separate cards: one hairline between
+   them, none at the ends. */
+.app-geo-files .app-settings-inforow + .app-settings-inforow {
+  border-top: 1px solid var(--border, #1e2a44);
+}
+
+.app-geo-save {
+  display: flex;
+}

@@ -1,0 +1,86 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT geo_source             AS \"geo_source!: String\",\n                  geo_custom_geoip_url   AS \"geo_custom_geoip_url!: String\",\n                  geo_custom_geosite_url AS \"geo_custom_geosite_url!: String\",\n                  geo_auto_update        AS \"geo_auto_update!: i64\",\n                  geo_updated_at         AS \"geo_updated_at!: String\",\n                  geo_apply_pending      AS \"geo_apply_pending!: i64\"\n           FROM panel_settings WHERE id = 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "geo_source!: String",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "geo_source"
+          }
+        }
+      },
+      {
+        "name": "geo_custom_geoip_url!: String",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "geo_custom_geoip_url"
+          }
+        }
+      },
+      {
+        "name": "geo_custom_geosite_url!: String",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "geo_custom_geosite_url"
+          }
+        }
+      },
+      {
+        "name": "geo_auto_update!: i64",
+        "ordinal": 3,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "geo_auto_update"
+          }
+        }
+      },
+      {
+        "name": "geo_updated_at!: String",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "geo_updated_at"
+          }
+        }
+      },
+      {
+        "name": "geo_apply_pending!: i64",
+        "ordinal": 5,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "geo_apply_pending"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "d5d4a30db78d357b6b38100ffa6d7b743885508f0e64282308f843aaae450248"
+}
