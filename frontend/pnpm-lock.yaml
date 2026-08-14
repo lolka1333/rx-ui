@@ -26,6 +26,9 @@ importers:
       i18next:
         specifier: ^26.3.4
         version: 26.3.4(typescript@6.0.3)
+      qrcode-generator:
+        specifier: 2.0.4
+        version: 2.0.4
       react:
         specifier: ^19.2.7
         version: 19.2.7

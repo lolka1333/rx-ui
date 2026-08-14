@@ -947,6 +947,7 @@ export const en: Dict = {
     noInboundsYet: 'Create at least one inbound on the Inbounds page first.',
     copy: 'Copy',
     shareLinkLargeQrHint: 'Dense QR is normal for post-quantum keys. Scan from close range, or just copy the link below.',
+    qrEnlarge: 'Enlarge QR code',
     shareLinkTooLongForQr:
       'This link is too long to fit in a QR code — copy it or use the subscription URL instead.',
     shareTabLink: 'Link',

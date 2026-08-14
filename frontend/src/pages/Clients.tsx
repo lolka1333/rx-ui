@@ -1494,7 +1494,10 @@ function ShareLinkPane({
       {qrBytes(share.link) <= QR_MAX_BYTES ? (
         <QrCard
           value={share.link}
-          size={share.link.length > 800 ? 288 : 224}
+          // 354 = 2 px per module on a version-40 code (177 modules), the
+          // densest a share-link can be. Below that the card would snap
+          // down to one pixel per module.
+          size={share.link.length > 800 ? 354 : 224}
           level="L"
         />
       ) : (
