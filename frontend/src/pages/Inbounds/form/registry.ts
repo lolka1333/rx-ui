@@ -87,8 +87,11 @@ export function useProtocolGuards(form: ReturnType<typeof Form.useForm<FormValue
   // it. Kept here rather than in the tab that renders it — this hook is
   // mounted for the whole life of the form, that tab is not.
   useFinalMaskGuard(
-    protocol === 'hysteria2' ? 'hysteria' : (network ?? 'tcp'),
-    security ?? 'none',
+    // No fallbacks: an unknown transport must stay unknown. Substituting
+    // 'tcp'/'none' here made the guard judge a not-yet-registered form
+    // against the wrong matrix and silently turn off a legitimate mask.
+    protocol === 'hysteria2' ? 'hysteria' : network,
+    security,
     () => form.getFieldValue('finalmask_kind'),
     () => form.setFieldValue('finalmask_kind', 'none'),
   );

@@ -56,17 +56,22 @@ function useFinalMaskSupport() {
  *  single entry would read as "this transport supports nothing", a worse lie
  *  than briefly showing too much. `pending` is surfaced so the caller can say
  *  so instead of guessing. */
-export function useAllowedFinalMasks(transport: string, security: string) {
+export function useAllowedFinalMasks(transport: string | undefined, security: string | undefined) {
   const { data, isPending } = useFinalMaskSupport();
   const allowed = useMemo<FinalMask['kind'][]>(() => {
-    const kinds = data?.[transport]?.[security];
+    const kinds = transport && security ? data?.[transport]?.[security] : undefined;
     return kinds
       ? ['none', ...kinds]
       : (Object.keys(FINALMASK_LABEL_KEYS) as FinalMask['kind'][]);
   }, [data, transport, security]);
   // `resolved` separates "everything, because we know" from "everything,
   // because we don't know yet" — only the former may drive a reset.
-  return { allowed, isPending, resolved: data?.[transport]?.[security] !== undefined };
+  return {
+    allowed,
+    isPending,
+    resolved: transport !== undefined && security !== undefined
+      && data?.[transport]?.[security] !== undefined,
+  };
 }
 
 /** Snap a mask the current transport cannot run back to `none`, and say so.
@@ -87,8 +92,8 @@ export function useAllowedFinalMasks(transport: string, security: string) {
  *  Only acts once the matrix has actually answered: an unreachable panel must
  *  not wipe a mask that is configured and working. */
 export function useFinalMaskGuard(
-  transport: string,
-  security: string,
+  transport: string | undefined,
+  security: string | undefined,
   getKind: () => FinalMask['kind'] | undefined,
   reset: () => void,
 ) {
@@ -105,10 +110,16 @@ export function useFinalMaskGuard(
   }, [getKind, reset]);
 
   useEffect(() => {
-    if (!resolved) return;
+    // `transport`/`security` are undefined until the form's fields register.
+    // Acting on that window is what dropped a valid mask: the call site used to
+    // substitute 'tcp'/'none', so a Hysteria 2 inbound was briefly judged
+    // against the TCP matrix — which has no salamander — and the mask was reset
+    // before `useWatch` caught up. Whether it misfired depended only on whether
+    // the support matrix happened to be cached, i.e. on a race.
+    if (!transport || !security || !resolved) return;
     const kind = getKindRef.current();
     if (!kind || allowed.includes(kind)) return;
     resetRef.current();
     message.warning(t('inbounds.finalmaskKindDropped', { kind }));
-  }, [resolved, allowed, message, t]);
+  }, [resolved, allowed, message, t, transport, security]);
 }
