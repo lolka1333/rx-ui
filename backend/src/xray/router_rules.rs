@@ -144,13 +144,26 @@ fn parse_port(s: &str) -> anyhow::Result<u32> {
     Ok(p)
 }
 
-/// Map network names to xray's `Network` enum ints; unknown names are dropped
-/// (the panel UI only offers tcp/udp).
+/// Map network names to xray's `Network` enum ints.
+///
+/// `unix` is mapped even though the UI does not offer it and the settings
+/// validator refuses it: a value can still reach here from an older build, an
+/// imported config or a hand-edited row, and dropping it is not a harmless
+/// no-op. A rule whose ONLY condition was the network would arrive here with
+/// an empty `networks`, i.e. no condition at all — and a rule with no condition
+/// matches EVERYTHING. The JSON path meanwhile passes `unix` through to xray,
+/// which resolves it to `Network_UNIX` and simply never fires. The two paths
+/// would then mean opposite things for the same stored rule, decided by whether
+/// it was hot-applied or the panel restarted. Mapping it keeps them in step.
+///
+/// Genuinely unknown names are still dropped — the validator is what stops them
+/// from being stored in the first place.
 fn parse_networks(nets: &[String]) -> Vec<i32> {
     nets.iter()
         .filter_map(|n| match n.trim().to_lowercase().as_str() {
             "tcp" => Some(Network::Tcp as i32),
             "udp" => Some(Network::Udp as i32),
+            "unix" => Some(Network::Unix as i32),
             _ => None,
         })
         .collect()

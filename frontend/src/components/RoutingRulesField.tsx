@@ -90,7 +90,16 @@ const presetFilter = (input: string, value?: unknown, label?: unknown): boolean 
   const l = typeof label === 'string' ? label.toLowerCase() : '';
   return v.includes(q) || l.includes(q);
 };
-const NETWORK_OPTIONS = ['tcp', 'udp', 'unix'].map((v) => ({ value: v, label: v }));
+// tcp/udp only, and `unix` is deliberately absent even though xray's own conf
+// parser accepts it (`infra/conf/common.go` maps it to Network_UNIX). Client
+// traffic through an inbound is never a unix socket, so the rule could not
+// match anything — and the backend refuses to store it, because the two config
+// paths disagree about what an unknown network means: the JSON emitter keeps it
+// as a matcher that never fires, while the proto builder drops it and the rule
+// then fires on EVERYTHING. Offering it here only produced rules that could not
+// be saved — and, once saved by an older build, blocked every unrelated
+// settings save until the rule was fixed.
+const NETWORK_OPTIONS = ['tcp', 'udp'].map((v) => ({ value: v, label: v }));
 const PROTOCOL_OPTIONS = ['http', 'tls', 'quic', 'bittorrent', 'dns'].map((v) => ({
   value: v,
   label: v,

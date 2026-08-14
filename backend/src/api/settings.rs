@@ -214,9 +214,9 @@ async fn update_panel(
     // DB write. Valid targets = the reserved built-ins ∪ the tags of currently-
     // enabled custom outbounds (a rule may route to an operator's relay).
     let valid_targets = valid_rule_targets(&state.db).await?;
-    let stored_targets = stored_rule_targets(&stored);
+    let stored_rules = StoredRules::from_row(&stored);
     let (custom_rules_json, rule_order_json) =
-        validate_custom_routing(&body, &valid_targets, &stored_targets)?;
+        validate_custom_routing(&body, &valid_targets, &stored_rules)?;
 
     // Panel HTTPS: validate + resolve the cert/key (an empty incoming key keeps
     // the stored one) before persisting — a bad pair fails here as a clean 400
@@ -832,6 +832,27 @@ async fn valid_rule_targets(
 /// out would be to find and fix that rule first — with nothing in the UI saying
 /// so. Rules that arrive unchanged are therefore grandfathered; creating or
 /// re-pointing one still requires a live target.
+/// What the database already holds about the rules being re-saved. Grouped so
+/// a new grandfathering dimension does not change the validator's signature —
+/// and, more to the point, so every call site keeps passing ONE thing that
+/// means "what was already true".
+#[derive(Default)]
+struct StoredRules {
+    /// `(rule id, outbound tag)` — a target that has since disappeared.
+    targets: std::collections::HashSet<(String, String)>,
+    /// `(rule id, lowercased network)` — a network the panel no longer offers.
+    networks: std::collections::HashSet<(String, String)>,
+}
+
+impl StoredRules {
+    fn from_row(stored: &StoredPanel) -> Self {
+        Self {
+            targets: stored_rule_targets(stored),
+            networks: stored_rule_networks(stored),
+        }
+    }
+}
+
 fn stored_rule_targets(stored: &StoredPanel) -> std::collections::HashSet<(String, String)> {
     // Parsed from the snapshot the rest of the save already holds. A malformed
     // column means "no grandfathered rules", which is the safe reading: every
@@ -840,6 +861,23 @@ fn stored_rule_targets(stored: &StoredPanel) -> std::collections::HashSet<(Strin
         .unwrap_or_default()
         .into_iter()
         .map(|r| (r.id, r.outbound_tag))
+        .collect()
+}
+
+/// The `(rule id, network)` pairs already in the database. Same idea as
+/// `stored_rule_targets`: a value that is already stored is already live, so
+/// refusing to re-save it protects nothing and would hold every unrelated
+/// setting hostage — which is exactly what happened when an older build let the
+/// UI offer `unix` and the operator then could not save the Subscription tab.
+fn stored_rule_networks(stored: &StoredPanel) -> std::collections::HashSet<(String, String)> {
+    serde_json::from_str::<Vec<RoutingRule>>(&stored.custom_rules)
+        .unwrap_or_default()
+        .into_iter()
+        .flat_map(|r| {
+            r.network
+                .into_iter()
+                .map(move |n| (r.id.clone(), n.trim().to_ascii_lowercase()))
+        })
         .collect()
 }
 
@@ -885,10 +923,46 @@ fn canonical_port_spec(field: &str, spec: &str, rule_name: &str) -> AppResult<(S
 /// Validate one operator rule and return it normalised (entries trimmed, blanks
 /// dropped, ports canonicalised) — the form both emitters serialise and read, so
 /// the JSON bootstrap and proto hot-apply paths always see identical tokens.
+/// Only tcp/udp may reach the router. Anything else means the OPPOSITE thing
+/// on the two config paths — the JSON emitter hands the token to xray while the
+/// proto builder drops it, and a rule left with no network condition matches
+/// EVERYTHING — so a new one is refused outright.
+///
+/// A value ALREADY in the database is kept instead, exactly like a target whose
+/// outbound has since vanished: it is already live, both emitters now agree on
+/// what it means (`router_rules::parse_networks` maps `unix` rather than
+/// dropping it), and refusing it would only stop the operator from changing
+/// anything ELSE. That is not hypothetical — an older build offered `unix` in
+/// the UI, and the resulting rules blocked saving the Subscription and HTTPS
+/// tabs with an error naming a routing rule the operator was not editing.
+fn check_rule_networks(rule: &RoutingRule, id: &str, stored: &StoredRules) -> AppResult<()> {
+    for n in &rule.network {
+        let lower = n.to_ascii_lowercase();
+        if matches!(lower.as_str(), "tcp" | "udp") {
+            continue;
+        }
+        if stored.networks.contains(&(id.to_owned(), lower.clone())) {
+            tracing::warn!(
+                rule = %id,
+                network = %lower,
+                "routing rule uses a network the panel no longer offers; kept as-is"
+            );
+            continue;
+        }
+        return Err(AppError::BadRequest(format!(
+            // One line on purpose: a `\`-continued literal keeps the indentation
+            // of the following lines in the message text.
+            "custom rule '{}': unsupported network '{n}' — use tcp or udp (fix it under Settings -> Xray -> Routing)",
+            rule.name
+        )));
+    }
+    Ok(())
+}
+
 fn validate_and_clean_rule(
     r: &RoutingRule,
     valid_targets: &std::collections::HashSet<String>,
-    stored: &std::collections::HashSet<(String, String)>,
+    stored: &StoredRules,
 ) -> AppResult<RoutingRule> {
     let id = r.id.trim();
     if id.is_empty() {
@@ -916,7 +990,10 @@ fn validate_and_clean_rule(
         // refusing the save protects nothing and would hold every other setting
         // hostage. Everything below still runs, so a grandfathered rule is
         // normalised exactly like any other.
-        if stored.contains(&(id.to_owned(), r.outbound_tag.clone())) {
+        if stored
+            .targets
+            .contains(&(id.to_owned(), r.outbound_tag.clone()))
+        {
             tracing::warn!(
                 rule = %id,
                 target = %r.outbound_tag,
@@ -975,18 +1052,16 @@ fn validate_and_clean_rule(
         user: clean_entries(&r.user),
         outbound_tag: r.outbound_tag.clone(),
     };
-    // Only tcp/udp (what the UI offers) may reach the router. Anything else
-    // means different things on the two paths — the JSON emitter passes it
-    // through as an inert matcher (rule never fires) while the proto builder
-    // drops it (rule fires on everything) — so reject it outright.
-    for n in &cleaned_rule.network {
-        if !matches!(n.to_ascii_lowercase().as_str(), "tcp" | "udp") {
-            return Err(AppError::BadRequest(format!(
-                "custom rule '{}': unsupported network '{n}' (use tcp or udp)",
-                cleaned_rule.name
-            )));
-        }
-    }
+    // Only tcp/udp may reach the router. Anything else means the OPPOSITE
+    // thing on the two config paths — the JSON emitter passes it through as an
+    // inert matcher (rule never fires) while the proto builder drops it (rule
+    // fires on everything) — so reject it outright.
+    //
+    // The UI used to offer `unix` here, so a rule saved by an older build now
+    // blocks EVERY settings save, including on tabs that have nothing to do
+    // with routing. Hence the pointer in the message: the operator meets this
+    // while saving Subscription or HTTPS with no way to guess where to go.
+    check_rule_networks(&cleaned_rule, id, stored)?;
     // A rule with no matcher (only an outbound_tag) is rejected by xray at
     // router build ("this rule has no effective fields"), which fails the
     // config `-test` and bricks the next restart. Checked on the CLEANED
@@ -1017,7 +1092,7 @@ fn validate_and_clean_rule(
 fn validate_custom_routing(
     body: &PanelSettingsUpdate,
     valid_targets: &std::collections::HashSet<String>,
-    stored: &std::collections::HashSet<(String, String)>,
+    stored: &StoredRules,
 ) -> AppResult<(String, String)> {
     if body.xray_custom_rules.len() > 200 {
         return Err(AppError::BadRequest(
@@ -1550,8 +1625,8 @@ mod tests {
 
     /// No rule is already persisted, so nothing is grandfathered and every
     /// guard below is exercised at full strength.
-    fn nothing_stored() -> std::collections::HashSet<(String, String)> {
-        std::collections::HashSet::new()
+    fn nothing_stored() -> StoredRules {
+        StoredRules::default()
     }
 
     fn rule(id: &str) -> RoutingRule {
@@ -1592,9 +1667,12 @@ mod tests {
             );
         }
 
-        // xray's JSON parser accepts these and turns them into Network_Unknown
-        // (a rule that never fires); the proto path drops them, leaving a rule
-        // with no conditions at all, which xray refuses outright.
+        // Rejected for two different reasons, both worth keeping. `quic` and
+        // `TCP,udp` are unknown to xray's parser and become Network_Unknown —
+        // a rule that never fires. `unix` IS known to xray (Network_UNIX), but
+        // no traffic through a panel inbound is ever a unix socket, so the rule
+        // could not match anything either. Both would be no-ops the operator
+        // believes in, so neither is allowed to be stored.
         for bad in ["quic", "unix", "TCP,udp"] {
             let mut r = rule("r1");
             r.network = vec![bad.to_string()];
@@ -1603,6 +1681,28 @@ mod tests {
                 "network '{bad}' must be rejected"
             );
         }
+
+        // Already in the database: kept, warned about, and — crucially — NOT
+        // allowed to block the save. An older build offered `unix` in the UI,
+        // so operators have such rules stored; refusing them here meant the
+        // Subscription and HTTPS tabs could not be saved either, with an error
+        // naming a routing rule the operator was not editing.
+        let mut r = rule("r-unix");
+        r.network = vec!["unix".to_string()];
+        let stored = StoredRules {
+            networks: std::collections::HashSet::from([("r-unix".to_string(), "unix".to_string())]),
+            ..StoredRules::default()
+        };
+        let kept = validate_and_clean_rule(&r, &ok, &stored)
+            .expect("a stored network must not block the save");
+        assert_eq!(kept.network, vec!["unix".to_string()]);
+        // The same value on a DIFFERENT rule id is still new, so still refused.
+        let mut other = rule("r-new");
+        other.network = vec!["unix".to_string()];
+        assert!(
+            validate_and_clean_rule(&other, &ok, &stored).is_err(),
+            "a network that is not already stored must still be rejected"
+        );
 
         // A blank entry is a match-everything Substr to xray's JSON parser and
         // a hard error on the proto path.
@@ -1658,8 +1758,13 @@ mod tests {
 
         // Stored with this exact target → grandfathered, and still normalised
         // like any other rule rather than passed through raw.
-        let mut stored = std::collections::HashSet::new();
-        stored.insert(("r1".to_string(), "my_user_1_pc".to_string()));
+        let stored = StoredRules {
+            targets: std::collections::HashSet::from([(
+                "r1".to_string(),
+                "my_user_1_pc".to_string(),
+            )]),
+            ..StoredRules::default()
+        };
         r.port = " 1024 - 2048 ".to_string();
         let cleaned = validate_and_clean_rule(&r, &ok, &stored).expect("stored rule is kept");
         assert_eq!(cleaned.outbound_tag, "my_user_1_pc");
