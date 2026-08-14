@@ -1,0 +1,16 @@
+# Migrations are checksummed, so their bytes are part of the contract.
+#
+# `sqlx::migrate!` embeds each file at COMPILE time and stores a checksum in
+# `_sqlx_migrations` when it is applied; on every later start it re-checks that
+# sum and refuses to run if it moved ("migration N was previously applied but
+# has been modified"). Line endings are content as far as that checksum is
+# concerned, so a file that is LF in the repository and CRLF in a Windows
+# working copy produces two different sums for the same migration — a binary
+# built on Windows then refuses to start against a database migrated by a
+# Linux build, and vice versa. Pinning them to LF everywhere removes the
+# discrepancy at the source.
+*.sql text eol=lf
+
+# The `.sqlx` query cache is generated and compared byte-for-byte by
+# `cargo sqlx prepare --check` in CI; same reasoning.
+*.json text eol=lf
