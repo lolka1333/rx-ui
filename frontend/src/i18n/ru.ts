@@ -108,6 +108,12 @@ export const ru = {
     xrayBlockedIpsHint: 'Дропать трафик к этим IP/подсетям и geoip-меткам (geoip:cn).',
     xrayBlockedDomains: 'Заблокированные домены',
     xrayBlockedDomainsHint: 'Дропать трафик к этим доменам и geosite-меткам (geosite:category-ads-all).',
+    xrayDirectIps: 'Прямые IP-адреса',
+    xrayDirectIpsHint:
+      'Идут напрямую, мимо туннеля: локальные сети, своя страна, банки. Проверяются после блокировок.',
+    xrayDirectDomains: 'Прямые домены',
+    xrayDirectDomainsHint:
+      'То же для доменов. Принимает geosite:, ext:file.dat:тег и обычные домены.',
     xrayIpv4Domains: 'Домены только по IPv4',
     xrayIpv4DomainsHint: 'Форсировать выход через IPv4 для этих доменов — только домены, без IP и подсетей.',
     xrayListPlaceholder: 'Запись + Enter (или вставь списком через запятую)',

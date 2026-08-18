@@ -313,6 +313,9 @@ export function RoutingRulesField({
   const sysBlockedDomains =
     (Form.useWatch('xray_blocked_domains', parentForm) as string[] | undefined) ?? [];
   const sysIpv4 = (Form.useWatch('xray_ipv4_domains', parentForm) as string[] | undefined) ?? [];
+  const sysDirectIps = (Form.useWatch('xray_direct_ips', parentForm) as string[] | undefined) ?? [];
+  const sysDirectDomains =
+    (Form.useWatch('xray_direct_domains', parentForm) as string[] | undefined) ?? [];
   // Full evaluation order as a list of tokens (system keys + custom rule ids).
   const ruleOrder = (Form.useWatch('xray_rule_order', parentForm) as string[] | undefined) ?? [];
   // `direct-ipv4` is a grown-on-demand built-in. Don't offer it as a target
@@ -364,6 +367,14 @@ export function RoutingRulesField({
       target: 'blocked',
     },
     ipv4: { label: `${t('settings.xrayIpv4Domains')} · ${sysIpv4.length}`, target: 'direct-ipv4' },
+    direct_domains: {
+      label: `${t('settings.xrayDirectDomains')} · ${sysDirectDomains.length}`,
+      target: 'direct',
+    },
+    direct_ips: {
+      label: `${t('settings.xrayDirectIps')} · ${sysDirectIps.length}`,
+      target: 'direct',
+    },
   };
   // A token in the evaluation order is either a system row or a custom rule id;
   // this is what tells them apart, and it narrows the type so `sysInfo[tok]` is
@@ -373,6 +384,8 @@ export function RoutingRulesField({
   if (sysBittorrent) activeSys.push('bittorrent');
   if (sysBlockedDomains.length) activeSys.push('blocked_domains');
   if (sysBlockedIps.length) activeSys.push('blocked_ips');
+  if (sysDirectDomains.length) activeSys.push('direct_domains');
+  if (sysDirectIps.length) activeSys.push('direct_ips');
   if (sysIpv4.length) activeSys.push('ipv4');
 
   const customById = new Map(rules.map((r) => [r.id, r] as const));

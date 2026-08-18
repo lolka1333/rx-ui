@@ -1834,6 +1834,8 @@ interface XrayFormValues {
   xray_block_bittorrent: boolean;
   xray_blocked_ips: string[];
   xray_blocked_domains: string[];
+  xray_direct_ips: string[];
+  xray_direct_domains: string[];
   xray_ipv4_domains: string[];
   xray_custom_rules: RoutingRule[];
   xray_rule_order: string[];
@@ -1974,6 +1976,8 @@ function XraySection({
           xray_block_bittorrent: values.xray_block_bittorrent,
           xray_blocked_ips: values.xray_blocked_ips,
           xray_blocked_domains: values.xray_blocked_domains,
+          xray_direct_ips: values.xray_direct_ips,
+          xray_direct_domains: values.xray_direct_domains,
           xray_ipv4_domains: values.xray_ipv4_domains,
           xray_custom_rules: values.xray_custom_rules,
           xray_rule_order: values.xray_rule_order,
@@ -2000,6 +2004,8 @@ function XraySection({
         (values.xray_block_bittorrent !== old.xray_block_bittorrent ||
           !sameList(values.xray_blocked_ips, old.xray_blocked_ips) ||
           !sameList(values.xray_blocked_domains, old.xray_blocked_domains) ||
+          !sameList(values.xray_direct_ips, old.xray_direct_ips) ||
+          !sameList(values.xray_direct_domains, old.xray_direct_domains) ||
           !sameList(values.xray_ipv4_domains, old.xray_ipv4_domains) ||
           JSON.stringify(values.xray_custom_rules) !==
             JSON.stringify(old.xray_custom_rules ?? []) ||
@@ -2108,6 +2114,8 @@ function XraySection({
             xray_block_bittorrent: data.xray_block_bittorrent,
             xray_blocked_ips: data.xray_blocked_ips,
             xray_blocked_domains: data.xray_blocked_domains,
+            xray_direct_ips: data.xray_direct_ips,
+            xray_direct_domains: data.xray_direct_domains,
             xray_ipv4_domains: data.xray_ipv4_domains,
             xray_custom_rules: data.xray_custom_rules ?? [],
             xray_rule_order: data.xray_rule_order ?? [],
@@ -2130,6 +2138,8 @@ function XraySection({
             data.xray_block_bittorrent,
             data.xray_blocked_ips,
             data.xray_blocked_domains,
+            data.xray_direct_ips,
+            data.xray_direct_domains,
             data.xray_ipv4_domains,
             data.xray_custom_rules ?? [],
             data.xray_rule_order ?? [],
@@ -2326,6 +2336,48 @@ function XraySection({
                         <FieldLabel
                           title={t('settings.xrayBlockedDomains')}
                           desc={t('settings.xrayBlockedDomainsHint')}
+                        />
+                      }
+                    >
+                      <Select
+                        mode="tags"
+                        options={GEOSITE_PRESETS}
+                        showSearch={{ optionFilterProp: 'label' }}
+                        optionRender={renderGeoOption}
+                        tagRender={renderGeoTag}
+                        tokenSeparators={[',', ' ']}
+                        placeholder={t('settings.xrayGeoPlaceholder')}
+                      />
+                    </Form.Item>
+                    {/* The mirror of the two lists above: same matcher syntax
+                        and the same presets, opposite destination. Placed
+                        between them and the IPv4 list because that is the order
+                        the rules are evaluated in — block first, then bypass. */}
+                    <Form.Item
+                      name="xray_direct_ips"
+                      label={
+                        <FieldLabel
+                          title={t('settings.xrayDirectIps')}
+                          desc={t('settings.xrayDirectIpsHint')}
+                        />
+                      }
+                    >
+                      <Select
+                        mode="tags"
+                        options={GEOIP_PRESETS}
+                        showSearch={{ optionFilterProp: 'label' }}
+                        optionRender={renderGeoOption}
+                        tagRender={renderGeoTag}
+                        tokenSeparators={[',', ' ']}
+                        placeholder={t('settings.xrayGeoPlaceholder')}
+                      />
+                    </Form.Item>
+                    <Form.Item
+                      name="xray_direct_domains"
+                      label={
+                        <FieldLabel
+                          title={t('settings.xrayDirectDomains')}
+                          desc={t('settings.xrayDirectDomainsHint')}
                         />
                       }
                     >

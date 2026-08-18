@@ -1,0 +1,158 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT xray_custom_rules    AS \"custom_rules!: String\",\n                  xray_rule_order      AS \"rule_order!: String\",\n                  xray_blocked_ips     AS \"blocked_ips!: String\",\n                  xray_blocked_domains AS \"blocked_domains!: String\",\n                  xray_direct_ips      AS \"direct_ips!: String\",\n                  xray_direct_domains  AS \"direct_domains!: String\",\n                  xray_ipv4_domains    AS \"ipv4_domains!: String\",\n                  xray_block_bittorrent,\n                  panel_tls_key        AS \"panel_tls_key!: String\",\n                  sub_tls_mode         AS \"sub_tls_mode!: String\",\n                  sub_cert_pem         AS \"sub_cert_pem!: String\",\n                  sub_key_pem          AS \"sub_key_pem!: String\"\n             FROM panel_settings WHERE id = 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "custom_rules!: String",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_custom_rules"
+          }
+        }
+      },
+      {
+        "name": "rule_order!: String",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_rule_order"
+          }
+        }
+      },
+      {
+        "name": "blocked_ips!: String",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_blocked_ips"
+          }
+        }
+      },
+      {
+        "name": "blocked_domains!: String",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_blocked_domains"
+          }
+        }
+      },
+      {
+        "name": "direct_ips!: String",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_direct_ips"
+          }
+        }
+      },
+      {
+        "name": "direct_domains!: String",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_direct_domains"
+          }
+        }
+      },
+      {
+        "name": "ipv4_domains!: String",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_ipv4_domains"
+          }
+        }
+      },
+      {
+        "name": "xray_block_bittorrent",
+        "ordinal": 7,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_block_bittorrent"
+          }
+        }
+      },
+      {
+        "name": "panel_tls_key!: String",
+        "ordinal": 8,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "panel_tls_key"
+          }
+        }
+      },
+      {
+        "name": "sub_tls_mode!: String",
+        "ordinal": 9,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "sub_tls_mode"
+          }
+        }
+      },
+      {
+        "name": "sub_cert_pem!: String",
+        "ordinal": 10,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "sub_cert_pem"
+          }
+        }
+      },
+      {
+        "name": "sub_key_pem!: String",
+        "ordinal": 11,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "sub_key_pem"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "691250175d90c2508c059d8572e80b459400932387e93771e74f70754408589f"
+}

@@ -1,66 +1,33 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT xray_custom_rules    AS \"custom_rules!: String\",\n                  xray_rule_order      AS \"rule_order!: String\",\n                  xray_blocked_ips     AS \"blocked_ips!: String\",\n                  xray_blocked_domains AS \"blocked_domains!: String\",\n                  xray_ipv4_domains    AS \"ipv4_domains!: String\",\n                  xray_block_bittorrent,\n                  panel_tls_key        AS \"panel_tls_key!: String\",\n                  sub_tls_mode         AS \"sub_tls_mode!: String\",\n                  sub_cert_pem         AS \"sub_cert_pem!: String\",\n                  sub_key_pem          AS \"sub_key_pem!: String\"\n             FROM panel_settings WHERE id = 1",
+  "query": "SELECT xray_freedom_strategy, xray_routing_strategy, xray_block_bittorrent,\n                xray_blocked_ips, xray_blocked_domains, xray_ipv4_domains,\n                xray_direct_ips, xray_direct_domains,\n                xray_custom_rules, xray_rule_order\n            FROM panel_settings WHERE id = 1",
   "describe": {
     "columns": [
       {
-        "name": "custom_rules!: String",
+        "name": "xray_freedom_strategy",
         "ordinal": 0,
         "type_info": "Text",
         "origin": {
           "Table": {
             "table": "panel_settings",
-            "name": "xray_custom_rules"
+            "name": "xray_freedom_strategy"
           }
         }
       },
       {
-        "name": "rule_order!: String",
+        "name": "xray_routing_strategy",
         "ordinal": 1,
         "type_info": "Text",
         "origin": {
           "Table": {
             "table": "panel_settings",
-            "name": "xray_rule_order"
-          }
-        }
-      },
-      {
-        "name": "blocked_ips!: String",
-        "ordinal": 2,
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "panel_settings",
-            "name": "xray_blocked_ips"
-          }
-        }
-      },
-      {
-        "name": "blocked_domains!: String",
-        "ordinal": 3,
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "panel_settings",
-            "name": "xray_blocked_domains"
-          }
-        }
-      },
-      {
-        "name": "ipv4_domains!: String",
-        "ordinal": 4,
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "panel_settings",
-            "name": "xray_ipv4_domains"
+            "name": "xray_routing_strategy"
           }
         }
       },
       {
         "name": "xray_block_bittorrent",
-        "ordinal": 5,
+        "ordinal": 2,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -70,46 +37,79 @@
         }
       },
       {
-        "name": "panel_tls_key!: String",
+        "name": "xray_blocked_ips",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_blocked_ips"
+          }
+        }
+      },
+      {
+        "name": "xray_blocked_domains",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_blocked_domains"
+          }
+        }
+      },
+      {
+        "name": "xray_ipv4_domains",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_ipv4_domains"
+          }
+        }
+      },
+      {
+        "name": "xray_direct_ips",
         "ordinal": 6,
         "type_info": "Text",
         "origin": {
           "Table": {
             "table": "panel_settings",
-            "name": "panel_tls_key"
+            "name": "xray_direct_ips"
           }
         }
       },
       {
-        "name": "sub_tls_mode!: String",
+        "name": "xray_direct_domains",
         "ordinal": 7,
         "type_info": "Text",
         "origin": {
           "Table": {
             "table": "panel_settings",
-            "name": "sub_tls_mode"
+            "name": "xray_direct_domains"
           }
         }
       },
       {
-        "name": "sub_cert_pem!: String",
+        "name": "xray_custom_rules",
         "ordinal": 8,
         "type_info": "Text",
         "origin": {
           "Table": {
             "table": "panel_settings",
-            "name": "sub_cert_pem"
+            "name": "xray_custom_rules"
           }
         }
       },
       {
-        "name": "sub_key_pem!: String",
+        "name": "xray_rule_order",
         "ordinal": 9,
         "type_info": "Text",
         "origin": {
           "Table": {
             "table": "panel_settings",
-            "name": "sub_key_pem"
+            "name": "xray_rule_order"
           }
         }
       }
@@ -130,5 +130,5 @@
       false
     ]
   },
-  "hash": "ba07ad5c74faa8911b7df0ef7ab098abbb65f0b2d31d8b82e944022bb9d968da"
+  "hash": "57046ca82046d2c3ea2c0889d74c397497e645277b048c28e4b55b3976a18992"
 }

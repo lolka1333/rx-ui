@@ -15,7 +15,8 @@
 
 use crate::models::RoutingRule;
 use crate::xray::config_gen::{
-    API_TAG, BootstrapSettings, SYSTEM_TOKENS, TAG_BLOCKED, TAG_DIRECT_IPV4, ordered_rule_tokens,
+    API_TAG, BootstrapSettings, SYSTEM_TOKENS, TAG_BLOCKED, TAG_DIRECT, TAG_DIRECT_IPV4,
+    ordered_rule_tokens,
 };
 use crate::xray::orchestrator::{build_domain_rules, build_ip_rules};
 use crate::xray::proto::xray::app::router::{
@@ -82,6 +83,16 @@ fn system_rule_proto(token: &str, s: &BootstrapSettings) -> anyhow::Result<Optio
         "ipv4" if !s.ipv4_domains.is_empty() => PbRule {
             domain: build_domain_rules(&s.ipv4_domains, true)?,
             target_tag: Some(tag(TAG_DIRECT_IPV4)),
+            ..PbRule::default()
+        },
+        "direct_domains" if !s.direct_domains.is_empty() => PbRule {
+            domain: build_domain_rules(&s.direct_domains, true)?,
+            target_tag: Some(tag(TAG_DIRECT)),
+            ..PbRule::default()
+        },
+        "direct_ips" if !s.direct_ips.is_empty() => PbRule {
+            ip: build_ip_rules(&s.direct_ips, true)?,
+            target_tag: Some(tag(TAG_DIRECT)),
             ..PbRule::default()
         },
         _ => return Ok(None),
@@ -181,6 +192,8 @@ mod tests {
             block_bittorrent: false,
             blocked_ips: Vec::new(),
             blocked_domains: Vec::new(),
+            direct_ips: Vec::new(),
+            direct_domains: Vec::new(),
             ipv4_domains: Vec::new(),
             has_reverse_bridge: false,
             custom_rules: custom,

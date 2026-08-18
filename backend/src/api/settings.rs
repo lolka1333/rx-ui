@@ -99,6 +99,7 @@ pub async fn load_panel_settings(db: &crate::db::DbPool) -> AppResult<PanelSetti
                 sub_brand_name, sub_service_url, sub_port,
                 xray_freedom_strategy, xray_routing_strategy, xray_test_url,
                 xray_block_bittorrent, xray_blocked_ips, xray_blocked_domains,
+                xray_direct_ips, xray_direct_domains,
                 xray_ipv4_domains, xray_custom_rules, xray_rule_order,
                 panel_tls_enabled, panel_tls_cert, panel_tls_key,
                 sub_tls_mode, sub_cert_pem, sub_key_pem
@@ -127,6 +128,8 @@ pub async fn load_panel_settings(db: &crate::db::DbPool) -> AppResult<PanelSetti
         xray_block_bittorrent: row.xray_block_bittorrent != 0,
         xray_blocked_ips: list(&row.xray_blocked_ips),
         xray_blocked_domains: list(&row.xray_blocked_domains),
+        xray_direct_ips: list(&row.xray_direct_ips),
+        xray_direct_domains: list(&row.xray_direct_domains),
         xray_ipv4_domains: list(&row.xray_ipv4_domains),
         xray_custom_rules,
         xray_rule_order: list(&row.xray_rule_order),
@@ -150,6 +153,8 @@ struct StoredPanel {
     rule_order: String,
     blocked_ips: String,
     blocked_domains: String,
+    direct_ips: String,
+    direct_domains: String,
     ipv4_domains: String,
     block_bittorrent: i64,
     panel_tls_key: String,
@@ -164,6 +169,8 @@ async fn read_stored_panel(db: &crate::db::DbPool) -> AppResult<StoredPanel> {
                   xray_rule_order      AS "rule_order!: String",
                   xray_blocked_ips     AS "blocked_ips!: String",
                   xray_blocked_domains AS "blocked_domains!: String",
+                  xray_direct_ips      AS "direct_ips!: String",
+                  xray_direct_domains  AS "direct_domains!: String",
                   xray_ipv4_domains    AS "ipv4_domains!: String",
                   xray_block_bittorrent,
                   panel_tls_key        AS "panel_tls_key!: String",
@@ -179,6 +186,8 @@ async fn read_stored_panel(db: &crate::db::DbPool) -> AppResult<StoredPanel> {
         rule_order: r.rule_order,
         blocked_ips: r.blocked_ips,
         blocked_domains: r.blocked_domains,
+        direct_ips: r.direct_ips,
+        direct_domains: r.direct_domains,
         ipv4_domains: r.ipv4_domains,
         block_bittorrent: r.xray_block_bittorrent,
         panel_tls_key: r.panel_tls_key,
@@ -203,10 +212,7 @@ async fn update_panel(
         xray_freedom_strategy,
         xray_routing_strategy,
         xray_test_url,
-        xray_block_bittorrent,
-        xray_blocked_ips,
-        xray_blocked_domains,
-        xray_ipv4_domains,
+        routing,
     } = validate_panel_update(&body)?;
     // The row as it stands, read once and shared by every helper below.
     let stored = read_stored_panel(&state.db).await?;
@@ -231,18 +237,11 @@ async fn update_panel(
     // Snapshot routing-relevant fields BEFORE the UPDATE, so we only hot-apply
     // routing when it actually changed. An unrelated save (brand / TLS / sub
     // port) must not touch the live router or risk a recovery restart.
-    let routing_changed = routing_fields_changed(
-        &stored,
-        &custom_rules_json,
-        &rule_order_json,
-        &xray_blocked_ips,
-        &xray_blocked_domains,
-        &xray_ipv4_domains,
-        xray_block_bittorrent,
-    );
+    let routing_changed =
+        routing_fields_changed(&stored, &routing, &custom_rules_json, &rule_order_json);
 
     let sub_enabled_i = i64::from(body.sub_enabled);
-    let xray_bittorrent_i = i64::from(xray_block_bittorrent);
+    let xray_bittorrent_i = i64::from(routing.block_bittorrent);
     sqlx::query!(
         "UPDATE panel_settings
             SET panel_port = ?,
@@ -260,6 +259,8 @@ async fn update_panel(
                 xray_block_bittorrent = ?,
                 xray_blocked_ips = ?,
                 xray_blocked_domains = ?,
+                xray_direct_ips = ?,
+                xray_direct_domains = ?,
                 xray_ipv4_domains = ?,
                 xray_custom_rules = ?,
                 xray_rule_order = ?,
@@ -284,9 +285,11 @@ async fn update_panel(
         xray_routing_strategy,
         xray_test_url,
         xray_bittorrent_i,
-        xray_blocked_ips,
-        xray_blocked_domains,
-        xray_ipv4_domains,
+        routing.blocked_ips,
+        routing.blocked_domains,
+        routing.direct_ips,
+        routing.direct_domains,
+        routing.ipv4_domains,
         custom_rules_json,
         rule_order_json,
         tls_enabled_i,
@@ -356,19 +359,21 @@ fn routing_body(
 /// values. Lets the caller skip the live-router push on unrelated saves.
 fn routing_fields_changed(
     stored: &StoredPanel,
+    routing: &XrayRouting,
     custom_rules_json: &str,
     rule_order_json: &str,
-    blocked_ips: &str,
-    blocked_domains: &str,
-    ipv4_domains: &str,
-    block_bittorrent: bool,
 ) -> bool {
     stored.custom_rules != custom_rules_json
         || stored.rule_order != rule_order_json
-        || stored.blocked_ips != blocked_ips
-        || stored.blocked_domains != blocked_domains
-        || stored.ipv4_domains != ipv4_domains
-        || (stored.block_bittorrent != 0) != block_bittorrent
+        || stored.blocked_ips != routing.blocked_ips
+        || stored.blocked_domains != routing.blocked_domains
+        // Without these two a saved direct list would sit in the database and
+        // change nothing until the next restart: this flag is what triggers the
+        // hot re-apply of the whole rule set.
+        || stored.direct_ips != routing.direct_ips
+        || stored.direct_domains != routing.direct_domains
+        || stored.ipv4_domains != routing.ipv4_domains
+        || (stored.block_bittorrent != 0) != routing.block_bittorrent
 }
 
 /// Rebind the sub + panel listeners after a settings write. The sub listener
@@ -497,11 +502,11 @@ struct NormalizedPanel {
     xray_freedom_strategy: String,
     xray_routing_strategy: String,
     xray_test_url: String,
-    xray_block_bittorrent: bool,
-    // The three match lists, cleaned + serialized as JSON arrays for storage.
-    xray_blocked_ips: String,
-    xray_blocked_domains: String,
-    xray_ipv4_domains: String,
+    /// The routing switch and its match lists, cleaned + serialised as JSON
+    /// arrays. Kept as one field rather than six flat ones: they travel
+    /// together into the UPDATE and into the change check, and six positional
+    /// strings is a swap the compiler cannot catch.
+    routing: XrayRouting,
 }
 
 /// Canonicalise the panel base path: empty OR leading-slash + no trailing
@@ -613,8 +618,7 @@ fn validate_panel_update(body: &PanelSettingsUpdate) -> AppResult<NormalizedPane
 
     let (xray_freedom_strategy, xray_routing_strategy, xray_test_url) =
         validate_xray_settings(body)?;
-    let (xray_block_bittorrent, xray_blocked_ips, xray_blocked_domains, xray_ipv4_domains) =
-        validate_xray_routing(body)?;
+    let routing = validate_xray_routing(body)?;
 
     Ok(NormalizedPanel {
         new_port,
@@ -626,10 +630,7 @@ fn validate_panel_update(body: &PanelSettingsUpdate) -> AppResult<NormalizedPane
         xray_freedom_strategy,
         xray_routing_strategy,
         xray_test_url,
-        xray_block_bittorrent,
-        xray_blocked_ips,
-        xray_blocked_domains,
-        xray_ipv4_domains,
+        routing,
     })
 }
 
@@ -664,13 +665,27 @@ fn validate_xray_settings(body: &PanelSettingsUpdate) -> AppResult<(String, Stri
 /// Validate the routing block (the "basic connections" lists + bittorrent
 /// toggle). Returns the toggle plus the three match lists, each cleaned and
 /// serialized as a JSON array string ready to bind into the UPDATE.
-fn validate_xray_routing(body: &PanelSettingsUpdate) -> AppResult<(bool, String, String, String)> {
-    Ok((
-        body.xray_block_bittorrent,
-        validate_match_list(&body.xray_blocked_ips, "xray_blocked_ips")?,
-        validate_match_list(&body.xray_blocked_domains, "xray_blocked_domains")?,
-        validate_match_list(&body.xray_ipv4_domains, "xray_ipv4_domains")?,
-    ))
+/// The routing match lists, validated and serialised. A struct rather than the
+/// tuple this used to be: six positional values of which five are `String` is a
+/// swap waiting to happen, and the compiler would not catch it.
+struct XrayRouting {
+    block_bittorrent: bool,
+    blocked_ips: String,
+    blocked_domains: String,
+    direct_ips: String,
+    direct_domains: String,
+    ipv4_domains: String,
+}
+
+fn validate_xray_routing(body: &PanelSettingsUpdate) -> AppResult<XrayRouting> {
+    Ok(XrayRouting {
+        block_bittorrent: body.xray_block_bittorrent,
+        blocked_ips: validate_match_list(&body.xray_blocked_ips, "xray_blocked_ips")?,
+        blocked_domains: validate_match_list(&body.xray_blocked_domains, "xray_blocked_domains")?,
+        direct_ips: validate_match_list(&body.xray_direct_ips, "xray_direct_ips")?,
+        direct_domains: validate_match_list(&body.xray_direct_domains, "xray_direct_domains")?,
+        ipv4_domains: validate_match_list(&body.xray_ipv4_domains, "xray_ipv4_domains")?,
+    })
 }
 
 /// Validate an optional bare-host field (hostname / IPv4 / bracketed IPv6):

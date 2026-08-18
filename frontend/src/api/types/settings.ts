@@ -116,6 +116,12 @@ xray_block_bittorrent: boolean,
  */
 xray_blocked_ips: Array<string>, xray_blocked_domains: Array<string>, 
 /**
+ * Matchers routed to the `direct` outbound — the mirror of the blocked
+ * pair above. Same syntax, opposite destination: these bypass the proxy
+ * chain instead of being blackholed.
+ */
+xray_direct_ips: Array<string>, xray_direct_domains: Array<string>, 
+/**
  * Domains forced out over IPv4 (routed to a freedom `UseIPv4` outbound).
  */
 xray_ipv4_domains: Array<string>, 
@@ -168,7 +174,7 @@ sub_key_set: boolean, };
  * allowlist, log level, etc.) may carry different validation than
  * the read response.
  */
-export type PanelSettingsUpdate = { panel_port: number, panel_base_path: string, sub_enabled: boolean, sub_host_override: string, sub_link_host: string, sub_update_interval_hours: number, sub_brand_name: string, sub_service_url: string, sub_port: number, xray_freedom_strategy: string, xray_routing_strategy: string, xray_test_url: string, xray_block_bittorrent: boolean, xray_blocked_ips: Array<string>, xray_blocked_domains: Array<string>, xray_ipv4_domains: Array<string>, xray_custom_rules: Array<RoutingRule>, xray_rule_order: Array<string>, panel_tls_enabled: boolean, panel_tls_cert: string, 
+export type PanelSettingsUpdate = { panel_port: number, panel_base_path: string, sub_enabled: boolean, sub_host_override: string, sub_link_host: string, sub_update_interval_hours: number, sub_brand_name: string, sub_service_url: string, sub_port: number, xray_freedom_strategy: string, xray_routing_strategy: string, xray_test_url: string, xray_block_bittorrent: boolean, xray_blocked_ips: Array<string>, xray_blocked_domains: Array<string>, xray_direct_ips: Array<string>, xray_direct_domains: Array<string>, xray_ipv4_domains: Array<string>, xray_custom_rules: Array<RoutingRule>, xray_rule_order: Array<string>, panel_tls_enabled: boolean, panel_tls_cert: string, 
 /**
  * New private key (PEM). Empty string ≡ keep the stored key — so saving any
  * other settings section doesn't wipe it and the key need only be pasted
@@ -206,6 +212,6 @@ name: string, domain: Array<string>, ip: Array<string>, source_ip: Array<string>
  * token added here. The list used to be two hand-written arrays, one per
  * language, each with a comment asking the next person to keep them in sync.
  */
-export type SystemToken = "api" | "bittorrent" | "blocked_domains" | "blocked_ips" | "ipv4";
+export type SystemToken = "api" | "bittorrent" | "blocked_domains" | "blocked_ips" | "ipv4" | "direct_domains" | "direct_ips";
 
 export type UserView = { id: string, username: string, is_admin: boolean, };

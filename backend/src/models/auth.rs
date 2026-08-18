@@ -99,6 +99,11 @@ pub struct PanelSettings {
     /// array in the DB; surfaced here as a list.
     pub xray_blocked_ips: Vec<String>,
     pub xray_blocked_domains: Vec<String>,
+    /// Matchers routed to the `direct` outbound — the mirror of the blocked
+    /// pair above. Same syntax, opposite destination: these bypass the proxy
+    /// chain instead of being blackholed.
+    pub xray_direct_ips: Vec<String>,
+    pub xray_direct_domains: Vec<String>,
     /// Domains forced out over IPv4 (routed to a freedom `UseIPv4` outbound).
     pub xray_ipv4_domains: Vec<String>,
     /// Operator-defined ordered routing rules, applied after the built-in ones.
@@ -152,6 +157,10 @@ pub struct PanelSettingsUpdate {
     pub xray_block_bittorrent: bool,
     pub xray_blocked_ips: Vec<String>,
     pub xray_blocked_domains: Vec<String>,
+    #[serde(default)]
+    pub xray_direct_ips: Vec<String>,
+    #[serde(default)]
+    pub xray_direct_domains: Vec<String>,
     pub xray_ipv4_domains: Vec<String>,
     #[serde(default)]
     pub xray_custom_rules: Vec<RoutingRule>,

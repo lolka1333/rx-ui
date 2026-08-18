@@ -52,6 +52,10 @@ pub struct BootstrapSettings {
     pub block_bittorrent: bool,
     pub blocked_ips: Vec<String>,
     pub blocked_domains: Vec<String>,
+    /// Routed to `direct` — the mirror of the blocked pair, same matcher
+    /// syntax, opposite destination.
+    pub direct_ips: Vec<String>,
+    pub direct_domains: Vec<String>,
     pub ipv4_domains: Vec<String>,
     /// Whether any enabled custom outbound is a reverse bridge (VLESS with a
     /// reverse tag). Bridges need `direct` to carry explicit `finalRules` —
@@ -79,17 +83,26 @@ pub enum SystemToken {
     BlockedDomains,
     BlockedIps,
     Ipv4,
+    DirectDomains,
+    DirectIps,
 }
 
 impl SystemToken {
     /// In their natural default order — the order `ordered_rule_tokens` falls
     /// back to for a token the saved order does not mention.
-    pub const ALL: [Self; 5] = [
+    /// The direct pair sits AFTER `Ipv4` on purpose. Rules are first-match, so
+    /// putting them earlier would take a domain that is in both the ipv4 list
+    /// and a direct list away from the forced-IPv4 outbound — silently changing
+    /// where existing installs send it. New tokens append; they never reorder
+    /// what an upgrade inherits.
+    pub const ALL: [Self; 7] = [
         Self::Api,
         Self::Bittorrent,
         Self::BlockedDomains,
         Self::BlockedIps,
         Self::Ipv4,
+        Self::DirectDomains,
+        Self::DirectIps,
     ];
 
     /// The wire spelling, which is what `rule_order` stores and what the
@@ -101,6 +114,8 @@ impl SystemToken {
             Self::BlockedDomains => "blocked_domains",
             Self::BlockedIps => "blocked_ips",
             Self::Ipv4 => "ipv4",
+            Self::DirectDomains => "direct_domains",
+            Self::DirectIps => "direct_ips",
         }
     }
 }
@@ -115,6 +130,8 @@ pub const SYSTEM_TOKENS: &[&str] = &[
     SystemToken::ALL[2].as_str(),
     SystemToken::ALL[3].as_str(),
     SystemToken::ALL[4].as_str(),
+    SystemToken::ALL[5].as_str(),
+    SystemToken::ALL[6].as_str(),
 ];
 
 /// The xray rule JSON for a system token, or `None` when that token is inactive
@@ -138,6 +155,12 @@ fn system_rule(token: &str, s: &BootstrapSettings) -> Option<Value> {
         "ipv4" if !s.ipv4_domains.is_empty() => Some(
             json!({ "type": "field", "domain": s.ipv4_domains, "outboundTag": TAG_DIRECT_IPV4 }),
         ),
+        "direct_domains" if !s.direct_domains.is_empty() => {
+            Some(json!({ "type": "field", "domain": s.direct_domains, "outboundTag": TAG_DIRECT }))
+        }
+        "direct_ips" if !s.direct_ips.is_empty() => {
+            Some(json!({ "type": "field", "ip": s.direct_ips, "outboundTag": TAG_DIRECT }))
+        }
         _ => None,
     }
 }
@@ -554,6 +577,8 @@ mod tests {
         let mut s = base(vec![], vec![]);
         s.blocked_domains = vec!["geosite:category-ads-all".into()];
         s.ipv4_domains = vec!["geosite:netflix".into()];
+        s.direct_ips = vec!["geoip:private".into()];
+        s.direct_domains = vec!["geosite:category-gov-ru".into()];
         for token in SYSTEM_TOKENS {
             assert!(
                 system_rule(token, &s).is_some(),
@@ -600,6 +625,8 @@ mod tests {
             block_bittorrent: true,
             blocked_ips: vec![],
             blocked_domains: vec![],
+            direct_ips: Vec::new(),
+            direct_domains: Vec::new(),
             ipv4_domains: vec![],
             has_reverse_bridge: false,
             custom_rules: vec![RoutingRule {
@@ -681,6 +708,8 @@ mod tests {
             block_bittorrent: true,
             blocked_ips: vec!["10.0.0.0/8".into()],
             blocked_domains: vec![],
+            direct_ips: Vec::new(),
+            direct_domains: Vec::new(),
             has_reverse_bridge: false,
             ipv4_domains: vec![],
             custom_rules,
@@ -866,6 +895,8 @@ mod tests {
             block_bittorrent: true,
             blocked_ips: vec!["geoip:cn".into(), "192.168.0.0/16".into()],
             blocked_domains: vec!["geosite:category-ads-all".into(), "ads.example.com".into()],
+            direct_ips: Vec::new(),
+            direct_domains: Vec::new(),
             ipv4_domains: vec!["geosite:netflix".into()],
             has_reverse_bridge: false,
             custom_rules: vec![r1, r2, r3, rule("r4", false, "blocked")],

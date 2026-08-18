@@ -125,6 +125,7 @@ pub async fn load_bootstrap_settings(
     let row = sqlx::query!(
         "SELECT xray_freedom_strategy, xray_routing_strategy, xray_block_bittorrent,
                 xray_blocked_ips, xray_blocked_domains, xray_ipv4_domains,
+                xray_direct_ips, xray_direct_domains,
                 xray_custom_rules, xray_rule_order
             FROM panel_settings WHERE id = 1"
     )
@@ -153,6 +154,8 @@ pub async fn load_bootstrap_settings(
         block_bittorrent: row.xray_block_bittorrent != 0,
         blocked_ips: parse(&row.xray_blocked_ips),
         blocked_domains: parse(&row.xray_blocked_domains),
+        direct_ips: parse(&row.xray_direct_ips),
+        direct_domains: parse(&row.xray_direct_domains),
         ipv4_domains: parse(&row.xray_ipv4_domains),
         has_reverse_bridge,
         custom_rules,

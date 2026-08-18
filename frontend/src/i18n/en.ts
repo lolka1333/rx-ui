@@ -108,6 +108,12 @@ export const en: Dict = {
     xrayBlockedIpsHint: 'Drop traffic to these IPs/CIDRs and geoip matchers (geoip:cn).',
     xrayBlockedDomains: 'Blocked domains',
     xrayBlockedDomainsHint: 'Drop traffic to these domains and geosite matchers (geosite:category-ads-all).',
+    xrayDirectIps: 'Direct IPs',
+    xrayDirectIpsHint:
+      'Go straight out, bypassing the tunnel: local networks, your own country, banks. Evaluated after the blocked lists.',
+    xrayDirectDomains: 'Direct domains',
+    xrayDirectDomainsHint:
+      'The same for domains. Accepts geosite:, ext:file.dat:tag and plain domains.',
     xrayIpv4Domains: 'IPv4-only domains',
     xrayIpv4DomainsHint: 'Force IPv4 egress for these domains — domains only, no IPs or subnets.',
     xrayListPlaceholder: 'Entry + Enter (or paste a comma-separated list)',
