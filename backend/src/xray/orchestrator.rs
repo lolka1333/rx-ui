@@ -302,11 +302,32 @@ pub(super) fn build_domain_rules(
 pub(super) fn build_one_domain_rule(raw: &str, allow_geo: bool) -> anyhow::Result<DomainRule> {
     let r = raw.trim();
     anyhow::ensure!(!r.is_empty(), "empty domain rule");
-    if let Some(spec) = r.strip_prefix("geosite:") {
+    // `geosite:CODE` is literally shorthand: xray's own parser rewrites it to
+    // `ext:geosite.dat:CODE` before doing anything else
+    // (`common/geodata/rule_parser.go`). Doing the same here means one code path
+    // builds both, and an `ext:` matcher — a rules repository shipping
+    // `geosite_RU.dat` next to the default — stops being a thing the JSON
+    // bootstrap accepts and the hot-apply path refuses.
+    let ext_spec = r
+        .strip_prefix("geosite:")
+        .map(|spec| format!("{DEFAULT_GEOSITE_DAT}:{spec}"))
+        .or_else(|| {
+            ["ext:", "ext-domain:", "ext-site:"]
+                .iter()
+                .find_map(|p| r.strip_prefix(p))
+                .map(str::to_owned)
+        });
+    if let Some(spec) = ext_spec {
         anyhow::ensure!(
             allow_geo,
             "geosite/ext domain rules aren't supported here: {r}"
         );
+        // `file:CODE[@attr]` — split the file off first, mirroring
+        // `parseGeoSiteRule`.
+        let (file, spec) = spec
+            .split_once(':')
+            .ok_or_else(|| anyhow::anyhow!("geo domain rule needs file:code — {r}"))?;
+        anyhow::ensure!(!file.is_empty(), "empty geo file: {r}");
         // Mirror xray's parseGeoSiteRule: reject an empty attr (trailing `@`
         // or `@@`) before splitting.
         anyhow::ensure!(
@@ -318,16 +339,12 @@ pub(super) fn build_one_domain_rule(raw: &str, allow_geo: bool) -> anyhow::Resul
         anyhow::ensure!(!code.is_empty(), "empty geosite code: {r}");
         return Ok(DomainRule {
             value: Some(domain_rule::Value::Geosite(GeoSiteRule {
-                file: DEFAULT_GEOSITE_DAT.to_owned(),
+                file: file.to_owned(),
                 code: code.to_uppercase(),
                 attrs: attrs.to_lowercase(),
             })),
         });
     }
-    anyhow::ensure!(
-        !(r.starts_with("ext:") || r.starts_with("ext-domain:") || r.starts_with("ext-site:")),
-        "ext domain rules aren't supported: {r}"
-    );
     let (ty, value) = if let Some(v) = r.strip_prefix("regexp:") {
         (DomainType::Regex, v.to_owned())
     } else if let Some(v) = r.strip_prefix("domain:") {
@@ -384,24 +401,38 @@ pub(super) fn build_one_ip_rule(raw: &str, allow_geo: bool) -> anyhow::Result<Ip
     let trimmed = raw.trim();
     anyhow::ensure!(!trimmed.is_empty(), "empty ip rule");
     let (s, mut reverse) = cut_reverse_prefix(trimmed);
-    if let Some(code) = s.strip_prefix("geoip:") {
+    // Same shorthand as the domain side: xray rewrites `geoip:CODE` to
+    // `ext:geoip.dat:CODE` before parsing, so both spellings build the same
+    // rule here and a matcher pointing at a second dat file (`geoip_RU.dat`,
+    // shipped by several rules repositories) works on the hot-apply path too,
+    // not only through the JSON bootstrap.
+    let ext_spec = s
+        .strip_prefix("geoip:")
+        .map(|code| format!("{DEFAULT_GEOIP_DAT}:{code}"))
+        .or_else(|| {
+            ["ext:", "ext-ip:"]
+                .iter()
+                .find_map(|p| s.strip_prefix(p))
+                .map(str::to_owned)
+        });
+    if let Some(spec) = ext_spec {
         anyhow::ensure!(allow_geo, "geoip/ext ip rules aren't supported here: {raw}");
+        let (file, code) = spec
+            .split_once(':')
+            .ok_or_else(|| anyhow::anyhow!("geo ip rule needs file:code — {raw}"))?;
+        anyhow::ensure!(!file.is_empty(), "empty geo file: {raw}");
         // xray applies cutReversePrefix a second time to the code (`geoip:!cn`).
         let (code, inner_rev) = cut_reverse_prefix(code);
         reverse ^= inner_rev;
         anyhow::ensure!(!code.is_empty(), "empty geoip code: {raw}");
         return Ok(IpRule {
             value: Some(ip_rule::Value::Geoip(GeoIpRule {
-                file: DEFAULT_GEOIP_DAT.to_owned(),
+                file: file.to_owned(),
                 code: code.to_uppercase(),
                 reverse_match: reverse,
             })),
         });
     }
-    anyhow::ensure!(
-        !(s.starts_with("ext:") || s.starts_with("ext-ip:")),
-        "ext ip rules aren't supported: {raw}"
-    );
     Ok(IpRule {
         value: Some(ip_rule::Value::Custom(CidrRule {
             cidr: Some(parse_cidr(s)?),
