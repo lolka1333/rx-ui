@@ -356,8 +356,12 @@ fn spawn_pipe_reader<R: AsyncReadSend>(pipe: R, logs: LogBuffer, fallback_level:
 }
 
 /// Convert one xray output line into a `LogEntry`. xray prints lines like:
-///   2026/05/15 07:52:55 [Warning] core: Xray 26.4.25 started            (system)
-///   2026/05/15 07:52:55.123456 from 1.2.3.4:5 accepted tcp:x [in >> out] (access)
+///
+/// ```text
+/// 2026/05/15 07:52:55 [Warning] core: Xray 26.4.25 started            (system)
+/// 2026/05/15 07:52:55.123456 from 1.2.3.4:5 accepted tcp:x [in >> out] (access)
+/// ```
+///
 /// Both carry xray's own timestamp; we strip it unconditionally — our
 /// `LogEntry.timestamp` is the authoritative one — so the UI never shows two
 /// (often differently-zoned) clocks per line. The level comes from a leading

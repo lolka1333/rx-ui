@@ -899,7 +899,7 @@ async fn get_one(
 /// dials in, so it must satisfy the SAME rules as a custom outbound tag — not
 /// reserved, no whitespace/control chars, and no collision with an existing
 /// custom outbound tag (a collision makes every bridge dial-in fail at runtime
-/// with "outbound <tag> is not type Reverse"). Shared by every write path so
+/// with `outbound <tag> is not type Reverse`). Shared by every write path so
 /// the stored tag is always trimmed-non-empty-and-valid, or NULL.
 async fn normalize_reverse_tag(state: &AppState, raw: Option<&str>) -> AppResult<Option<String>> {
     let Some(tag) = raw.map(str::trim).filter(|s| !s.is_empty()) else {
