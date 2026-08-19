@@ -395,7 +395,7 @@ export function Inbounds() {
         styles={{
           // `scrollbar-gutter: stable` reserves a fixed-width gutter for
           // the scrollbar. Antd v6's modal body has `padding: 0` by
-          // default (the content padding sits on `.ant-modal-content`
+          // default (the content padding sits on `.ant-modal-container`
           // instead), so the gutter ends up flush against the rightmost
           // inputs. Explicit body padding gives the scrollbar visible
           // breathing room from form controls on Windows/Linux native

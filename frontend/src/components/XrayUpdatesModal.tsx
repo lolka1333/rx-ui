@@ -385,8 +385,10 @@ export function XrayUpdatesModal({ open, onClose, currentVersion }: Props) {
 
         @media (max-width: 575px) {
           /* Snap-to-edge feel for the modal on phones (antd v6 doesn't expose
-             a styles.content slot, so we override by wrapper class). */
-          .app-modal-fullscreen .ant-modal-content {
+             a styles.content slot, so we override by wrapper class). Antd 6
+             renamed that class from ant-modal-content to ant-modal-container;
+             under the old name this rule matched nothing at all. */
+          .app-modal-fullscreen .ant-modal-container {
             border-radius: 0 !important;
             min-height: 100dvh;
           }
