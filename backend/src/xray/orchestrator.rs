@@ -299,6 +299,20 @@ pub(super) fn build_domain_rules(
         .collect()
 }
 
+/// Accept exactly the matcher spellings the core's parser accepts, throwing the
+/// built rule away. The `dns` section has no hot-apply path to report a bad
+/// matcher on, and a `dns` block the core refuses takes the entire config with
+/// it — so `api::settings` checks these at save time, through the very builders
+/// the routing rules go through, rather than at the next start.
+pub fn check_domain_matcher(raw: &str) -> anyhow::Result<()> {
+    build_one_domain_rule(raw, true).map(drop)
+}
+
+/// The IP-side twin of [`check_domain_matcher`].
+pub fn check_ip_matcher(raw: &str) -> anyhow::Result<()> {
+    build_one_ip_rule(raw, true).map(drop)
+}
+
 pub(super) fn build_one_domain_rule(raw: &str, allow_geo: bool) -> anyhow::Result<DomainRule> {
     let r = raw.trim();
     anyhow::ensure!(!r.is_empty(), "empty domain rule");
