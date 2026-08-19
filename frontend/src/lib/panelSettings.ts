@@ -3,7 +3,7 @@
 //! a full PUT body without importing a component module (which would trip
 //! react-refresh's only-export-components rule).
 
-import type { PanelSettings, PanelSettingsUpdate, RoutingRule } from '@/api/types';
+import type { DnsHost, DnsServer, PanelSettings, PanelSettingsUpdate, RoutingRule } from '@/api/types';
 
 /** Fallback values for the subscription side of `PanelSettings`, mirroring the
  *  backend column defaults in `backend/migrations/0024_subscription_settings.sql`,
@@ -34,6 +34,18 @@ const XRAY_DEFAULTS = {
   xray_direct_domains: [] as string[],
   xray_blocked_domains: [] as string[],
   xray_ipv4_domains: [] as string[],
+  xray_dns_servers: [] as DnsServer[],
+  xray_dns_hosts: [] as DnsHost[],
+  xray_dns_query_strategy: 'UseIP',
+  xray_dns_client_ip: '',
+  xray_dns_tag: '',
+  xray_dns_disable_cache: false,
+  xray_dns_disable_fallback: false,
+  xray_dns_disable_fallback_if_match: false,
+  xray_dns_parallel_query: false,
+  xray_dns_use_system_hosts: false,
+  xray_dns_serve_stale: false,
+  xray_dns_serve_expired_ttl: 0,
   xray_custom_rules: [] as RoutingRule[],
   xray_rule_order: [] as string[],
 } as const;
@@ -78,6 +90,26 @@ export function mergePanelSettings(
     xray_direct_domains: current?.xray_direct_domains ?? XRAY_DEFAULTS.xray_direct_domains,
     xray_blocked_domains: current?.xray_blocked_domains ?? XRAY_DEFAULTS.xray_blocked_domains,
     xray_ipv4_domains: current?.xray_ipv4_domains ?? XRAY_DEFAULTS.xray_ipv4_domains,
+    xray_dns_servers: current?.xray_dns_servers ?? XRAY_DEFAULTS.xray_dns_servers,
+    xray_dns_hosts: current?.xray_dns_hosts ?? XRAY_DEFAULTS.xray_dns_hosts,
+    xray_dns_query_strategy:
+      current?.xray_dns_query_strategy || XRAY_DEFAULTS.xray_dns_query_strategy,
+    xray_dns_client_ip: current?.xray_dns_client_ip ?? XRAY_DEFAULTS.xray_dns_client_ip,
+    xray_dns_tag: current?.xray_dns_tag ?? XRAY_DEFAULTS.xray_dns_tag,
+    xray_dns_disable_cache:
+      current?.xray_dns_disable_cache ?? XRAY_DEFAULTS.xray_dns_disable_cache,
+    xray_dns_disable_fallback:
+      current?.xray_dns_disable_fallback ?? XRAY_DEFAULTS.xray_dns_disable_fallback,
+    xray_dns_disable_fallback_if_match:
+      current?.xray_dns_disable_fallback_if_match ??
+      XRAY_DEFAULTS.xray_dns_disable_fallback_if_match,
+    xray_dns_parallel_query:
+      current?.xray_dns_parallel_query ?? XRAY_DEFAULTS.xray_dns_parallel_query,
+    xray_dns_use_system_hosts:
+      current?.xray_dns_use_system_hosts ?? XRAY_DEFAULTS.xray_dns_use_system_hosts,
+    xray_dns_serve_stale: current?.xray_dns_serve_stale ?? XRAY_DEFAULTS.xray_dns_serve_stale,
+    xray_dns_serve_expired_ttl:
+      current?.xray_dns_serve_expired_ttl ?? XRAY_DEFAULTS.xray_dns_serve_expired_ttl,
     xray_custom_rules: current?.xray_custom_rules ?? XRAY_DEFAULTS.xray_custom_rules,
     xray_rule_order: current?.xray_rule_order ?? XRAY_DEFAULTS.xray_rule_order,
     panel_tls_enabled: current?.panel_tls_enabled ?? TLS_DEFAULTS.panel_tls_enabled,

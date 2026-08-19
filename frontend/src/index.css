@@ -49,5 +49,7 @@
 /* Geofiles block in the Xray-updates modal: reuses the settings row grid,
    declares only its own rhythm and the modal-width adjustments. */
 @import './styles/settings/geofiles.css';
+/* DNS tab: the name-server list and the static-answers editor. */
+@import './styles/settings/dns.css';
 /* The live xray status dot. */
 @import './styles/status.css';

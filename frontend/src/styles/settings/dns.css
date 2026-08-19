@@ -1,0 +1,426 @@
+/* DNS tab: the server table, the static-answers rows and the behaviour strip.
+ *
+ * The tab is deliberately NOT built from the page's two-column field rows. A
+ * row with a paragraph beside every control is right for four settings and
+ * wrong for fourteen — the resolver's six switches ran six paragraphs deep and
+ * pushed the server list, the only thing an operator opens this tab for, below
+ * the fold. Here the prose lives in tooltips and the geometry is a table. */
+
+.app-dns {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.app-dns-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Section heading, its one-line subtitle, and the section's own action pushed
+   to the far edge — the same shape the routing tab's rule list uses. */
+.app-dns-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.app-dns-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3, #8a94a6);
+}
+.app-dns-head .ant-btn {
+  margin-left: auto;
+}
+.app-dns-sub {
+  font-size: 12px;
+  color: var(--text-3, #8a94a6);
+}
+/* Inside a cell the same line has a column to fit into, so it clips like the
+   address above it rather than wrapping the row taller than its neighbours. */
+.app-dns-cell .app-dns-sub {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.app-dns-empty {
+  font-size: 12.5px;
+  opacity: 0.5;
+  padding: 2px 0 4px;
+}
+
+/* ── The table ─────────────────────────────────────────────────────────── */
+
+.app-dns-table {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+/* Every data column is proportional with a floor. Fixed widths plus one `1fr`
+   looked right and wasn't: at panel width the fixed ones ate the row and the
+   flexible column — the domains, the whole point of the table — collapsed to
+   zero, so its chips spilled over its neighbours. */
+.app-dns-tr {
+  display: grid;
+  grid-template-columns:
+    26px minmax(140px, 1.5fr) minmax(120px, 1.7fr)
+    minmax(92px, 1.05fr) minmax(74px, 0.75fr) 32px;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 14px;
+  min-height: 42px;
+}
+.app-dns-tr + .app-dns-tr {
+  border-top: 1px solid var(--border);
+}
+
+/* Column names, not data: quieter than everything under them. */
+.app-dns-th > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.app-dns-th {
+  padding-block: 8px;
+  background: rgba(0, 0, 0, 0.16);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3, #8a94a6);
+}
+[data-theme='light'] .app-dns-th {
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.app-dns-num {
+  font-size: 12px;
+  color: var(--text-3, #8a94a6);
+  font-variant-numeric: tabular-nums;
+}
+.app-dns-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+/* The address row: the transport is secondary, so it is the part that gives up
+   width when the column is tight. */
+.app-dns-cell-addr {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 8px;
+}
+.app-dns-cell-addr .app-dns-addr {
+  flex: 0 1 auto;
+}
+.app-dns-cell-addr .app-dns-sub {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+/* One line, clipped: a DoH URL wrapped mid-token turned the row into three
+   lines of broken text for no gain — the tail is the least informative part,
+   the whole value is on hover and in the edit sheet. */
+.app-dns-addr {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.app-dns-port,
+.app-dns-muted {
+  color: var(--text-3, #8a94a6);
+}
+.app-dns-dash {
+  color: var(--text-3, #8a94a6);
+  opacity: 0.6;
+}
+.app-dns-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.app-dns-tags .ant-tag {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.app-dns-tr .ant-dropdown-trigger {
+  justify-self: end;
+}
+
+/* Static answers ride the same table, two editable cells per row. The inputs
+   are borderless so the row reads as a row; the edge shows up on hover and
+   focus, which is when it means something. */
+.app-dns-hr-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1.2fr) 32px;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+}
+.app-dns-hr-row + .app-dns-hr-row {
+  border-top: 1px solid var(--border);
+}
+.app-dns-arrow {
+  text-align: center;
+  opacity: 0.4;
+}
+/* The values control never opens a list (its options ARE what you type), so
+   its dropdown arrow only promised something that never happens. */
+.app-dns-hr-row .ant-select-arrow {
+  display: none;
+}
+.app-dns-host-key input,
+.app-dns-hr-row .ant-select-selection-item,
+.app-dns-hr-row .ant-select-selection-search-input {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+.app-dns-hr-row .ant-input:hover,
+.app-dns-hr-row .ant-select:hover .ant-select-selector {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+}
+[data-theme='light'] .app-dns-hr-row .ant-input:hover,
+[data-theme='light'] .app-dns-hr-row .ant-select:hover .ant-select-selector {
+  background: rgba(15, 23, 42, 0.04);
+}
+
+/* ── Behaviour: one card, not six rows ─────────────────────────────────── */
+
+.app-dns-behaviour {
+  background: var(--surface-2);
+  border-radius: 12px;
+  padding: 13px 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.app-dns-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+/* A chip is a labelled value that happens to be editable: the name stays
+   muted, the control carries no frame of its own, and the chip's own border is
+   the only edge. */
+.app-dns-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  min-height: 32px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+/* The two free-text chips take the row's leftover width instead of leaving
+   half of it blank on a wide screen — and an address or a tag is exactly the
+   kind of value that benefits from room to type. */
+.app-dns-chip-grow {
+  flex: 1 1 220px;
+  max-width: 460px;
+}
+.app-dns-chip-grow .ant-input {
+  min-width: 0;
+}
+.app-dns-chip:focus-within {
+  border-color: var(--border-strong, #2a3a5c);
+}
+.app-dns-chip-name {
+  font-size: 12px;
+  color: var(--text-3, #8a94a6);
+  white-space: nowrap;
+  /* The tooltip lives on the name, so say so the way the rest of the panel
+     does — a help cursor, not a text caret. */
+  cursor: help;
+}
+.app-dns-chip .ant-select,
+.app-dns-chip .ant-input-number {
+  min-width: 74px;
+}
+.app-dns-chip .ant-input {
+  min-width: 132px;
+}
+.app-dns-chip .ant-input,
+.app-dns-chip .ant-input-number-input,
+.app-dns-chip .ant-select-selection-item {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+.app-dns-chip .ant-select-selection-item {
+  font-family: inherit;
+}
+
+.app-dns-rule {
+  height: 1px;
+  background: var(--border);
+}
+
+/* Three columns that share the whole width, so the items sit across the card
+   instead of bunching at its left edge — which is what made the block look
+   empty on a wide screen even after the switches moved next to their names.
+   Stretching costs nothing now: the item is switch-then-name, so the slack
+   lands after the text, where there is nothing to push apart.
+   Six in a single row was the other candidate and loses: at that width the
+   longest name wraps to two lines and takes the row with it. */
+.app-dns-switches {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px 26px;
+}
+.app-dns-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 24px;
+}
+.app-dns-switch-name {
+  font-size: 13px;
+  color: var(--text-2, #94a3b8);
+  cursor: help;
+}
+
+/* ── Narrow ────────────────────────────────────────────────────────────── */
+
+@media (max-width: 1000px) {
+  /* No columns to keep, so the row stops being a grid: everything runs on one
+     line and wraps only when it has to. Stacking the cells instead gave a
+     plain server four lines — address, transport, "everything else", and a
+     blank one where its absent filter used to be. */
+  /* Written with both classes: the header IS a row, so a bare `.app-dns-th`
+     loses to the `.app-dns-tr` rule below it and the strip stayed on screen
+     labelling columns that no longer exist. */
+  .app-dns-tr.app-dns-th {
+    display: none;
+  }
+  .app-dns-tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 9px;
+    row-gap: 5px;
+    padding: 9px 12px;
+  }
+  .app-dns-cell {
+    flex: 0 1 auto;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 7px;
+    max-width: 100%;
+  }
+  /* Without its column a dash says nothing — it only added an empty line per
+     value the operator never set. */
+  .app-dns-cell:has(> .app-dns-dash) {
+    display: none;
+  }
+  /* The transport line joins the address instead of sitting under it. */
+  .app-dns-cell .app-dns-sub::before,
+  .app-dns-muted::before {
+    content: '·';
+    margin-right: 7px;
+    opacity: 0.5;
+  }
+  .app-dns-tr .ant-dropdown-trigger {
+    margin-left: auto;
+  }
+  .app-dns-switches {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 620px) {
+  .app-dns-switches {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .app-dns-hr-row {
+    grid-template-columns: minmax(0, 1fr) 32px;
+  }
+  .app-dns-arrow {
+    display: none;
+  }
+  .app-dns-hr-row .app-dns-host-values {
+    grid-column: 1 / 2;
+  }
+}
+
+/* ── The server dialog ─────────────────────────────────────────────────── */
+
+/* Tabs inside the dialog, the way the inbound dialog does it: ten fields in one
+   column made this 888px tall — taller than most screens, and always
+   scrolling. */
+.app-dns-form-tabs .ant-tabs-nav {
+  margin-bottom: 14px;
+}
+
+/* Fields that describe one thing share a row. */
+.app-dns-form-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 116px;
+  gap: 12px;
+}
+.app-dns-form-duo {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+/* A switch and its name on one line, with the explanation under the name —
+   antd's vertical layout put the label above and the switch below, which cost
+   two rows and read as two separate things. */
+.app-dns-form-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.app-dns-form-switch-name {
+  display: block;
+  font-size: 13.5px;
+}
+.app-dns-form-switch-desc {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-3, #8a94a6);
+}
+
+/* How many fields the hidden tab carries. A tab's whole cost is that its
+   values are invisible; this is what pays it back. */
+.app-dns-tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.app-dns-tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent, #6366f1);
+  color: #fff;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 560px) {
+  .app-dns-form-pair,
+  .app-dns-form-duo {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

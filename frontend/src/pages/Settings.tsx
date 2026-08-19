@@ -25,6 +25,7 @@ import {
 import type { FormInstance, SelectProps, SwitchProps } from 'antd';
 import {
   BranchesOutlined,
+  GlobalOutlined,
   CheckOutlined,
   ClockCircleOutlined,
   CloseOutlined,
@@ -59,11 +60,13 @@ import {
   GEO_PRESET_BY_VALUE,
   type GeoPreset,
 } from '@/lib/geoPresets';
+import { DnsTab } from '@/components/DnsTab';
 import { mergePanelSettings } from '@/lib/panelSettings';
 import { pemRule } from '@/lib/pem';
 import { reportRouting } from '@/lib/routingReport';
 import type { RoutingApplyResult } from '@/lib/routingReport';
 import { RoutingRulesField } from '@/components/RoutingRulesField';
+import type { DnsHost, DnsServer } from '@/api/types/settings';
 
 type SectionKey = 'account' | 'access' | 'subscription' | 'xray' | 'tls';
 
@@ -204,7 +207,7 @@ function useSectionDirtyPublish<V>({
  * always-mounted by AdminApp, revealed when `current` is a `settings-*` page.
  */
 /** The two panes of the Xray settings page. */
-type XrayTab = 'basic' | 'routing';
+type XrayTab = 'basic' | 'routing' | 'dns';
 
 export function Settings({ section }: { section: SectionKey }) {
   const { t } = useTranslation();
@@ -1837,6 +1840,18 @@ interface XrayFormValues {
   xray_direct_ips: string[];
   xray_direct_domains: string[];
   xray_ipv4_domains: string[];
+  xray_dns_servers: DnsServer[];
+  xray_dns_hosts: DnsHost[];
+  xray_dns_query_strategy: string;
+  xray_dns_client_ip: string;
+  xray_dns_tag: string;
+  xray_dns_disable_cache: boolean;
+  xray_dns_disable_fallback: boolean;
+  xray_dns_disable_fallback_if_match: boolean;
+  xray_dns_parallel_query: boolean;
+  xray_dns_use_system_hosts: boolean;
+  xray_dns_serve_stale: boolean;
+  xray_dns_serve_expired_ttl: number;
   xray_custom_rules: RoutingRule[];
   xray_rule_order: string[];
 }
@@ -1979,6 +1994,18 @@ function XraySection({
           xray_direct_ips: values.xray_direct_ips,
           xray_direct_domains: values.xray_direct_domains,
           xray_ipv4_domains: values.xray_ipv4_domains,
+          xray_dns_servers: values.xray_dns_servers,
+          xray_dns_hosts: values.xray_dns_hosts,
+          xray_dns_query_strategy: values.xray_dns_query_strategy,
+          xray_dns_client_ip: values.xray_dns_client_ip,
+          xray_dns_tag: values.xray_dns_tag,
+          xray_dns_disable_cache: values.xray_dns_disable_cache,
+          xray_dns_disable_fallback: values.xray_dns_disable_fallback,
+          xray_dns_disable_fallback_if_match: values.xray_dns_disable_fallback_if_match,
+          xray_dns_parallel_query: values.xray_dns_parallel_query,
+          xray_dns_use_system_hosts: values.xray_dns_use_system_hosts,
+          xray_dns_serve_stale: values.xray_dns_serve_stale,
+          xray_dns_serve_expired_ttl: values.xray_dns_serve_expired_ttl,
           xray_custom_rules: values.xray_custom_rules,
           xray_rule_order: values.xray_rule_order,
         }),
@@ -1998,7 +2025,22 @@ function XraySection({
       const restartNeeded =
         old != null &&
         (values.xray_freedom_strategy !== old.xray_freedom_strategy ||
-          values.xray_routing_strategy !== old.xray_routing_strategy);
+          values.xray_routing_strategy !== old.xray_routing_strategy ||
+          // The core exposes no DNS service on its gRPC API, so every field of
+          // the resolver lives in the config file only until the next load.
+          JSON.stringify(values.xray_dns_servers) !==
+            JSON.stringify(old.xray_dns_servers ?? []) ||
+          JSON.stringify(values.xray_dns_hosts) !== JSON.stringify(old.xray_dns_hosts ?? []) ||
+          values.xray_dns_query_strategy !== old.xray_dns_query_strategy ||
+          values.xray_dns_client_ip !== old.xray_dns_client_ip ||
+          values.xray_dns_tag !== old.xray_dns_tag ||
+          values.xray_dns_disable_cache !== old.xray_dns_disable_cache ||
+          values.xray_dns_disable_fallback !== old.xray_dns_disable_fallback ||
+          values.xray_dns_disable_fallback_if_match !== old.xray_dns_disable_fallback_if_match ||
+          values.xray_dns_parallel_query !== old.xray_dns_parallel_query ||
+          values.xray_dns_use_system_hosts !== old.xray_dns_use_system_hosts ||
+          values.xray_dns_serve_stale !== old.xray_dns_serve_stale ||
+          values.xray_dns_serve_expired_ttl !== old.xray_dns_serve_expired_ttl);
       const appliedLive =
         old != null &&
         (values.xray_block_bittorrent !== old.xray_block_bittorrent ||
@@ -2117,6 +2159,18 @@ function XraySection({
             xray_direct_ips: data.xray_direct_ips,
             xray_direct_domains: data.xray_direct_domains,
             xray_ipv4_domains: data.xray_ipv4_domains,
+            xray_dns_servers: data.xray_dns_servers ?? [],
+            xray_dns_hosts: data.xray_dns_hosts ?? [],
+            xray_dns_query_strategy: data.xray_dns_query_strategy || 'UseIP',
+            xray_dns_client_ip: data.xray_dns_client_ip ?? '',
+            xray_dns_tag: data.xray_dns_tag ?? '',
+            xray_dns_disable_cache: data.xray_dns_disable_cache ?? false,
+            xray_dns_disable_fallback: data.xray_dns_disable_fallback ?? false,
+            xray_dns_disable_fallback_if_match: data.xray_dns_disable_fallback_if_match ?? false,
+            xray_dns_parallel_query: data.xray_dns_parallel_query ?? false,
+            xray_dns_use_system_hosts: data.xray_dns_use_system_hosts ?? false,
+            xray_dns_serve_stale: data.xray_dns_serve_stale ?? false,
+            xray_dns_serve_expired_ttl: data.xray_dns_serve_expired_ttl ?? 0,
             xray_custom_rules: data.xray_custom_rules ?? [],
             xray_rule_order: data.xray_rule_order ?? [],
           } : {}),
@@ -2141,6 +2195,18 @@ function XraySection({
             data.xray_direct_ips,
             data.xray_direct_domains,
             data.xray_ipv4_domains,
+            data.xray_dns_servers ?? [],
+            data.xray_dns_hosts ?? [],
+            data.xray_dns_query_strategy,
+            data.xray_dns_client_ip,
+            data.xray_dns_tag,
+            data.xray_dns_disable_cache,
+            data.xray_dns_disable_fallback,
+            data.xray_dns_disable_fallback_if_match,
+            data.xray_dns_parallel_query,
+            data.xray_dns_use_system_hosts,
+            data.xray_dns_serve_stale,
+            data.xray_dns_serve_expired_ttl,
             data.xray_custom_rules ?? [],
             data.xray_rule_order ?? [],
           ])}
@@ -2421,6 +2487,13 @@ function XraySection({
                   </Form.Item>
                   </>
                 ),
+              },
+              {
+                key: 'dns',
+                forceRender: true,
+                label: t('settings.xrayTabDns'),
+                icon: <GlobalOutlined />,
+                children: <DnsTab />,
               },
             ]}
           />
