@@ -89,6 +89,9 @@ function displayAddress(address: string): string {
   return m ? m[1] : address;
 }
 
+/** `editing` while the dialog holds a server that is not in the list yet. */
+const NEW = -1;
+
 interface Props {
   value?: DnsServer[];
   onChange?: (next: DnsServer[]) => void;
@@ -109,10 +112,10 @@ export function DnsServersField({ value, onChange }: Props) {
     commit(next);
   };
 
-  const add = () => {
-    commit([...list, emptyDnsServer()]);
-    setEditing(list.length);
-  };
+  // Adding used to append an empty server and then open the dialog on it, so
+  // pressing Cancel left a nameless row behind — click the button five times,
+  // get five of them. Nothing is committed until Save now.
+  const add = () => setEditing(NEW);
 
   return (
     <section className="app-dns-section">
@@ -239,16 +242,23 @@ export function DnsServersField({ value, onChange }: Props) {
         </div>
       )}
 
-      {editing !== null && list[editing] && (
-        <ServerModal
-          server={list[editing]}
-          onCancel={() => setEditing(null)}
-          onOk={(next) => {
+      {/* Always mounted, opened by the prop — the way the inbound dialog does
+          it. Rendered conditionally, the component left the tree the moment it
+          closed, so there was nothing on screen for antd to animate out. */}
+      <ServerModal
+        open={editing !== null}
+        formKey={editing ?? NEW}
+        server={(editing !== null && editing !== NEW && list[editing]) || emptyDnsServer()}
+        onCancel={() => setEditing(null)}
+        onOk={(next) => {
+          if (editing === NEW) {
+            commit([...list, next]);
+          } else if (editing !== null) {
             commit(list.map((s, j) => (j === editing ? next : s)));
-            setEditing(null);
-          }}
-        />
-      )}
+          }
+          setEditing(null);
+        }}
+      />
     </section>
   );
 }
@@ -265,10 +275,16 @@ export function DnsServersField({ value, onChange }: Props) {
  *  Everything is optional except the address; a server saved with only an
  *  address is stored — and emitted — as a plain address. */
 function ServerModal({
+  open,
+  formKey,
   server,
   onOk,
   onCancel,
 }: {
+  open: boolean;
+  /** Remounts the form per opened row: `destroyOnHidden` clears the fields,
+   *  and a fresh key makes the next row's `initialValues` actually apply. */
+  formKey: number;
   server: DnsServer;
   onOk: (next: DnsServer) => void;
   onCancel: () => void;
@@ -284,6 +300,7 @@ function ServerModal({
     timeout_ms: server.timeout_ms || undefined,
   };
 
+  const address = Form.useWatch('address', form);
   const strategy = Form.useWatch('query_strategy', form);
   const clientIp = Form.useWatch('client_ip', form);
   const timeout = Form.useWatch('timeout_ms', form);
@@ -410,10 +427,17 @@ function ServerModal({
 
   return (
     <Modal
-      open
+      open={open}
+      // Unmounts the form after the close animation, so the next row opens on
+      // its own values instead of the previous one's.
+      destroyOnHidden
       title={t('settings.dnsServerTitle')}
       okText={t('common.save')}
       cancelText={t('common.cancel')}
+      // A server without an address is not a server: the backend drops it on
+      // save, so letting it into the list only shows the operator a row that
+      // silently disappears later.
+      okButtonProps={{ disabled: !String(address ?? '').trim() }}
       onCancel={onCancel}
       onOk={() => {
         const v = form.getFieldsValue();
@@ -430,7 +454,13 @@ function ServerModal({
         });
       }}
     >
-      <Form form={form} layout="vertical" initialValues={initial} className="app-form-rows">
+      <Form
+        key={formKey}
+        form={form}
+        layout="vertical"
+        initialValues={initial}
+        className="app-form-rows"
+      >
         <Tabs
           className="app-dns-form-tabs"
           items={[
