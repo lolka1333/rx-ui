@@ -32,6 +32,12 @@ export const en: Dict = {
     themeDarker: 'Darker',
     language: 'Interface language',
     languageHint: 'Panel interface language. Applies immediately and is stored in this browser.',
+    pageWidth: 'Page width',
+    pageWidthHint:
+      'On a wide monitor the panel otherwise hugs one edge. Full width suits tables, but it stretches settings rows too.',
+    pageWidthNormal: 'Normal',
+    pageWidthWide: 'Wide',
+    pageWidthFull: 'Full width',
     // Modal nav (settings)
     navAccount: 'Account',
     navAccess: 'General',

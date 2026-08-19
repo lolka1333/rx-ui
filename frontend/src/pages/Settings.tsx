@@ -52,6 +52,7 @@ import { LoadError, LoadStale } from '@/components/LoadState';
 import { useAuth } from '@/stores/auth';
 import { useNav, type SettingsSection } from '@/stores/nav';
 import { setLocaleAndReload, useLocale } from '@/stores/locale';
+import { useLayoutWidth } from '@/stores/layoutWidth';
 import { LOCALES } from '@/i18n';
 import type { PanelSettings, RoutingRule } from '@/api/types';
 import {
@@ -825,7 +826,7 @@ function AccessSection({
           locale is a per-browser preference persisted in localStorage by
           `useLocale`, not a server-side panel setting, so it skips the
           dirty-bar / Save flow and applies immediately on change. */}
-      {data && <LanguagePicker />}
+      {data && <InterfacePrefs />}
     </SectionFrame>
   );
 }
@@ -1377,14 +1378,17 @@ function TlsSection({
 }
 
 /**
- * Standalone language picker at the bottom of the Access section; switches
- * the UI language via `setLocaleAndReload` (which owns the write-storage-then-
- * reload rationale). Sits OUTSIDE the access form so the dirty-bar doesn't
- * touch it.
+ * Standalone interface preferences at the bottom of the Access section:
+ * language (via `setLocaleAndReload`, which owns the write-storage-then-reload
+ * rationale) and how wide the page may run. Both live OUTSIDE the access form
+ * so the dirty bar doesn't touch them — they apply the moment they change and
+ * belong to this browser, not to the panel's stored settings.
  */
-function LanguagePicker() {
+function InterfacePrefs() {
   const { t } = useTranslation();
   const locale = useLocale((s) => s.locale);
+  const width = useLayoutWidth((s) => s.width);
+  const setWidth = useLayoutWidth((s) => s.set);
   const onChange = useCallback(
     (next: typeof locale) => {
       if (next !== locale) setLocaleAndReload(next);
@@ -1400,6 +1404,20 @@ function LanguagePicker() {
             value={locale}
             onChange={onChange}
             options={LOCALES.map((l) => ({ value: l.value, label: l.label }))}
+          />
+        </div>
+      </div>
+      <div className="app-settings-plaque">
+        <FieldLabel title={t('settings.pageWidth')} desc={t('settings.pageWidthHint')} />
+        <div className="app-settings-plaque-control">
+          <Select
+            value={width}
+            onChange={setWidth}
+            options={[
+              { value: 'normal', label: t('settings.pageWidthNormal') },
+              { value: 'wide', label: t('settings.pageWidthWide') },
+              { value: 'full', label: t('settings.pageWidthFull') },
+            ]}
           />
         </div>
       </div>

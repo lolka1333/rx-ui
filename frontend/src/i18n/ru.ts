@@ -32,6 +32,12 @@ export const ru = {
     themeDarker: 'Очень тёмная',
     language: 'Язык интерфейса',
     languageHint: 'Язык интерфейса панели. Применяется сразу и сохраняется в этом браузере.',
+    pageWidth: 'Ширина страницы',
+    pageWidthHint:
+      'На широком мониторе панель иначе прижимается к краю. «Во всю ширину» удобно таблицам, но растягивает и строки настроек.',
+    pageWidthNormal: 'Обычная',
+    pageWidthWide: 'Широкая',
+    pageWidthFull: 'Во всю ширину',
     // Modal nav (settings)
     navAccount: 'Учётная запись',
     navAccess: 'Основное',

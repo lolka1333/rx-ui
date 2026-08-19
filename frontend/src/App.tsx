@@ -11,6 +11,7 @@ import { Settings } from '@/pages/Settings';
 import { SubscriptionLanding } from '@/pages/SubscriptionLanding';
 import { useAuth } from '@/stores/auth';
 import { useNav, isNavPage, isSettingsPage, settingsSectionOf } from '@/stores/nav';
+import { LAYOUT_MAX_WIDTH, useLayoutWidth } from '@/stores/layoutWidth';
 import { SIDEBAR_WIDTH, SIDEBAR_COLLAPSED } from '@/theme/palette';
 
 /** Public route detection. The backend's `/sub/{token}` falls through
@@ -60,6 +61,7 @@ function AdminApp() {
   const { token } = theme.useToken();
 
   const isMobile = screens.lg !== undefined && !screens.lg;
+  const layoutWidth = useLayoutWidth((s) => s.width);
   const sidebarOpen = isMobile ? drawerOpen : !collapsed;
   const lastMobileRef = useRef(isMobile);
 
@@ -177,7 +179,13 @@ function AdminApp() {
         <Content
           style={{
             padding: isMobile ? '16px 12px' : '32px 40px',
-            maxWidth: 1400,
+            // Capped AND centred. Without the auto margins the whole panel sat
+            // against the left edge of a wide monitor with the rest of the
+            // screen empty beside it, which is what operators report as a
+            // scaling problem. How far the cap may grow is the operator's
+            // choice — see `layoutWidth`.
+            maxWidth: LAYOUT_MAX_WIDTH[layoutWidth],
+            marginInline: 'auto',
             width: '100%',
           }}
         >
