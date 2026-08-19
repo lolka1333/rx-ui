@@ -159,6 +159,8 @@ export const en: Dict = {
     dnsServerUnexpectedIpsHint: 'Mirror image: an answer matching these is thrown away.',
     dnsServerQueryStrategy: 'Address families',
     dnsServerClientIp: 'Client address (EDNS)',
+    dnsServerClientIpHint:
+      "Overrides the section's EDNS address for this server. Empty keeps the section value.",
     dnsServerTimeout: 'Timeout, ms',
     dnsServerTimeoutHint: '0 leaves it to the core.',
     dnsServerSkipFallback: 'Never used as a fallback',

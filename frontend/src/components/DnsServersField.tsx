@@ -435,7 +435,7 @@ function ServerModal({
       <Form.Item
         name="client_ip"
         label={t('settings.dnsServerClientIp')}
-        tooltip={t('settings.dnsClientIpHint')}
+        tooltip={t('settings.dnsServerClientIpHint')}
       >
         <Input placeholder={t('settings.dnsInherit')} spellCheck={false} />
       </Form.Item>

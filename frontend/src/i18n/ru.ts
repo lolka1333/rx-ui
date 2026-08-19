@@ -160,6 +160,8 @@ export const ru = {
     dnsServerUnexpectedIpsHint: 'Зеркально: ответ с такими адресами отбрасывается.',
     dnsServerQueryStrategy: 'Какие адреса спрашивать',
     dnsServerClientIp: 'Адрес клиента (EDNS)',
+    dnsServerClientIpHint:
+      'Перебивает адрес EDNS из секции для этого сервера. Пусто — берётся значение секции.',
     dnsServerTimeout: 'Таймаут, мс',
     dnsServerTimeoutHint: '0 — как решит ядро.',
     dnsServerSkipFallback: 'Не использовать как запасной',
