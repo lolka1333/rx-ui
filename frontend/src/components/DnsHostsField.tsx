@@ -8,10 +8,9 @@
 //! The key is a matcher, not just a hostname: `domain:`, `geosite:`, `regexp:`
 //! and `keyword:` all work, exactly as they do in the routing lists.
 //!
-//! Rendered as rows of a table rather than boxed fields: it sits under the
-//! server table and holds the same kind of content, so a second frame around
-//! every input only added noise. The inputs show their edges on hover and
-//! focus, which is where an edge is actually useful.
+//! The two controls keep their normal borders. Stripping them read as clean
+//! until you had to use the block: a matcher and an address in plain text look
+//! like a printed row, and nothing said you could type there.
 
 import { Button, Input, Select } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
@@ -53,7 +52,6 @@ export function DnsHostsField({ value, onChange }: Props) {
             <div key={i} className="app-dns-hr-row">
               <Input
                 className="app-dns-host-key"
-                variant="borderless"
                 value={h.domain}
                 onChange={(e) => patch(i, { domain: e.target.value })}
                 placeholder={t('settings.dnsHostDomainPlaceholder')}
@@ -64,7 +62,6 @@ export function DnsHostsField({ value, onChange }: Props) {
               </span>
               <Select
                 className="app-dns-host-values"
-                variant="borderless"
                 mode="tags"
                 value={h.values}
                 onChange={(v: string[]) => patch(i, { values: v })}

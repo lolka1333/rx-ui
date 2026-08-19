@@ -22,9 +22,17 @@
    to the far edge — the same shape the routing tab's rule list uses. */
 .app-dns-head {
   display: flex;
-  align-items: center;
+  /* By baseline, not by centre: the title and its subtitle run at different
+     sizes (11 vs 12px) and therefore different line boxes, so centring them
+     left the two texts sitting a fraction of a pixel apart — enough to read as
+     crooked. */
+  align-items: baseline;
   gap: 10px;
   flex-wrap: wrap;
+  /* Every section header is the height of the one with a button, so the
+     spacing between sections does not change with whether a section happens to
+     have an action. */
+  min-height: 28px;
 }
 .app-dns-title {
   font-size: 11px;
@@ -32,9 +40,14 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-3, #8a94a6);
+  /* Letter-spacing is added AFTER the last letter too, so an uppercase title
+     carries a phantom sliver of it into the gap. Take it back. */
+  margin-right: -0.06em;
 }
 .app-dns-head .ant-btn {
   margin-left: auto;
+  /* The button has no business on the text baseline. */
+  align-self: center;
 }
 .app-dns-sub {
   font-size: 12px;
@@ -56,10 +69,13 @@
 
 /* ── The table ─────────────────────────────────────────────────────────── */
 
+/* The block IS the card — the panel's group surface, one radius, one fill.
+   It used to carry its own darker fill and its own border inside a tab that
+   already had both, which is how one screen ended up with four radii and three
+   backgrounds. */
 .app-dns-table {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  background: var(--surface-2);
+  border-radius: 12px;
   overflow: hidden;
 }
 
@@ -74,7 +90,7 @@
     minmax(92px, 1.05fr) minmax(74px, 0.75fr) 32px;
   align-items: center;
   gap: 14px;
-  padding: 8px 14px;
+  padding: 8px 15px;
   min-height: 42px;
 }
 .app-dns-tr + .app-dns-tr {
@@ -89,15 +105,11 @@
 }
 .app-dns-th {
   padding-block: 8px;
-  background: rgba(0, 0, 0, 0.16);
   font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-3, #8a94a6);
-}
-[data-theme='light'] .app-dns-th {
-  background: rgba(15, 23, 42, 0.04);
 }
 
 .app-dns-num {
@@ -157,15 +169,15 @@
   justify-self: end;
 }
 
-/* Static answers ride the same table, two editable cells per row. The inputs
-   are borderless so the row reads as a row; the edge shows up on hover and
-   focus, which is when it means something. */
+/* Static answers ride the same card, two ordinary fields per row: a bordered
+   control is the only thing that says "type here", and the panel draws every
+   other input that way. */
 .app-dns-hr-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1.2fr) 32px;
   align-items: center;
   gap: 8px;
-  padding: 4px 10px;
+  padding: 8px 15px;
 }
 .app-dns-hr-row + .app-dns-hr-row {
   border-top: 1px solid var(--border);
@@ -175,8 +187,11 @@
   opacity: 0.4;
 }
 /* The values control never opens a list (its options ARE what you type), so
-   its dropdown arrow only promised something that never happens. */
-.app-dns-hr-row .ant-select-arrow {
+   its dropdown arrow only promised something that never happens.
+   The class is `ant-select-suffix` — antd 6 renamed it from `ant-select-arrow`,
+   and the old selector matched nothing, so the arrow stayed on screen while
+   the rule looked like it had removed it. */
+.app-dns-hr-row .ant-select-suffix {
   display: none;
 }
 .app-dns-host-key input,
@@ -185,15 +200,7 @@
   font-family: var(--font-mono);
   font-size: 12.5px;
 }
-.app-dns-hr-row .ant-input:hover,
-.app-dns-hr-row .ant-select:hover .ant-select-selector {
-  background: rgba(255, 255, 255, 0.04);
-  border-radius: 8px;
-}
-[data-theme='light'] .app-dns-hr-row .ant-input:hover,
-[data-theme='light'] .app-dns-hr-row .ant-select:hover .ant-select-selector {
-  background: rgba(15, 23, 42, 0.04);
-}
+
 
 /* ── Behaviour: one card, not six rows ─────────────────────────────────── */
 
@@ -205,6 +212,7 @@
   flex-direction: column;
   gap: 12px;
 }
+
 
 .app-dns-chips {
   display: flex;
@@ -222,14 +230,20 @@
   min-height: 32px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: 10px;
 }
 /* The two free-text chips take the row's leftover width instead of leaving
    half of it blank on a wide screen — and an address or a tag is exactly the
-   kind of value that benefits from room to type. */
+   kind of value that benefits from room to type.
+   The LAST of them carries no cap, so the row always ends flush with the card
+   instead of stopping a hand's width short of it. */
 .app-dns-chip-grow {
   flex: 1 1 220px;
   max-width: 460px;
+}
+.app-dns-chips > *:last-child.app-dns-chip-grow,
+.app-dns-chips > *:last-child .app-dns-chip-grow {
+  max-width: none;
 }
 .app-dns-chip-grow .ant-input {
   min-width: 0;
@@ -267,17 +281,31 @@
   background: var(--border);
 }
 
-/* Three columns that share the whole width, so the items sit across the card
-   instead of bunching at its left edge — which is what made the block look
-   empty on a wide screen even after the switches moved next to their names.
-   Stretching costs nothing now: the item is switch-then-name, so the slack
-   lands after the text, where there is nothing to push apart.
-   Six in a single row was the other candidate and loses: at that width the
-   longest name wraps to two lines and takes the row with it. */
+/* Plain rows: a switch and its name, nothing drawn around them. Columns are as
+   wide as their content and sit at a fixed gap, so the switches stay next to
+   their labels and line up between rows. The row ends where its last name ends
+   — filling the card to the edge needs something that stretches, and that is
+   exactly what was taken back out. */
 .app-dns-switches {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px 26px;
+  grid-template-columns: repeat(3, max-content);
+  justify-content: start;
+  gap: 10px 22px;
+}
+@media (min-width: 1560px) {
+  .app-dns-switches {
+    grid-template-columns: repeat(6, max-content);
+  }
+}
+@media (max-width: 760px) {
+  .app-dns-switches {
+    grid-template-columns: repeat(2, max-content);
+  }
+}
+@media (max-width: 460px) {
+  .app-dns-switches {
+    grid-template-columns: max-content;
+  }
 }
 .app-dns-switch {
   display: inline-flex;
@@ -334,14 +362,8 @@
   .app-dns-tr .ant-dropdown-trigger {
     margin-left: auto;
   }
-  .app-dns-switches {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 @media (max-width: 620px) {
-  .app-dns-switches {
-    grid-template-columns: minmax(0, 1fr);
-  }
   .app-dns-hr-row {
     grid-template-columns: minmax(0, 1fr) 32px;
   }
