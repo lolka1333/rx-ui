@@ -330,10 +330,10 @@ function ServerModal({
             options={DNS_PRESETS.map((o) => ({
               value: o.value,
               label: (
-                <span>
+                <span className="app-dns-opt">
                   {o.code ? <span className="geo-code">{o.code}</span> : null}
-                  {o.label}
-                  <span className="app-dns-note">{o.value}</span>
+                  <span className="app-dns-opt-name">{o.label}</span>
+                  <span className="app-dns-opt-addr">{o.value}</span>
                 </span>
               ),
             }))}

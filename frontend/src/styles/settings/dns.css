@@ -384,6 +384,36 @@
   margin-bottom: 14px;
 }
 
+/* One quick-pick resolver in the address dropdown: transport badge, provider,
+   and the address the option actually inserts.
+   The three used to sit in a bare <span> with nothing between them, so the
+   list read "Cloudflare1.1.1.1" and "Cloudflarehttps://1.1.1.1/dns-query" —
+   the name and the value fused into one word. The address is what makes two
+   entries of the same provider different, so it gets its own column at the far
+   end rather than a space after the name. */
+.app-dns-opt {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+/* The badge brings its own trailing margin (shared with the geo selects); the
+   flex gap replaces it here. */
+.app-dns-opt .geo-code {
+  margin-right: 0;
+}
+.app-dns-opt-name {
+  flex: 0 0 auto;
+}
+.app-dns-opt-addr {
+  margin-left: auto;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--text-3, #8a93a5);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Fields that describe one thing share a row. */
 .app-dns-form-pair {
   display: grid;
