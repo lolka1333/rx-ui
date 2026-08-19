@@ -10,7 +10,7 @@
 //! is kept because boot still runs `xray run -test` on the bootstrap
 //! config before handing it to the live process.
 
-use crate::models::RoutingRule;
+use crate::models::{DnsHost, DnsServer, RoutingRule};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -57,6 +57,9 @@ pub struct BootstrapSettings {
     pub direct_ips: Vec<String>,
     pub direct_domains: Vec<String>,
     pub ipv4_domains: Vec<String>,
+    /// The core's own resolver. Empty servers AND empty hosts mean the config
+    /// carries no `dns` section at all — see `dns_section`.
+    pub dns: DnsSettings,
     /// Whether any enabled custom outbound is a reverse bridge (VLESS with a
     /// reverse tag). Bridges need `direct` to carry explicit `finalRules` —
     /// see `PRIVATE_IP_RANGES` and the emit site in `build_bootstrap_config`.
@@ -402,7 +405,7 @@ pub fn build_bootstrap_config(s: &BootstrapSettings) -> Value {
         }
     }
 
-    json!({
+    let mut cfg = json!({
         "log": { "loglevel": "warning", "access": "" },
         // RoutingService lets the panel push routing-rule changes to the live
         // xray via AddRule (no restart). HandlerService = inbound/user/outbound
@@ -439,7 +442,132 @@ pub fn build_bootstrap_config(s: &BootstrapSettings) -> Value {
         }],
         "outbounds": outbounds,
         "routing": { "domainStrategy": s.routing_strategy, "rules": rules }
-    })
+    });
+    if let Some(dns) = dns_section(&s.dns) {
+        cfg["dns"] = dns;
+    }
+    cfg
+}
+
+/// The core's resolver, as the panel stores it.
+///
+/// One struct rather than a dozen fields on `BootstrapSettings`: they are read
+/// together, emitted together, and none of them means anything on its own.
+// Six independent switches mirroring the core's own `dns` fields — a flat
+// mirror of a config section, not a state machine dressed up as booleans.
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Debug, Clone, Default)]
+pub struct DnsSettings {
+    pub servers: Vec<DnsServer>,
+    pub hosts: Vec<DnsHost>,
+    pub query_strategy: String,
+    pub client_ip: String,
+    pub tag: String,
+    pub disable_cache: bool,
+    pub disable_fallback: bool,
+    pub disable_fallback_if_match: bool,
+    pub parallel_query: bool,
+    pub use_system_hosts: bool,
+    pub serve_stale: bool,
+    pub serve_expired_ttl: u32,
+}
+
+/// One name server. A plain address becomes a bare string — the object form is
+/// only spelled out when a per-server field actually carries something, so a
+/// simple setup produces the config a person would have written by hand.
+fn dns_server_json(n: &DnsServer) -> Value {
+    let mut o = serde_json::Map::new();
+    if n.port != 0 {
+        o.insert("port".into(), json!(n.port));
+    }
+    if !n.domains.is_empty() {
+        o.insert("domains".into(), json!(n.domains));
+    }
+    if !n.expect_ips.is_empty() {
+        o.insert("expectedIPs".into(), json!(n.expect_ips));
+    }
+    if !n.unexpected_ips.is_empty() {
+        o.insert("unexpectedIPs".into(), json!(n.unexpected_ips));
+    }
+    if n.skip_fallback {
+        o.insert("skipFallback".into(), json!(true));
+    }
+    if n.final_query {
+        o.insert("finalQuery".into(), json!(true));
+    }
+    if n.timeout_ms != 0 {
+        o.insert("timeoutMs".into(), json!(n.timeout_ms));
+    }
+    if !n.client_ip.is_empty() {
+        o.insert("clientIp".into(), json!(n.client_ip));
+    }
+    if !n.query_strategy.is_empty() {
+        o.insert("queryStrategy".into(), json!(n.query_strategy));
+    }
+    if o.is_empty() {
+        return json!(n.address);
+    }
+    o.insert("address".into(), json!(n.address));
+    Value::Object(o)
+}
+
+/// The `dns` block, or `None` when nothing was configured.
+///
+/// Absence is not the same as an empty section: with no `dns` at all xray falls
+/// back to the host resolver, which is what every install ran on before this
+/// setting existed, so an untouched panel keeps emitting the very same config.
+fn dns_section(d: &DnsSettings) -> Option<Value> {
+    if d.servers.is_empty() && d.hosts.is_empty() {
+        return None;
+    }
+    let mut o = serde_json::Map::new();
+    if !d.servers.is_empty() {
+        o.insert(
+            "servers".into(),
+            Value::Array(d.servers.iter().map(dns_server_json).collect()),
+        );
+    }
+    if !d.hosts.is_empty() {
+        // xray takes one address as a string and several as an array; keep the
+        // single case scalar so the file reads the way its docs do.
+        let hosts: serde_json::Map<String, Value> = d
+            .hosts
+            .iter()
+            .map(|h| {
+                let v = match h.values.as_slice() {
+                    [one] => json!(one),
+                    many => json!(many),
+                };
+                (h.domain.clone(), v)
+            })
+            .collect();
+        o.insert("hosts".into(), Value::Object(hosts));
+    }
+    o.insert("queryStrategy".into(), json!(d.query_strategy));
+    o.insert("disableCache".into(), json!(d.disable_cache));
+    // The rest are emitted only when set: every one of them is off in the core
+    // by default, and a config full of `false` hides the two lines that matter.
+    if !d.client_ip.is_empty() {
+        o.insert("clientIp".into(), json!(d.client_ip));
+    }
+    if !d.tag.is_empty() {
+        o.insert("tag".into(), json!(d.tag));
+    }
+    for (key, on) in [
+        ("disableFallback", d.disable_fallback),
+        ("disableFallbackIfMatch", d.disable_fallback_if_match),
+        ("enableParallelQuery", d.parallel_query),
+        ("useSystemHosts", d.use_system_hosts),
+        ("serveStale", d.serve_stale),
+    ] {
+        if on {
+            o.insert(key.into(), json!(true));
+        }
+    }
+    if d.serve_expired_ttl != 0 {
+        o.insert("serveExpiredTTL".into(), json!(d.serve_expired_ttl));
+    }
+    Some(Value::Object(o))
 }
 
 /// Write the pending config to its temp file. Split out so the caller cleans up
@@ -627,6 +755,7 @@ mod tests {
             blocked_domains: vec![],
             direct_ips: Vec::new(),
             direct_domains: Vec::new(),
+            dns: DnsSettings::default(),
             ipv4_domains: vec![],
             has_reverse_bridge: false,
             custom_rules: vec![RoutingRule {
@@ -711,6 +840,7 @@ mod tests {
             direct_ips: Vec::new(),
             direct_domains: Vec::new(),
             has_reverse_bridge: false,
+            dns: DnsSettings::default(),
             ipv4_domains: vec![],
             custom_rules,
             rule_order: rule_order.into_iter().map(String::from).collect(),
@@ -897,6 +1027,7 @@ mod tests {
             blocked_domains: vec!["geosite:category-ads-all".into(), "ads.example.com".into()],
             direct_ips: Vec::new(),
             direct_domains: Vec::new(),
+            dns: DnsSettings::default(),
             ipv4_domains: vec!["geosite:netflix".into()],
             has_reverse_bridge: false,
             custom_rules: vec![r1, r2, r3, rule("r4", false, "blocked")],
@@ -920,5 +1051,169 @@ mod tests {
             String::from_utf8_lossy(&out.stdout),
             String::from_utf8_lossy(&out.stderr),
         );
+    }
+
+    /// No resolver chosen = no `dns` key at all. The distinction matters: an
+    /// empty section would replace the host resolver with nothing, while an
+    /// absent one is the config every install ran on before this setting.
+    #[test]
+    fn dns_section_absent_until_a_server_is_chosen() {
+        let s = base(vec![], vec![]);
+        let cfg = build_bootstrap_config(&s);
+        assert!(
+            cfg.get("dns").is_none(),
+            "unset DNS must not emit a section"
+        );
+    }
+
+    /// A server that carries nothing but an address is emitted as a bare
+    /// string, so a simple setup produces the config a person would have
+    /// written by hand. Order is the operator's: xray walks the list on a miss.
+    #[test]
+    fn dns_plain_servers_stay_strings_in_order() {
+        let mut s = base(vec![], vec![]);
+        s.dns.servers = vec![
+            plain_server("https://dns.google/dns-query"),
+            plain_server("1.1.1.1"),
+            plain_server("localhost"),
+        ];
+        s.dns.query_strategy = "UseIPv4".into();
+        s.dns.disable_cache = true;
+        let cfg = build_bootstrap_config(&s);
+        let dns = cfg.get("dns").expect("dns section");
+        assert_eq!(
+            dns["servers"].as_array().unwrap(),
+            &vec![
+                serde_json::json!("https://dns.google/dns-query"),
+                serde_json::json!("1.1.1.1"),
+                serde_json::json!("localhost"),
+            ]
+        );
+        assert_eq!(dns["queryStrategy"], "UseIPv4");
+        assert_eq!(dns["disableCache"], true);
+    }
+
+    /// The split-horizon case: one server answers a country's domains, the
+    /// other answers the rest. Only the fields the operator filled in may
+    /// appear — an object full of empty lists would be noise in the config and
+    /// would change what the core does with `skipFallback`.
+    #[test]
+    fn dns_server_with_rules_becomes_an_object() {
+        let mut s = base(vec![], vec![]);
+        s.dns.servers = vec![
+            DnsServer {
+                address: "77.88.8.8".into(),
+                port: 5353,
+                domains: vec!["geosite:category-ru".into(), "domain:ru".into()],
+                expect_ips: vec!["geoip:ru".into()],
+                unexpected_ips: vec!["127.0.0.1".into()],
+                skip_fallback: true,
+                final_query: true,
+                timeout_ms: 2000,
+                client_ip: "5.255.255.242".into(),
+                query_strategy: "UseIPv4".into(),
+            },
+            plain_server("1.1.1.1"),
+        ];
+        let cfg = build_bootstrap_config(&s);
+        let servers = cfg["dns"]["servers"].as_array().unwrap();
+        assert_eq!(servers[1], serde_json::json!("1.1.1.1"));
+        let first = &servers[0];
+        assert_eq!(first["address"], "77.88.8.8");
+        assert_eq!(first["port"], 5353);
+        assert_eq!(first["domains"][1], "domain:ru");
+        assert_eq!(first["expectedIPs"][0], "geoip:ru");
+        assert_eq!(first["unexpectedIPs"][0], "127.0.0.1");
+        assert_eq!(first["skipFallback"], true);
+        assert_eq!(first["finalQuery"], true);
+        assert_eq!(first["timeoutMs"], 2000);
+        assert_eq!(first["clientIp"], "5.255.255.242");
+        assert_eq!(first["queryStrategy"], "UseIPv4");
+    }
+
+    /// `hosts` takes one address as a string and several as an array; the panel
+    /// follows that rather than always writing a list.
+    #[test]
+    fn dns_hosts_keep_the_cores_shape() {
+        let mut s = base(vec![], vec![]);
+        s.dns.hosts = vec![
+            DnsHost {
+                domain: "router.lan".into(),
+                values: vec!["192.168.1.1".into()],
+            },
+            DnsHost {
+                domain: "geosite:category-ads-all".into(),
+                values: vec!["127.0.0.1".into(), "::1".into()],
+            },
+        ];
+        let cfg = build_bootstrap_config(&s);
+        let hosts = &cfg["dns"]["hosts"];
+        assert_eq!(hosts["router.lan"], "192.168.1.1");
+        assert_eq!(
+            hosts["geosite:category-ads-all"],
+            serde_json::json!(["127.0.0.1", "::1"])
+        );
+        // Hosts alone are enough to need a section: they answer before any
+        // server, so an operator can use them with no resolver configured.
+        assert!(cfg["dns"].get("servers").is_none());
+    }
+
+    /// Everything off must stay out of the file: the core defaults all of these
+    /// to false, and a wall of `false` buries the two lines that matter.
+    #[test]
+    fn dns_switches_are_emitted_only_when_set() {
+        let mut s = base(vec![], vec![]);
+        s.dns.servers = vec![plain_server("1.1.1.1")];
+        let quiet = build_bootstrap_config(&s);
+        for key in [
+            "disableFallback",
+            "disableFallbackIfMatch",
+            "enableParallelQuery",
+            "useSystemHosts",
+            "serveStale",
+            "serveExpiredTTL",
+            "clientIp",
+            "tag",
+        ] {
+            assert!(
+                quiet["dns"].get(key).is_none(),
+                "{key} must not be emitted while unset"
+            );
+        }
+
+        s.dns.disable_fallback = true;
+        s.dns.disable_fallback_if_match = true;
+        s.dns.parallel_query = true;
+        s.dns.use_system_hosts = true;
+        s.dns.serve_stale = true;
+        s.dns.serve_expired_ttl = 600;
+        s.dns.client_ip = "1.2.3.4".into();
+        s.dns.tag = "dns-in".into();
+        let loud = build_bootstrap_config(&s);
+        assert_eq!(loud["dns"]["disableFallback"], true);
+        assert_eq!(loud["dns"]["disableFallbackIfMatch"], true);
+        assert_eq!(loud["dns"]["enableParallelQuery"], true);
+        assert_eq!(loud["dns"]["useSystemHosts"], true);
+        assert_eq!(loud["dns"]["serveStale"], true);
+        assert_eq!(loud["dns"]["serveExpiredTTL"], 600);
+        assert_eq!(loud["dns"]["clientIp"], "1.2.3.4");
+        // The tag is what lets a routing rule name the resolver's own queries.
+        assert_eq!(loud["dns"]["tag"], "dns-in");
+    }
+
+    /// A server with only an address, the way the simple field produces them.
+    fn plain_server(address: &str) -> DnsServer {
+        DnsServer {
+            address: address.to_owned(),
+            port: 0,
+            domains: Vec::new(),
+            expect_ips: Vec::new(),
+            unexpected_ips: Vec::new(),
+            skip_fallback: false,
+            final_query: false,
+            timeout_ms: 0,
+            client_ip: String::new(),
+            query_strategy: String::new(),
+        }
     }
 }

@@ -13,6 +13,70 @@
  */
 export type ChangeCredentialsRequest = { current_password: string, new_username: string | null, new_password: string | null, };
 
+/**
+ * A static `hosts` entry: a name (or `domain:` / `geosite:` / `regexp:`
+ * matcher) pinned to one or more addresses, answered before any server is
+ * asked.
+ */
+export type DnsHost = { domain: string, values: Array<string>, };
+
+/**
+ * One name server for the core's resolver, mirroring xray's `NameServerConfig`.
+ *
+ * Everything except `address` is optional and, when left at its default, is
+ * omitted from the emitted config — a server carrying only an address is
+ * written as a plain string, exactly as a hand-written config would have it.
+ *
+ * The per-server fields are what make split-horizon DNS possible: `domains`
+ * says which names this server answers (a country resolver for the country's
+ * own domains, a foreign one for the rest), while `expect_ips` /
+ * `unexpected_ips` filter the answer itself — the standard defence against a
+ * resolver that lies about which country an address is in.
+ */
+export type DnsServer = { 
+/**
+ * IP, hostname, `localhost`, or a `scheme://` URL (`DoH` / `DoQ` / `DoT`).
+ */
+address: string, 
+/**
+ * 0 = the transport's own default (53 for plain DNS).
+ */
+port: number, 
+/**
+ * Only these domains go to this server. Empty = it answers anything.
+ */
+domains: Array<string>, 
+/**
+ * Answers are accepted only if an address matches. `*` keeps the server
+ * preferred without filtering.
+ */
+expect_ips: Array<string>, 
+/**
+ * Mirror image: an answer matching these is rejected.
+ */
+unexpected_ips: Array<string>, 
+/**
+ * Keep this server out of the fallback chain — it answers its own
+ * `domains` and nothing else.
+ */
+skip_fallback: boolean, 
+/**
+ * Its answer ends the query: no other server is consulted afterwards.
+ */
+final_query: boolean, 
+/**
+ * Per-query timeout in ms. 0 = the core's default.
+ */
+timeout_ms: number, 
+/**
+ * EDNS client subnet sent to THIS server only.
+ */
+client_ip: string, 
+/**
+ * Overrides the section-wide `queryStrategy` for this server.
+ */
+query_strategy: string, };
+
 export type LoginRequest = { username: string, password: string, };
 
 export type LoginResponse = { token: string, user: UserView, };
@@ -126,6 +190,57 @@ xray_direct_ips: Array<string>, xray_direct_domains: Array<string>,
  */
 xray_ipv4_domains: Array<string>, 
 /**
+ * Name servers for the core's own resolver, in query order. Empty (with no
+ * hosts either) = emit no `dns` section at all, which leaves xray on the
+ * host resolver.
+ */
+xray_dns_servers: Array<DnsServer>, 
+/**
+ * Static answers, consulted before any server.
+ */
+xray_dns_hosts: Array<DnsHost>, 
+/**
+ * `UseIP` / `UseIPv4` / `UseIPv6` / `UseSystem` — which address families
+ * the resolver may return.
+ */
+xray_dns_query_strategy: string, 
+/**
+ * EDNS client subnet: the address upstreams should answer as if the query
+ * came from. On a relay abroad this is what stops a CDN from handing back
+ * its own region's edge.
+ */
+xray_dns_client_ip: string, 
+/**
+ * Routing tag stamped on the resolver's own queries, so a rule can decide
+ * where they go. Empty = the core generates a random one, which no rule
+ * can name.
+ */
+xray_dns_tag: string, xray_dns_disable_cache: boolean, 
+/**
+ * Never consult another server when the chosen one fails.
+ */
+xray_dns_disable_fallback: boolean, 
+/**
+ * Softer: only skip the fallback when a server matched by `domains`.
+ */
+xray_dns_disable_fallback_if_match: boolean, 
+/**
+ * Ask every server at once and take the first answer.
+ */
+xray_dns_parallel_query: boolean, 
+/**
+ * Also read the operating system's hosts file.
+ */
+xray_dns_use_system_hosts: boolean, 
+/**
+ * Keep answering from an expired entry while refreshing it.
+ */
+xray_dns_serve_stale: boolean, 
+/**
+ * How long an expired entry may still be served, in seconds.
+ */
+xray_dns_serve_expired_ttl: number, 
+/**
  * Operator-defined ordered routing rules, applied after the built-in ones.
  */
 xray_custom_rules: Array<RoutingRule>, 
@@ -174,7 +289,7 @@ sub_key_set: boolean, };
  * allowlist, log level, etc.) may carry different validation than
  * the read response.
  */
-export type PanelSettingsUpdate = { panel_port: number, panel_base_path: string, sub_enabled: boolean, sub_host_override: string, sub_link_host: string, sub_update_interval_hours: number, sub_brand_name: string, sub_service_url: string, sub_port: number, xray_freedom_strategy: string, xray_routing_strategy: string, xray_test_url: string, xray_block_bittorrent: boolean, xray_blocked_ips: Array<string>, xray_blocked_domains: Array<string>, xray_direct_ips: Array<string>, xray_direct_domains: Array<string>, xray_ipv4_domains: Array<string>, xray_custom_rules: Array<RoutingRule>, xray_rule_order: Array<string>, panel_tls_enabled: boolean, panel_tls_cert: string, 
+export type PanelSettingsUpdate = { panel_port: number, panel_base_path: string, sub_enabled: boolean, sub_host_override: string, sub_link_host: string, sub_update_interval_hours: number, sub_brand_name: string, sub_service_url: string, sub_port: number, xray_freedom_strategy: string, xray_routing_strategy: string, xray_test_url: string, xray_block_bittorrent: boolean, xray_blocked_ips: Array<string>, xray_blocked_domains: Array<string>, xray_direct_ips: Array<string>, xray_direct_domains: Array<string>, xray_ipv4_domains: Array<string>, xray_dns_servers: Array<DnsServer>, xray_dns_hosts: Array<DnsHost>, xray_dns_query_strategy: string, xray_dns_client_ip: string, xray_dns_tag: string, xray_dns_disable_cache: boolean, xray_dns_disable_fallback: boolean, xray_dns_disable_fallback_if_match: boolean, xray_dns_parallel_query: boolean, xray_dns_use_system_hosts: boolean, xray_dns_serve_stale: boolean, xray_dns_serve_expired_ttl: number, xray_custom_rules: Array<RoutingRule>, xray_rule_order: Array<string>, panel_tls_enabled: boolean, panel_tls_cert: string, 
 /**
  * New private key (PEM). Empty string ≡ keep the stored key — so saving any
  * other settings section doesn't wipe it and the key need only be pasted

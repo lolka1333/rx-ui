@@ -25,7 +25,7 @@ use crate::{
     auth::AuthUser,
     build_router,
     error::{AppError, AppResult},
-    models::{PanelSettings, PanelSettingsUpdate, RoutingRule},
+    models::{DnsHost, DnsServer, PanelSettings, PanelSettingsUpdate, RoutingRule},
 };
 use axum::{
     Json, Router,
@@ -61,6 +61,29 @@ const FREEDOM_STRATEGIES: &[&str] = &[
 ];
 /// xray routing-block `domainStrategy` values.
 const ROUTING_STRATEGIES: &[&str] = &["AsIs", "IPIfNonMatch", "IPOnDemand"];
+
+/// `dns.queryStrategy` values the core understands. It maps anything it does
+/// not recognise to `UseIP` silently, so an unchecked field would look applied
+/// and behave as the default — hence the allowlist.
+const DNS_QUERY_STRATEGIES: &[&str] = &["UseIP", "UseIPv4", "UseIPv6", "UseSystem"];
+
+/// URL schemes `app/dns/nameserver.go` builds a server from. The `+local`
+/// variants resolve straight from the node; the plain ones send their queries
+/// back through routing and outbounds, which on a relay means the upstream
+/// resolver is reached through the tunnel.
+const DNS_SCHEMES: &[&str] = &[
+    "https",
+    "https+local",
+    "h2c",
+    "h2c+local",
+    "quic+local",
+    "tcp",
+    "tcp+local",
+];
+
+/// A resolver list longer than this is a mistake, not a strategy: xray walks it
+/// in order on a miss, so every extra entry is added latency on failure.
+const MAX_DNS_SERVERS: usize = 8;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -100,6 +123,11 @@ pub async fn load_panel_settings(db: &crate::db::DbPool) -> AppResult<PanelSetti
                 xray_freedom_strategy, xray_routing_strategy, xray_test_url,
                 xray_block_bittorrent, xray_blocked_ips, xray_blocked_domains,
                 xray_direct_ips, xray_direct_domains,
+                xray_dns_servers, xray_dns_hosts, xray_dns_query_strategy,
+                xray_dns_client_ip, xray_dns_tag, xray_dns_disable_cache,
+                xray_dns_disable_fallback, xray_dns_disable_fallback_if_match,
+                xray_dns_parallel_query, xray_dns_use_system_hosts,
+                xray_dns_serve_stale, xray_dns_serve_expired_ttl,
                 xray_ipv4_domains, xray_custom_rules, xray_rule_order,
                 panel_tls_enabled, panel_tls_cert, panel_tls_key,
                 sub_tls_mode, sub_cert_pem, sub_key_pem
@@ -131,6 +159,20 @@ pub async fn load_panel_settings(db: &crate::db::DbPool) -> AppResult<PanelSetti
         xray_direct_ips: list(&row.xray_direct_ips),
         xray_direct_domains: list(&row.xray_direct_domains),
         xray_ipv4_domains: list(&row.xray_ipv4_domains),
+        // Same rule as every other JSON column here: unreadable content reads
+        // as empty rather than failing the whole settings page.
+        xray_dns_servers: serde_json::from_str(&row.xray_dns_servers).unwrap_or_default(),
+        xray_dns_hosts: serde_json::from_str(&row.xray_dns_hosts).unwrap_or_default(),
+        xray_dns_query_strategy: row.xray_dns_query_strategy,
+        xray_dns_client_ip: row.xray_dns_client_ip,
+        xray_dns_tag: row.xray_dns_tag,
+        xray_dns_disable_cache: row.xray_dns_disable_cache != 0,
+        xray_dns_disable_fallback: row.xray_dns_disable_fallback != 0,
+        xray_dns_disable_fallback_if_match: row.xray_dns_disable_fallback_if_match != 0,
+        xray_dns_parallel_query: row.xray_dns_parallel_query != 0,
+        xray_dns_use_system_hosts: row.xray_dns_use_system_hosts != 0,
+        xray_dns_serve_stale: row.xray_dns_serve_stale != 0,
+        xray_dns_serve_expired_ttl: u32::try_from(row.xray_dns_serve_expired_ttl).unwrap_or(0),
         xray_custom_rules,
         xray_rule_order: list(&row.xray_rule_order),
         panel_tls_enabled: row.panel_tls_enabled != 0,
@@ -202,18 +244,7 @@ async fn update_panel(
     State(state): State<AppState>,
     Json(body): Json<PanelSettingsUpdate>,
 ) -> AppResult<Json<serde_json::Value>> {
-    let NormalizedPanel {
-        new_port,
-        base_path: normalised,
-        sub_host,
-        sub_link_host,
-        sub_brand,
-        sub_service_url,
-        xray_freedom_strategy,
-        xray_routing_strategy,
-        xray_test_url,
-        routing,
-    } = validate_panel_update(&body)?;
+    let panel = validate_panel_update(&body)?;
     // The row as it stands, read once and shared by every helper below.
     let stored = read_stored_panel(&state.db).await?;
     // Validate custom rules + order up front, so a bad rule aborts before any
@@ -237,11 +268,80 @@ async fn update_panel(
     // Snapshot routing-relevant fields BEFORE the UPDATE, so we only hot-apply
     // routing when it actually changed. An unrelated save (brand / TLS / sub
     // port) must not touch the live router or risk a recovery restart.
-    let routing_changed =
-        routing_fields_changed(&stored, &routing, &custom_rules_json, &rule_order_json);
+    let routing_changed = routing_fields_changed(
+        &stored,
+        &panel.routing,
+        &custom_rules_json,
+        &rule_order_json,
+    );
 
+    write_panel_row(
+        &state.db,
+        &body,
+        &panel,
+        PanelWrite {
+            custom_rules_json: &custom_rules_json,
+            rule_order_json: &rule_order_json,
+            tls: (tls_enabled_i, &tls_cert, &tls_key),
+            sub_tls: (&sub_tls_mode, &sub_cert, &sub_key),
+        },
+    )
+    .await?;
+
+    // Hot-apply the just-persisted routing rules (no restart) — only when they
+    // actually changed; see docs on hot_apply_routing. Done BEFORE the listener
+    // rebind: the UPDATE has already committed and routing doesn't depend on
+    // listener state, so a rebind failure must not strand the rule change (the
+    // change-gate would see no delta on the operator's retry).
+    // Re-push when a previous attempt left the router out of step, even if this
+    // save changes nothing routing-related: without it the operator's retry is
+    // silently a no-op.
+    let routing_changed = routing_changed || state.routing_out_of_sync.load(Ordering::Relaxed);
+    let routing = if routing_changed {
+        Some(crate::xray::reload::hot_apply_routing(&state).await)
+    } else {
+        None
+    };
+
+    apply_listener_changes(
+        &state,
+        &body,
+        panel.new_port,
+        &panel.base_path,
+        sub_tls_changed,
+    )
+    .await?;
+    // When this save didn't push, the router can still be stale from an earlier
+    // one that failed in a way not worth retrying — report that rather than let
+    // the save read as clean.
+    let lingering = state.routing_stale.read().await.clone();
+    Ok(Json(routing_body(routing, lingering)))
+}
+
+/// The parts of a settings write that don't come from `NormalizedPanel`:
+/// already-serialised routing JSON and the two resolved certificate pairs.
+/// Grouped into a struct because the alternative is nine positional
+/// parameters, most of them `String`.
+struct PanelWrite<'a> {
+    custom_rules_json: &'a str,
+    rule_order_json: &'a str,
+    /// `(enabled, cert, key)` for the panel listener.
+    tls: (i64, &'a str, &'a str),
+    /// `(mode, cert, key)` for the subscription listener.
+    sub_tls: (&'a str, &'a str, &'a str),
+}
+
+/// Persist the whole `panel_settings` row. Split out of `update_panel` so the
+/// handler stays about ordering — validate, write, apply — instead of being
+/// mostly one thirty-column UPDATE.
+async fn write_panel_row(
+    db: &crate::db::DbPool,
+    body: &PanelSettingsUpdate,
+    panel: &NormalizedPanel,
+    w: PanelWrite<'_>,
+) -> AppResult<()> {
     let sub_enabled_i = i64::from(body.sub_enabled);
-    let xray_bittorrent_i = i64::from(routing.block_bittorrent);
+    let xray_bittorrent_i = i64::from(panel.routing.block_bittorrent);
     sqlx::query!(
         "UPDATE panel_settings
             SET panel_port = ?,
@@ -261,6 +361,18 @@ async fn update_panel(
                 xray_blocked_domains = ?,
                 xray_direct_ips = ?,
                 xray_direct_domains = ?,
+                xray_dns_servers = ?,
+                xray_dns_hosts = ?,
+                xray_dns_query_strategy = ?,
+                xray_dns_client_ip = ?,
+                xray_dns_tag = ?,
+                xray_dns_disable_cache = ?,
+                xray_dns_disable_fallback = ?,
+                xray_dns_disable_fallback_if_match = ?,
+                xray_dns_parallel_query = ?,
+                xray_dns_use_system_hosts = ?,
+                xray_dns_serve_stale = ?,
+                xray_dns_serve_expired_ttl = ?,
                 xray_ipv4_domains = ?,
                 xray_custom_rules = ?,
                 xray_rule_order = ?,
@@ -273,56 +385,47 @@ async fn update_panel(
                 updated_at = datetime('now')
             WHERE id = 1",
         body.panel_port,
-        normalised,
+        panel.base_path,
         sub_enabled_i,
-        sub_host,
-        sub_link_host,
+        panel.sub_host,
+        panel.sub_link_host,
         body.sub_update_interval_hours,
-        sub_brand,
-        sub_service_url,
+        panel.sub_brand,
+        panel.sub_service_url,
         body.sub_port,
-        xray_freedom_strategy,
-        xray_routing_strategy,
-        xray_test_url,
+        panel.xray_freedom_strategy,
+        panel.xray_routing_strategy,
+        panel.xray_test_url,
         xray_bittorrent_i,
-        routing.blocked_ips,
-        routing.blocked_domains,
-        routing.direct_ips,
-        routing.direct_domains,
-        routing.ipv4_domains,
-        custom_rules_json,
-        rule_order_json,
-        tls_enabled_i,
-        tls_cert,
-        tls_key,
-        sub_tls_mode,
-        sub_cert,
-        sub_key,
+        panel.routing.blocked_ips,
+        panel.routing.blocked_domains,
+        panel.routing.direct_ips,
+        panel.routing.direct_domains,
+        panel.dns.servers,
+        panel.dns.hosts,
+        panel.dns.query_strategy,
+        panel.dns.client_ip,
+        panel.dns.tag,
+        panel.dns.flags.disable_cache,
+        panel.dns.flags.disable_fallback,
+        panel.dns.flags.disable_fallback_if_match,
+        panel.dns.flags.parallel_query,
+        panel.dns.flags.use_system_hosts,
+        panel.dns.flags.serve_stale,
+        panel.dns.serve_expired_ttl,
+        panel.routing.ipv4_domains,
+        w.custom_rules_json,
+        w.rule_order_json,
+        w.tls.0,
+        w.tls.1,
+        w.tls.2,
+        w.sub_tls.0,
+        w.sub_tls.1,
+        w.sub_tls.2,
     )
-    .execute(&state.db)
+    .execute(db)
     .await?;
-
-    // Hot-apply the just-persisted routing rules (no restart) — only when they
-    // actually changed; see docs on hot_apply_routing. Done BEFORE the listener
-    // rebind: the UPDATE has already committed and routing doesn't depend on
-    // listener state, so a rebind failure must not strand the rule change (the
-    // change-gate would see no delta on the operator's retry).
-    // Re-push when a previous attempt left the router out of step, even if this
-    // save changes nothing routing-related: without it the operator's retry is
-    // silently a no-op.
-    let routing_changed = routing_changed || state.routing_out_of_sync.load(Ordering::Relaxed);
-    let routing = if routing_changed {
-        Some(crate::xray::reload::hot_apply_routing(&state).await)
-    } else {
-        None
-    };
-
-    apply_listener_changes(&state, &body, new_port, &normalised, sub_tls_changed).await?;
-    // When this save didn't push, the router can still be stale from an earlier
-    // one that failed in a way not worth retrying — report that rather than let
-    // the save read as clean.
-    let lingering = state.routing_stale.read().await.clone();
-    Ok(Json(routing_body(routing, lingering)))
+    Ok(())
 }
 
 /// Report what happened to the live router. The row is committed either way, so
@@ -507,6 +610,10 @@ struct NormalizedPanel {
     /// together into the UPDATE and into the change check, and six positional
     /// strings is a swap the compiler cannot catch.
     routing: XrayRouting,
+    /// The core's own resolver. Not part of `XrayRouting`: routing fields are
+    /// pushed into the running xray, while a name server only exists in the
+    /// config file and needs a restart to take effect.
+    dns: XrayDns,
 }
 
 /// Canonicalise the panel base path: empty OR leading-slash + no trailing
@@ -619,6 +726,7 @@ fn validate_panel_update(body: &PanelSettingsUpdate) -> AppResult<NormalizedPane
     let (xray_freedom_strategy, xray_routing_strategy, xray_test_url) =
         validate_xray_settings(body)?;
     let routing = validate_xray_routing(body)?;
+    let dns = validate_xray_dns(body)?;
 
     Ok(NormalizedPanel {
         new_port,
@@ -631,6 +739,7 @@ fn validate_panel_update(body: &PanelSettingsUpdate) -> AppResult<NormalizedPane
         xray_routing_strategy,
         xray_test_url,
         routing,
+        dns,
     })
 }
 
@@ -675,6 +784,288 @@ struct XrayRouting {
     direct_ips: String,
     direct_domains: String,
     ipv4_domains: String,
+}
+
+/// The core's resolver settings, validated and ready to bind. The switches are
+/// already `i64` because that is what the columns take, and the two lists are
+/// already JSON strings for the same reason.
+struct XrayDns {
+    servers: String,
+    hosts: String,
+    query_strategy: String,
+    client_ip: String,
+    tag: String,
+    flags: DnsFlags,
+    serve_expired_ttl: i64,
+}
+
+/// The section's on/off switches. Grouped because six bare `i64`s bound
+/// positionally into an UPDATE is a swap the compiler cannot catch.
+struct DnsFlags {
+    disable_cache: i64,
+    disable_fallback: i64,
+    disable_fallback_if_match: i64,
+    parallel_query: i64,
+    use_system_hosts: i64,
+    serve_stale: i64,
+}
+
+/// Tags the panel emits itself; a resolver tag colliding with one of them would
+/// silently hand the resolver's traffic to that rule.
+const RESERVED_TAGS: &[&str] = &["api", "direct", "blocked", "direct-ipv4"];
+
+/// Sanity ceilings, not xray limits: a resolver allowed a five-minute timeout
+/// hangs every connection that waits on it.
+const MAX_DNS_TIMEOUT_MS: u32 = 60_000;
+const MAX_SERVE_EXPIRED_TTL: u32 = 86_400;
+const MAX_DNS_HOSTS: usize = 128;
+
+fn validate_xray_dns(body: &PanelSettingsUpdate) -> AppResult<XrayDns> {
+    if body.xray_dns_servers.len() > MAX_DNS_SERVERS {
+        return Err(AppError::BadRequest(format!(
+            "xray_dns_servers has too many entries (max {MAX_DNS_SERVERS})"
+        )));
+    }
+    // Keep the operator's order — xray walks the list — while dropping repeats
+    // of a plain address. A server carrying per-server rules is never a
+    // duplicate: two entries with the same address and different `domains` are
+    // the whole point of split-horizon DNS.
+    let mut servers: Vec<DnsServer> = Vec::new();
+    for raw in &body.xray_dns_servers {
+        let Some(address) = validate_dns_server(&raw.address)? else {
+            continue;
+        };
+        let server = validate_dns_server_fields(raw, address)?;
+        let is_dup = is_plain_server(&server)
+            && servers
+                .iter()
+                .any(|s| s.address == server.address && is_plain_server(s));
+        if !is_dup {
+            servers.push(server);
+        }
+    }
+
+    let hosts = validate_dns_hosts(&body.xray_dns_hosts)?;
+    let query_strategy =
+        validate_dns_strategy(&body.xray_dns_query_strategy, "xray_dns_query_strategy")?
+            .unwrap_or_else(|| "UseIP".to_owned());
+    let client_ip = validate_optional_ip(&body.xray_dns_client_ip, "xray_dns_client_ip")?;
+    let tag = validate_dns_tag(&body.xray_dns_tag)?;
+
+    if body.xray_dns_serve_expired_ttl > MAX_SERVE_EXPIRED_TTL {
+        return Err(AppError::BadRequest(format!(
+            "xray_dns_serve_expired_ttl must be at most {MAX_SERVE_EXPIRED_TTL} seconds"
+        )));
+    }
+
+    Ok(XrayDns {
+        servers: serde_json::to_string(&servers)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?,
+        hosts: serde_json::to_string(&hosts).map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?,
+        query_strategy,
+        client_ip,
+        tag,
+        flags: DnsFlags {
+            disable_cache: i64::from(body.xray_dns_disable_cache),
+            disable_fallback: i64::from(body.xray_dns_disable_fallback),
+            disable_fallback_if_match: i64::from(body.xray_dns_disable_fallback_if_match),
+            parallel_query: i64::from(body.xray_dns_parallel_query),
+            use_system_hosts: i64::from(body.xray_dns_use_system_hosts),
+            serve_stale: i64::from(body.xray_dns_serve_stale),
+        },
+        serve_expired_ttl: i64::from(body.xray_dns_serve_expired_ttl),
+    })
+}
+
+/// Whether this server is "just an address" — the form emitted as a bare string
+/// and the only form deduplication may collapse.
+const fn is_plain_server(s: &DnsServer) -> bool {
+    s.port == 0
+        && s.domains.is_empty()
+        && s.expect_ips.is_empty()
+        && s.unexpected_ips.is_empty()
+        && !s.skip_fallback
+        && !s.final_query
+        && s.timeout_ms == 0
+        && s.client_ip.is_empty()
+        && s.query_strategy.is_empty()
+}
+
+/// The per-server fields, cleaned.
+fn validate_dns_server_fields(raw: &DnsServer, address: String) -> AppResult<DnsServer> {
+    if raw.port > 65535 {
+        return Err(AppError::BadRequest(format!(
+            "dns server port out of range: {}",
+            raw.port
+        )));
+    }
+    if raw.timeout_ms > MAX_DNS_TIMEOUT_MS {
+        return Err(AppError::BadRequest(format!(
+            "dns server timeout must be at most {MAX_DNS_TIMEOUT_MS} ms"
+        )));
+    }
+    validate_list_entries("dns server domains", &raw.domains)?;
+    validate_list_entries("dns server expect_ips", &raw.expect_ips)?;
+    validate_list_entries("dns server unexpected_ips", &raw.unexpected_ips)?;
+    let clean = |v: &[String]| -> Vec<String> {
+        v.iter()
+            .map(|s| s.trim().to_owned())
+            .filter(|s| !s.is_empty())
+            .collect()
+    };
+    Ok(DnsServer {
+        address,
+        port: raw.port,
+        domains: clean(&raw.domains),
+        expect_ips: clean(&raw.expect_ips),
+        unexpected_ips: clean(&raw.unexpected_ips),
+        skip_fallback: raw.skip_fallback,
+        final_query: raw.final_query,
+        timeout_ms: raw.timeout_ms,
+        client_ip: validate_optional_ip(&raw.client_ip, "dns server client_ip")?,
+        query_strategy: validate_dns_strategy(&raw.query_strategy, "dns server query_strategy")?
+            .unwrap_or_default(),
+    })
+}
+
+/// `hosts`: a matcher and the addresses it answers with.
+fn validate_dns_hosts(list: &[DnsHost]) -> AppResult<Vec<DnsHost>> {
+    if list.len() > MAX_DNS_HOSTS {
+        return Err(AppError::BadRequest(format!(
+            "xray_dns_hosts has too many entries (max {MAX_DNS_HOSTS})"
+        )));
+    }
+    let mut out = Vec::new();
+    for h in list {
+        let domain = h.domain.trim();
+        if domain.is_empty() {
+            continue;
+        }
+        if domain.chars().any(|c| c.is_whitespace() || c.is_control()) {
+            return Err(AppError::BadRequest(format!(
+                "hosts entry must not contain spaces: {domain}"
+            )));
+        }
+        validate_list_entries("hosts values", &h.values)?;
+        let values: Vec<String> = h
+            .values
+            .iter()
+            .map(|v| v.trim().to_owned())
+            .filter(|v| !v.is_empty())
+            .collect();
+        if values.is_empty() {
+            return Err(AppError::BadRequest(format!(
+                "hosts entry needs at least one address: {domain}"
+            )));
+        }
+        out.push(DnsHost {
+            domain: domain.to_owned(),
+            values,
+        });
+    }
+    Ok(out)
+}
+
+/// Empty stays empty (the field is simply not emitted); anything else has to be
+/// a value the core maps to a real strategy rather than silently to `UseIP`.
+fn validate_dns_strategy(raw: &str, field: &str) -> AppResult<Option<String>> {
+    let v = raw.trim();
+    if v.is_empty() {
+        return Ok(None);
+    }
+    if !DNS_QUERY_STRATEGIES.contains(&v) {
+        return Err(AppError::BadRequest(format!(
+            "{field} must be one of: {}",
+            DNS_QUERY_STRATEGIES.join(", ")
+        )));
+    }
+    Ok(Some(v.to_owned()))
+}
+
+/// The routing tag stamped on the resolver's own queries.
+fn validate_dns_tag(raw: &str) -> AppResult<String> {
+    let tag = raw.trim();
+    if tag.is_empty() {
+        return Ok(String::new());
+    }
+    if tag.len() > 32 || tag.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err(AppError::BadRequest(
+            "xray_dns_tag must be a short name without spaces".to_owned(),
+        ));
+    }
+    if RESERVED_TAGS.contains(&tag) {
+        return Err(AppError::BadRequest(format!(
+            "xray_dns_tag must not be one of the built-in tags: {}",
+            RESERVED_TAGS.join(", ")
+        )));
+    }
+    Ok(tag.to_owned())
+}
+
+/// An optional bare IP (EDNS client subnet). Rejected early because the core
+/// refuses to build the whole `dns` section over one bad address.
+fn validate_optional_ip(raw: &str, field: &str) -> AppResult<String> {
+    let v = raw.trim();
+    if v.is_empty() {
+        return Ok(String::new());
+    }
+    if v.parse::<std::net::IpAddr>().is_err() {
+        return Err(AppError::BadRequest(format!("{field} must be an IP: {v}")));
+    }
+    Ok(v.to_owned())
+}
+
+/// One name server, in any spelling `NewServer` accepts: `localhost`, a bare
+/// IP, a hostname, or a `scheme://` URL. Returns `None` for a blank entry.
+///
+/// Checked here rather than left to the core because a rejected `dns` block
+/// takes the whole config down with it — the operator would lose every inbound
+/// over a typo in a resolver address.
+fn validate_dns_server(raw: &str) -> AppResult<Option<String>> {
+    let entry = raw.trim();
+    if entry.is_empty() {
+        return Ok(None);
+    }
+    let bad = |why: &str| Err(AppError::BadRequest(format!("{why}: {entry}")));
+
+    if entry.eq_ignore_ascii_case("localhost") {
+        return Ok(Some("localhost".to_owned()));
+    }
+    // `fakedns` builds only when a fakedns section exists, which the panel does
+    // not emit — accepting it here would produce a config xray refuses to load.
+    if entry.eq_ignore_ascii_case("fakedns") {
+        return bad("fakedns needs a fakedns section, which this panel does not write");
+    }
+    if let Some((scheme, rest)) = entry.split_once("://") {
+        if !DNS_SCHEMES.contains(&scheme.to_ascii_lowercase().as_str()) {
+            return bad(&format!(
+                "dns server scheme must be one of: {}",
+                DNS_SCHEMES.join(", ")
+            ));
+        }
+        let host = rest.split(['/', ':']).next().unwrap_or("");
+        if host.is_empty() {
+            return bad("dns server url has no host");
+        }
+        return Ok(Some(entry.to_owned()));
+    }
+    if entry.parse::<std::net::IpAddr>().is_ok() {
+        return Ok(Some(entry.to_owned()));
+    }
+    // A bare host is queried over plain UDP on 53. Ports belong to the object
+    // form of a name server, which this field does not carry, so `1.1.1.1:5353`
+    // would be read as a hostname and fail at resolve time instead of here.
+    if entry.contains(':') {
+        return bad("a port needs the advanced server form; use a plain address here");
+    }
+    if entry
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
+        && entry.contains('.')
+    {
+        return Ok(Some(entry.to_owned()));
+    }
+    bad("not a name server: expected an IP, a hostname, localhost or scheme://host")
 }
 
 fn validate_xray_routing(body: &PanelSettingsUpdate) -> AppResult<XrayRouting> {
@@ -1592,6 +1983,57 @@ pub async fn load_for_boot(db: &crate::db::DbPool) -> (Option<u16>, String, i32)
 
 #[cfg(test)]
 mod tests {
+    use super::validate_dns_server;
+
+    /// Every spelling `app/dns/nameserver.go` can build a server from has to
+    /// survive this validator, and everything else has to die here rather than
+    /// in the core: a `dns` block xray refuses takes the whole config with it,
+    /// so a typo in a resolver would cost the operator every inbound.
+    #[test]
+    fn dns_server_accepts_what_the_core_accepts() {
+        for good in [
+            "1.1.1.1",
+            "2606:4700:4700::1111",
+            "localhost",
+            "LocalHost",
+            "dns.google",
+            "https://dns.google/dns-query",
+            "https+local://1.1.1.1/dns-query",
+            "h2c://10.0.0.1/dns-query",
+            "quic+local://dns.adguard.com",
+            "tcp://9.9.9.9",
+            "tcp+local://9.9.9.9",
+        ] {
+            assert!(
+                validate_dns_server(good).is_ok(),
+                "{good} should be accepted"
+            );
+        }
+        assert_eq!(validate_dns_server("  ").unwrap(), None);
+        assert_eq!(
+            validate_dns_server(" LOCALHOST ").unwrap(),
+            Some("localhost".to_owned())
+        );
+    }
+
+    #[test]
+    fn dns_server_rejects_what_would_break_the_config() {
+        for bad in [
+            // Scheme the core has no branch for: it would fall through to a
+            // classic UDP server pointed at a hostname with a colon in it.
+            "udp://1.1.1.1",
+            "ftp://1.1.1.1",
+            // The port belongs to the object form, which this field cannot
+            // carry — as a string it is read as a hostname.
+            "1.1.1.1:5353",
+            // Builds only with a fakedns section, which the panel never writes.
+            "fakedns",
+            "https://",
+            "not a server",
+        ] {
+            assert!(validate_dns_server(bad).is_err(), "{bad} should be refused");
+        }
+    }
     /// A prefix that shadows one of the root mounts is refused at the door.
     /// `healthz` is the fatal one — axum panics on the duplicate route, and the
     /// release profile aborts on panic, after the value is already stored. The

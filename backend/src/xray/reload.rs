@@ -126,6 +126,11 @@ pub async fn load_bootstrap_settings(
         "SELECT xray_freedom_strategy, xray_routing_strategy, xray_block_bittorrent,
                 xray_blocked_ips, xray_blocked_domains, xray_ipv4_domains,
                 xray_direct_ips, xray_direct_domains,
+                xray_dns_servers, xray_dns_hosts, xray_dns_query_strategy,
+                xray_dns_client_ip, xray_dns_tag, xray_dns_disable_cache,
+                xray_dns_disable_fallback, xray_dns_disable_fallback_if_match,
+                xray_dns_parallel_query, xray_dns_use_system_hosts,
+                xray_dns_serve_stale, xray_dns_serve_expired_ttl,
                 xray_custom_rules, xray_rule_order
             FROM panel_settings WHERE id = 1"
     )
@@ -157,6 +162,23 @@ pub async fn load_bootstrap_settings(
         direct_ips: parse(&row.xray_direct_ips),
         direct_domains: parse(&row.xray_direct_domains),
         ipv4_domains: parse(&row.xray_ipv4_domains),
+        dns: crate::xray::config_gen::DnsSettings {
+            // A row written by an older panel, or hand-edited, must not take the
+            // engine down: an unreadable list is an empty one, which emits no
+            // section and leaves the host resolver in charge.
+            servers: serde_json::from_str(&row.xray_dns_servers).unwrap_or_default(),
+            hosts: serde_json::from_str(&row.xray_dns_hosts).unwrap_or_default(),
+            query_strategy: row.xray_dns_query_strategy,
+            client_ip: row.xray_dns_client_ip,
+            tag: row.xray_dns_tag,
+            disable_cache: row.xray_dns_disable_cache != 0,
+            disable_fallback: row.xray_dns_disable_fallback != 0,
+            disable_fallback_if_match: row.xray_dns_disable_fallback_if_match != 0,
+            parallel_query: row.xray_dns_parallel_query != 0,
+            use_system_hosts: row.xray_dns_use_system_hosts != 0,
+            serve_stale: row.xray_dns_serve_stale != 0,
+            serve_expired_ttl: u32::try_from(row.xray_dns_serve_expired_ttl).unwrap_or(0),
+        },
         has_reverse_bridge,
         custom_rules,
         rule_order: parse(&row.xray_rule_order),

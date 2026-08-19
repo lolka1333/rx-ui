@@ -194,6 +194,7 @@ mod tests {
             blocked_domains: Vec::new(),
             direct_ips: Vec::new(),
             direct_domains: Vec::new(),
+            dns: crate::xray::config_gen::DnsSettings::default(),
             ipv4_domains: Vec::new(),
             has_reverse_bridge: false,
             custom_rules: custom,

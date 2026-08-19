@@ -1,110 +1,11 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT panel_port, panel_base_path,\n                sub_enabled, sub_host_override, sub_link_host,\n                sub_update_interval_hours,\n                sub_brand_name, sub_service_url, sub_port,\n                xray_freedom_strategy, xray_routing_strategy, xray_test_url,\n                xray_block_bittorrent, xray_blocked_ips, xray_blocked_domains,\n                xray_direct_ips, xray_direct_domains,\n                xray_ipv4_domains, xray_custom_rules, xray_rule_order,\n                panel_tls_enabled, panel_tls_cert, panel_tls_key,\n                sub_tls_mode, sub_cert_pem, sub_key_pem\n            FROM panel_settings WHERE id = 1",
+  "query": "SELECT xray_freedom_strategy, xray_routing_strategy, xray_block_bittorrent,\n                xray_blocked_ips, xray_blocked_domains, xray_ipv4_domains,\n                xray_direct_ips, xray_direct_domains,\n                xray_dns_servers, xray_dns_hosts, xray_dns_query_strategy,\n                xray_dns_client_ip, xray_dns_tag, xray_dns_disable_cache,\n                xray_dns_disable_fallback, xray_dns_disable_fallback_if_match,\n                xray_dns_parallel_query, xray_dns_use_system_hosts,\n                xray_dns_serve_stale, xray_dns_serve_expired_ttl,\n                xray_custom_rules, xray_rule_order\n            FROM panel_settings WHERE id = 1",
   "describe": {
     "columns": [
       {
-        "name": "panel_port",
-        "ordinal": 0,
-        "type_info": "Integer",
-        "origin": {
-          "Table": {
-            "table": "panel_settings",
-            "name": "panel_port"
-          }
-        }
-      },
-      {
-        "name": "panel_base_path",
-        "ordinal": 1,
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "panel_settings",
-            "name": "panel_base_path"
-          }
-        }
-      },
-      {
-        "name": "sub_enabled",
-        "ordinal": 2,
-        "type_info": "Integer",
-        "origin": {
-          "Table": {
-            "table": "panel_settings",
-            "name": "sub_enabled"
-          }
-        }
-      },
-      {
-        "name": "sub_host_override",
-        "ordinal": 3,
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "panel_settings",
-            "name": "sub_host_override"
-          }
-        }
-      },
-      {
-        "name": "sub_link_host",
-        "ordinal": 4,
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "panel_settings",
-            "name": "sub_link_host"
-          }
-        }
-      },
-      {
-        "name": "sub_update_interval_hours",
-        "ordinal": 5,
-        "type_info": "Integer",
-        "origin": {
-          "Table": {
-            "table": "panel_settings",
-            "name": "sub_update_interval_hours"
-          }
-        }
-      },
-      {
-        "name": "sub_brand_name",
-        "ordinal": 6,
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "panel_settings",
-            "name": "sub_brand_name"
-          }
-        }
-      },
-      {
-        "name": "sub_service_url",
-        "ordinal": 7,
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "panel_settings",
-            "name": "sub_service_url"
-          }
-        }
-      },
-      {
-        "name": "sub_port",
-        "ordinal": 8,
-        "type_info": "Integer",
-        "origin": {
-          "Table": {
-            "table": "panel_settings",
-            "name": "sub_port"
-          }
-        }
-      },
-      {
         "name": "xray_freedom_strategy",
-        "ordinal": 9,
+        "ordinal": 0,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -115,7 +16,7 @@
       },
       {
         "name": "xray_routing_strategy",
-        "ordinal": 10,
+        "ordinal": 1,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -125,19 +26,8 @@
         }
       },
       {
-        "name": "xray_test_url",
-        "ordinal": 11,
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "panel_settings",
-            "name": "xray_test_url"
-          }
-        }
-      },
-      {
         "name": "xray_block_bittorrent",
-        "ordinal": 12,
+        "ordinal": 2,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -148,7 +38,7 @@
       },
       {
         "name": "xray_blocked_ips",
-        "ordinal": 13,
+        "ordinal": 3,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -159,7 +49,7 @@
       },
       {
         "name": "xray_blocked_domains",
-        "ordinal": 14,
+        "ordinal": 4,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -169,8 +59,19 @@
         }
       },
       {
+        "name": "xray_ipv4_domains",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_ipv4_domains"
+          }
+        }
+      },
+      {
         "name": "xray_direct_ips",
-        "ordinal": 15,
+        "ordinal": 6,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -181,7 +82,7 @@
       },
       {
         "name": "xray_direct_domains",
-        "ordinal": 16,
+        "ordinal": 7,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -191,19 +92,140 @@
         }
       },
       {
-        "name": "xray_ipv4_domains",
-        "ordinal": 17,
+        "name": "xray_dns_servers",
+        "ordinal": 8,
         "type_info": "Text",
         "origin": {
           "Table": {
             "table": "panel_settings",
-            "name": "xray_ipv4_domains"
+            "name": "xray_dns_servers"
+          }
+        }
+      },
+      {
+        "name": "xray_dns_hosts",
+        "ordinal": 9,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_dns_hosts"
+          }
+        }
+      },
+      {
+        "name": "xray_dns_query_strategy",
+        "ordinal": 10,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_dns_query_strategy"
+          }
+        }
+      },
+      {
+        "name": "xray_dns_client_ip",
+        "ordinal": 11,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_dns_client_ip"
+          }
+        }
+      },
+      {
+        "name": "xray_dns_tag",
+        "ordinal": 12,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_dns_tag"
+          }
+        }
+      },
+      {
+        "name": "xray_dns_disable_cache",
+        "ordinal": 13,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_dns_disable_cache"
+          }
+        }
+      },
+      {
+        "name": "xray_dns_disable_fallback",
+        "ordinal": 14,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_dns_disable_fallback"
+          }
+        }
+      },
+      {
+        "name": "xray_dns_disable_fallback_if_match",
+        "ordinal": 15,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_dns_disable_fallback_if_match"
+          }
+        }
+      },
+      {
+        "name": "xray_dns_parallel_query",
+        "ordinal": 16,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_dns_parallel_query"
+          }
+        }
+      },
+      {
+        "name": "xray_dns_use_system_hosts",
+        "ordinal": 17,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_dns_use_system_hosts"
+          }
+        }
+      },
+      {
+        "name": "xray_dns_serve_stale",
+        "ordinal": 18,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_dns_serve_stale"
+          }
+        }
+      },
+      {
+        "name": "xray_dns_serve_expired_ttl",
+        "ordinal": 19,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_dns_serve_expired_ttl"
           }
         }
       },
       {
         "name": "xray_custom_rules",
-        "ordinal": 18,
+        "ordinal": 20,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -214,78 +236,12 @@
       },
       {
         "name": "xray_rule_order",
-        "ordinal": 19,
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "panel_settings",
-            "name": "xray_rule_order"
-          }
-        }
-      },
-      {
-        "name": "panel_tls_enabled",
-        "ordinal": 20,
-        "type_info": "Integer",
-        "origin": {
-          "Table": {
-            "table": "panel_settings",
-            "name": "panel_tls_enabled"
-          }
-        }
-      },
-      {
-        "name": "panel_tls_cert",
         "ordinal": 21,
         "type_info": "Text",
         "origin": {
           "Table": {
             "table": "panel_settings",
-            "name": "panel_tls_cert"
-          }
-        }
-      },
-      {
-        "name": "panel_tls_key",
-        "ordinal": 22,
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "panel_settings",
-            "name": "panel_tls_key"
-          }
-        }
-      },
-      {
-        "name": "sub_tls_mode",
-        "ordinal": 23,
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "panel_settings",
-            "name": "sub_tls_mode"
-          }
-        }
-      },
-      {
-        "name": "sub_cert_pem",
-        "ordinal": 24,
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "panel_settings",
-            "name": "sub_cert_pem"
-          }
-        }
-      },
-      {
-        "name": "sub_key_pem",
-        "ordinal": 25,
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "panel_settings",
-            "name": "sub_key_pem"
+            "name": "xray_rule_order"
           }
         }
       }
@@ -315,12 +271,8 @@
       false,
       false,
       false,
-      false,
-      false,
-      false,
-      false,
       false
     ]
   },
-  "hash": "8d7381cfa0316d2684d07054cf53c491a1708ad296669ea7935da68d16032b15"
+  "hash": "95887047f6e6693a9d8908abd0573bd4fb28add7b1f7d70c2f90854a83893a3d"
 }

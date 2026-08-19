@@ -1,6 +1,63 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+/// One name server for the core's resolver, mirroring xray's `NameServerConfig`.
+///
+/// Everything except `address` is optional and, when left at its default, is
+/// omitted from the emitted config — a server carrying only an address is
+/// written as a plain string, exactly as a hand-written config would have it.
+///
+/// The per-server fields are what make split-horizon DNS possible: `domains`
+/// says which names this server answers (a country resolver for the country's
+/// own domains, a foreign one for the rest), while `expect_ips` /
+/// `unexpected_ips` filter the answer itself — the standard defence against a
+/// resolver that lies about which country an address is in.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../frontend/src/api/types/settings.ts")]
+pub struct DnsServer {
+    /// IP, hostname, `localhost`, or a `scheme://` URL (`DoH` / `DoQ` / `DoT`).
+    pub address: String,
+    /// 0 = the transport's own default (53 for plain DNS).
+    #[serde(default)]
+    pub port: u32,
+    /// Only these domains go to this server. Empty = it answers anything.
+    #[serde(default)]
+    pub domains: Vec<String>,
+    /// Answers are accepted only if an address matches. `*` keeps the server
+    /// preferred without filtering.
+    #[serde(default)]
+    pub expect_ips: Vec<String>,
+    /// Mirror image: an answer matching these is rejected.
+    #[serde(default)]
+    pub unexpected_ips: Vec<String>,
+    /// Keep this server out of the fallback chain — it answers its own
+    /// `domains` and nothing else.
+    #[serde(default)]
+    pub skip_fallback: bool,
+    /// Its answer ends the query: no other server is consulted afterwards.
+    #[serde(default)]
+    pub final_query: bool,
+    /// Per-query timeout in ms. 0 = the core's default.
+    #[serde(default)]
+    pub timeout_ms: u32,
+    /// EDNS client subnet sent to THIS server only.
+    #[serde(default)]
+    pub client_ip: String,
+    /// Overrides the section-wide `queryStrategy` for this server.
+    #[serde(default)]
+    pub query_strategy: String,
+}
+
+/// A static `hosts` entry: a name (or `domain:` / `geosite:` / `regexp:`
+/// matcher) pinned to one or more addresses, answered before any server is
+/// asked.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../frontend/src/api/types/settings.ts")]
+pub struct DnsHost {
+    pub domain: String,
+    pub values: Vec<String>,
+}
+
 /// One operator-defined routing rule. Stored (by id) in `xray_custom_rules`;
 /// its position in the evaluation order is held separately in
 /// `xray_rule_order`. All matchers are AND-ed; an empty matcher is omitted.
@@ -106,6 +163,36 @@ pub struct PanelSettings {
     pub xray_direct_domains: Vec<String>,
     /// Domains forced out over IPv4 (routed to a freedom `UseIPv4` outbound).
     pub xray_ipv4_domains: Vec<String>,
+    /// Name servers for the core's own resolver, in query order. Empty (with no
+    /// hosts either) = emit no `dns` section at all, which leaves xray on the
+    /// host resolver.
+    pub xray_dns_servers: Vec<DnsServer>,
+    /// Static answers, consulted before any server.
+    pub xray_dns_hosts: Vec<DnsHost>,
+    /// `UseIP` / `UseIPv4` / `UseIPv6` / `UseSystem` — which address families
+    /// the resolver may return.
+    pub xray_dns_query_strategy: String,
+    /// EDNS client subnet: the address upstreams should answer as if the query
+    /// came from. On a relay abroad this is what stops a CDN from handing back
+    /// its own region's edge.
+    pub xray_dns_client_ip: String,
+    /// Routing tag stamped on the resolver's own queries, so a rule can decide
+    /// where they go. Empty = the core generates a random one, which no rule
+    /// can name.
+    pub xray_dns_tag: String,
+    pub xray_dns_disable_cache: bool,
+    /// Never consult another server when the chosen one fails.
+    pub xray_dns_disable_fallback: bool,
+    /// Softer: only skip the fallback when a server matched by `domains`.
+    pub xray_dns_disable_fallback_if_match: bool,
+    /// Ask every server at once and take the first answer.
+    pub xray_dns_parallel_query: bool,
+    /// Also read the operating system's hosts file.
+    pub xray_dns_use_system_hosts: bool,
+    /// Keep answering from an expired entry while refreshing it.
+    pub xray_dns_serve_stale: bool,
+    /// How long an expired entry may still be served, in seconds.
+    pub xray_dns_serve_expired_ttl: u32,
     /// Operator-defined ordered routing rules, applied after the built-in ones.
     pub xray_custom_rules: Vec<RoutingRule>,
     /// Full evaluation order as tokens (system keys + custom rule ids).
@@ -140,6 +227,9 @@ pub struct PanelSettings {
 /// the read response.
 #[derive(Debug, Deserialize, TS)]
 #[ts(export, export_to = "../../frontend/src/api/types/settings.ts")]
+// Same story as `PanelSettings` above: independent toggles mirroring columns,
+// not a state machine hiding in booleans.
+#[allow(clippy::struct_excessive_bools)]
 pub struct PanelSettingsUpdate {
     pub panel_port: i32,
     pub panel_base_path: String,
@@ -162,6 +252,30 @@ pub struct PanelSettingsUpdate {
     #[serde(default)]
     pub xray_direct_domains: Vec<String>,
     pub xray_ipv4_domains: Vec<String>,
+    #[serde(default)]
+    pub xray_dns_servers: Vec<DnsServer>,
+    #[serde(default)]
+    pub xray_dns_hosts: Vec<DnsHost>,
+    #[serde(default)]
+    pub xray_dns_query_strategy: String,
+    #[serde(default)]
+    pub xray_dns_client_ip: String,
+    #[serde(default)]
+    pub xray_dns_tag: String,
+    #[serde(default)]
+    pub xray_dns_disable_cache: bool,
+    #[serde(default)]
+    pub xray_dns_disable_fallback: bool,
+    #[serde(default)]
+    pub xray_dns_disable_fallback_if_match: bool,
+    #[serde(default)]
+    pub xray_dns_parallel_query: bool,
+    #[serde(default)]
+    pub xray_dns_use_system_hosts: bool,
+    #[serde(default)]
+    pub xray_dns_serve_stale: bool,
+    #[serde(default)]
+    pub xray_dns_serve_expired_ttl: u32,
     #[serde(default)]
     pub xray_custom_rules: Vec<RoutingRule>,
     #[serde(default)]

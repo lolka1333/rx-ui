@@ -72,6 +72,8 @@ export type {
   UserView,
   PanelSettings,
   PanelSettingsUpdate,
+  DnsHost,
+  DnsServer,
   RoutingRule,
   SystemToken,
 } from './settings';
