@@ -30,8 +30,12 @@ const SWITCHES = [
 
 export function DnsTab() {
   const { t } = useTranslation();
-  const enabled = Form.useWatch<boolean>('xray_dns_enabled');
-  const on = enabled !== false;
+  const form = Form.useFormInstance();
+  // `useWatch` returns nothing on the first render — it subscribes in an
+  // effect — so a resolver saved as off used to paint one frame at full
+  // opacity, hint and all, before dimming. The form knows the value already.
+  const watched = Form.useWatch<boolean>('xray_dns_enabled', form);
+  const on = (watched ?? form.getFieldValue('xray_dns_enabled')) !== false;
 
   return (
     <div className="app-dns">
@@ -74,17 +78,19 @@ export function DnsTab() {
               controls rather than full rows: each is one short value, and
               stacked full-width they read as three unrelated forms. */}
           <div className="app-dns-chips">
-            <label className="app-dns-chip">
-              <span className="app-dns-chip-name">{t('settings.dnsChipStrategy')}</span>
-              <Form.Item name="xray_dns_query_strategy" noStyle>
-                <Select
-                  variant="borderless"
-                  size="small"
-                  popupMatchSelectWidth={false}
-                  options={DNS_QUERY_STRATEGIES.map((v) => ({ value: v, label: v }))}
-                />
-              </Form.Item>
-            </label>
+            <Tooltip title={t('settings.xrayDnsQueryStrategyHint')}>
+              <label className="app-dns-chip">
+                <span className="app-dns-chip-name">{t('settings.dnsChipStrategy')}</span>
+                <Form.Item name="xray_dns_query_strategy" noStyle>
+                  <Select
+                    variant="borderless"
+                    size="small"
+                    popupMatchSelectWidth={false}
+                    options={DNS_QUERY_STRATEGIES.map((v) => ({ value: v, label: v }))}
+                  />
+                </Form.Item>
+              </label>
+            </Tooltip>
 
             <Tooltip title={t('settings.xrayDnsClientIpHint')}>
               <label className="app-dns-chip app-dns-chip-grow">
