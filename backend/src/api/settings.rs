@@ -123,7 +123,7 @@ pub async fn load_panel_settings(db: &crate::db::DbPool) -> AppResult<PanelSetti
                 xray_freedom_strategy, xray_routing_strategy, xray_test_url,
                 xray_block_bittorrent, xray_blocked_ips, xray_blocked_domains,
                 xray_direct_ips, xray_direct_domains,
-                xray_dns_servers, xray_dns_hosts, xray_dns_query_strategy,
+                xray_dns_enabled, xray_dns_servers, xray_dns_hosts, xray_dns_query_strategy,
                 xray_dns_client_ip, xray_dns_tag, xray_dns_disable_cache,
                 xray_dns_disable_fallback, xray_dns_disable_fallback_if_match,
                 xray_dns_parallel_query, xray_dns_use_system_hosts,
@@ -161,6 +161,7 @@ pub async fn load_panel_settings(db: &crate::db::DbPool) -> AppResult<PanelSetti
         xray_ipv4_domains: list(&row.xray_ipv4_domains),
         // Same rule as every other JSON column here: unreadable content reads
         // as empty rather than failing the whole settings page.
+        xray_dns_enabled: row.xray_dns_enabled != 0,
         xray_dns_servers: serde_json::from_str(&row.xray_dns_servers).unwrap_or_default(),
         xray_dns_hosts: serde_json::from_str(&row.xray_dns_hosts).unwrap_or_default(),
         xray_dns_query_strategy: row.xray_dns_query_strategy,
@@ -361,6 +362,7 @@ async fn write_panel_row(
                 xray_blocked_domains = ?,
                 xray_direct_ips = ?,
                 xray_direct_domains = ?,
+                xray_dns_enabled = ?,
                 xray_dns_servers = ?,
                 xray_dns_hosts = ?,
                 xray_dns_query_strategy = ?,
@@ -401,6 +403,7 @@ async fn write_panel_row(
         panel.routing.blocked_domains,
         panel.routing.direct_ips,
         panel.routing.direct_domains,
+        panel.dns.enabled,
         panel.dns.servers,
         panel.dns.hosts,
         panel.dns.query_strategy,
@@ -790,6 +793,8 @@ struct XrayRouting {
 /// already `i64` because that is what the columns take, and the two lists are
 /// already JSON strings for the same reason.
 struct XrayDns {
+    /// Already `i64`: the column takes one, and the flag has no other use here.
+    enabled: i64,
     servers: String,
     hosts: String,
     query_strategy: String,
@@ -859,6 +864,7 @@ fn validate_xray_dns(body: &PanelSettingsUpdate) -> AppResult<XrayDns> {
     }
 
     Ok(XrayDns {
+        enabled: i64::from(body.xray_dns_enabled),
         servers: serde_json::to_string(&servers)
             .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?,
         hosts: serde_json::to_string(&hosts).map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?,

@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT panel_port, panel_base_path,\n                sub_enabled, sub_host_override, sub_link_host,\n                sub_update_interval_hours,\n                sub_brand_name, sub_service_url, sub_port,\n                xray_freedom_strategy, xray_routing_strategy, xray_test_url,\n                xray_block_bittorrent, xray_blocked_ips, xray_blocked_domains,\n                xray_direct_ips, xray_direct_domains,\n                xray_dns_servers, xray_dns_hosts, xray_dns_query_strategy,\n                xray_dns_client_ip, xray_dns_tag, xray_dns_disable_cache,\n                xray_dns_disable_fallback, xray_dns_disable_fallback_if_match,\n                xray_dns_parallel_query, xray_dns_use_system_hosts,\n                xray_dns_serve_stale, xray_dns_serve_expired_ttl,\n                xray_ipv4_domains, xray_custom_rules, xray_rule_order,\n                panel_tls_enabled, panel_tls_cert, panel_tls_key,\n                sub_tls_mode, sub_cert_pem, sub_key_pem\n            FROM panel_settings WHERE id = 1",
+  "query": "SELECT panel_port, panel_base_path,\n                sub_enabled, sub_host_override, sub_link_host,\n                sub_update_interval_hours,\n                sub_brand_name, sub_service_url, sub_port,\n                xray_freedom_strategy, xray_routing_strategy, xray_test_url,\n                xray_block_bittorrent, xray_blocked_ips, xray_blocked_domains,\n                xray_direct_ips, xray_direct_domains,\n                xray_dns_enabled, xray_dns_servers, xray_dns_hosts, xray_dns_query_strategy,\n                xray_dns_client_ip, xray_dns_tag, xray_dns_disable_cache,\n                xray_dns_disable_fallback, xray_dns_disable_fallback_if_match,\n                xray_dns_parallel_query, xray_dns_use_system_hosts,\n                xray_dns_serve_stale, xray_dns_serve_expired_ttl,\n                xray_ipv4_domains, xray_custom_rules, xray_rule_order,\n                panel_tls_enabled, panel_tls_cert, panel_tls_key,\n                sub_tls_mode, sub_cert_pem, sub_key_pem\n            FROM panel_settings WHERE id = 1",
   "describe": {
     "columns": [
       {
@@ -191,8 +191,19 @@
         }
       },
       {
-        "name": "xray_dns_servers",
+        "name": "xray_dns_enabled",
         "ordinal": 17,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_dns_enabled"
+          }
+        }
+      },
+      {
+        "name": "xray_dns_servers",
+        "ordinal": 18,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -203,7 +214,7 @@
       },
       {
         "name": "xray_dns_hosts",
-        "ordinal": 18,
+        "ordinal": 19,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -214,7 +225,7 @@
       },
       {
         "name": "xray_dns_query_strategy",
-        "ordinal": 19,
+        "ordinal": 20,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -225,7 +236,7 @@
       },
       {
         "name": "xray_dns_client_ip",
-        "ordinal": 20,
+        "ordinal": 21,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -236,7 +247,7 @@
       },
       {
         "name": "xray_dns_tag",
-        "ordinal": 21,
+        "ordinal": 22,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -247,7 +258,7 @@
       },
       {
         "name": "xray_dns_disable_cache",
-        "ordinal": 22,
+        "ordinal": 23,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -258,7 +269,7 @@
       },
       {
         "name": "xray_dns_disable_fallback",
-        "ordinal": 23,
+        "ordinal": 24,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -269,7 +280,7 @@
       },
       {
         "name": "xray_dns_disable_fallback_if_match",
-        "ordinal": 24,
+        "ordinal": 25,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -280,7 +291,7 @@
       },
       {
         "name": "xray_dns_parallel_query",
-        "ordinal": 25,
+        "ordinal": 26,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -291,7 +302,7 @@
       },
       {
         "name": "xray_dns_use_system_hosts",
-        "ordinal": 26,
+        "ordinal": 27,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -302,7 +313,7 @@
       },
       {
         "name": "xray_dns_serve_stale",
-        "ordinal": 27,
+        "ordinal": 28,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -313,7 +324,7 @@
       },
       {
         "name": "xray_dns_serve_expired_ttl",
-        "ordinal": 28,
+        "ordinal": 29,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -324,7 +335,7 @@
       },
       {
         "name": "xray_ipv4_domains",
-        "ordinal": 29,
+        "ordinal": 30,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -335,7 +346,7 @@
       },
       {
         "name": "xray_custom_rules",
-        "ordinal": 30,
+        "ordinal": 31,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -346,7 +357,7 @@
       },
       {
         "name": "xray_rule_order",
-        "ordinal": 31,
+        "ordinal": 32,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -357,7 +368,7 @@
       },
       {
         "name": "panel_tls_enabled",
-        "ordinal": 32,
+        "ordinal": 33,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -368,7 +379,7 @@
       },
       {
         "name": "panel_tls_cert",
-        "ordinal": 33,
+        "ordinal": 34,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -379,7 +390,7 @@
       },
       {
         "name": "panel_tls_key",
-        "ordinal": 34,
+        "ordinal": 35,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -390,7 +401,7 @@
       },
       {
         "name": "sub_tls_mode",
-        "ordinal": 35,
+        "ordinal": 36,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -401,7 +412,7 @@
       },
       {
         "name": "sub_cert_pem",
-        "ordinal": 36,
+        "ordinal": 37,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -412,7 +423,7 @@
       },
       {
         "name": "sub_key_pem",
-        "ordinal": 37,
+        "ordinal": 38,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -463,8 +474,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "6779f4812215c2af8b141543f2a26a0226a770da27fa01c99c1e5c9d64ff5af4"
+  "hash": "9a36204478a0b492131bead0d728ef40d21166e14e150c2f19962b401655225e"
 }

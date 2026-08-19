@@ -126,7 +126,7 @@ pub async fn load_bootstrap_settings(
         "SELECT xray_freedom_strategy, xray_routing_strategy, xray_block_bittorrent,
                 xray_blocked_ips, xray_blocked_domains, xray_ipv4_domains,
                 xray_direct_ips, xray_direct_domains,
-                xray_dns_servers, xray_dns_hosts, xray_dns_query_strategy,
+                xray_dns_enabled, xray_dns_servers, xray_dns_hosts, xray_dns_query_strategy,
                 xray_dns_client_ip, xray_dns_tag, xray_dns_disable_cache,
                 xray_dns_disable_fallback, xray_dns_disable_fallback_if_match,
                 xray_dns_parallel_query, xray_dns_use_system_hosts,
@@ -163,6 +163,7 @@ pub async fn load_bootstrap_settings(
         direct_domains: parse(&row.xray_direct_domains),
         ipv4_domains: parse(&row.xray_ipv4_domains),
         dns: crate::xray::config_gen::DnsSettings {
+            enabled: row.xray_dns_enabled != 0,
             // A row written by an older panel, or hand-edited, must not take the
             // engine down: an unreadable list is an empty one, which emits no
             // section and leaves the host resolver in charge.

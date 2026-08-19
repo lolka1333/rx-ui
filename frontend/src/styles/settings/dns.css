@@ -424,3 +424,45 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ── The master switch ─────────────────────────────────────────────────── */
+
+.app-dns-master {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 15px;
+  background: var(--surface-2);
+  border-radius: 12px;
+  cursor: pointer;
+}
+.app-dns-master-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.app-dns-master-name {
+  font-size: 14px;
+  font-weight: 500;
+}
+.app-dns-master-desc {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-2, #94a3b8);
+}
+
+/* The sections and the space between them — always, whatever the switch says. */
+.app-dns-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+/* Switched off: everything stays where it is, visibly out of play. Hiding it
+   would read as "your servers are gone". */
+.app-dns-off {
+  opacity: 0.45;
+  pointer-events: none;
+  /* Keyboard users would otherwise tab into controls that do nothing. */
+  user-select: none;
+}

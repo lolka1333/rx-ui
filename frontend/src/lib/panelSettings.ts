@@ -34,6 +34,7 @@ const XRAY_DEFAULTS = {
   xray_direct_domains: [] as string[],
   xray_blocked_domains: [] as string[],
   xray_ipv4_domains: [] as string[],
+  xray_dns_enabled: true,
   xray_dns_servers: [] as DnsServer[],
   xray_dns_hosts: [] as DnsHost[],
   xray_dns_query_strategy: 'UseIP',
@@ -90,6 +91,7 @@ export function mergePanelSettings(
     xray_direct_domains: current?.xray_direct_domains ?? XRAY_DEFAULTS.xray_direct_domains,
     xray_blocked_domains: current?.xray_blocked_domains ?? XRAY_DEFAULTS.xray_blocked_domains,
     xray_ipv4_domains: current?.xray_ipv4_domains ?? XRAY_DEFAULTS.xray_ipv4_domains,
+    xray_dns_enabled: current?.xray_dns_enabled ?? XRAY_DEFAULTS.xray_dns_enabled,
     xray_dns_servers: current?.xray_dns_servers ?? XRAY_DEFAULTS.xray_dns_servers,
     xray_dns_hosts: current?.xray_dns_hosts ?? XRAY_DEFAULTS.xray_dns_hosts,
     xray_dns_query_strategy:

@@ -456,8 +456,9 @@ pub fn build_bootstrap_config(s: &BootstrapSettings) -> Value {
 // Six independent switches mirroring the core's own `dns` fields — a flat
 // mirror of a config section, not a state machine dressed up as booleans.
 #[allow(clippy::struct_excessive_bools)]
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct DnsSettings {
+    pub enabled: bool,
     pub servers: Vec<DnsServer>,
     pub hosts: Vec<DnsHost>,
     pub query_strategy: String,
@@ -470,6 +471,29 @@ pub struct DnsSettings {
     pub use_system_hosts: bool,
     pub serve_stale: bool,
     pub serve_expired_ttl: u32,
+}
+
+impl Default for DnsSettings {
+    /// `enabled` starts true: the section is already gated by having no
+    /// servers, so a default-constructed value means "nothing configured",
+    /// not "switched off".
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            servers: Vec::new(),
+            hosts: Vec::new(),
+            query_strategy: String::new(),
+            client_ip: String::new(),
+            tag: String::new(),
+            disable_cache: false,
+            disable_fallback: false,
+            disable_fallback_if_match: false,
+            parallel_query: false,
+            use_system_hosts: false,
+            serve_stale: false,
+            serve_expired_ttl: 0,
+        }
+    }
 }
 
 /// One name server. A plain address becomes a bare string — the object form is
@@ -517,7 +541,7 @@ fn dns_server_json(n: &DnsServer) -> Value {
 /// back to the host resolver, which is what every install ran on before this
 /// setting existed, so an untouched panel keeps emitting the very same config.
 fn dns_section(d: &DnsSettings) -> Option<Value> {
-    if d.servers.is_empty() && d.hosts.is_empty() {
+    if !d.enabled || (d.servers.is_empty() && d.hosts.is_empty()) {
         return None;
     }
     let mut o = serde_json::Map::new();
@@ -1129,6 +1153,26 @@ mod tests {
         assert_eq!(first["timeoutMs"], 2000);
         assert_eq!(first["clientIp"], "5.255.255.242");
         assert_eq!(first["queryStrategy"], "UseIPv4");
+    }
+
+    /// The switch is not the same thing as an empty list: a configured resolver
+    /// that is switched off keeps its servers in the database and emits no
+    /// section, so turning it back on costs nothing.
+    #[test]
+    fn dns_switch_off_emits_nothing() {
+        let mut s = base(vec![], vec![]);
+        s.dns.servers = vec![plain_server("1.1.1.1")];
+        s.dns.hosts = vec![DnsHost {
+            domain: "router.lan".into(),
+            values: vec!["192.168.1.1".into()],
+        }];
+        assert!(build_bootstrap_config(&s).get("dns").is_some());
+
+        s.dns.enabled = false;
+        assert!(
+            build_bootstrap_config(&s).get("dns").is_none(),
+            "a switched-off resolver must not reach the core"
+        );
     }
 
     /// `hosts` takes one address as a string and several as an array; the panel

@@ -1,0 +1,11 @@
+-- A switch for the resolver, separate from having one configured.
+--
+-- Until now "off" and "not set up" were the same state: the `dns` section is
+-- emitted when the server list is non-empty, so the only way to stop using a
+-- resolver was to delete it. On a tab where a setup runs to several servers
+-- with their own domain lists, answer filters and timeouts, that means the
+-- operator pays for one experiment with the whole configuration.
+--
+-- Default 1 so nothing changes for an existing install: with no servers the
+-- section still isn't emitted, exactly as before.
+ALTER TABLE panel_settings ADD COLUMN xray_dns_enabled INTEGER NOT NULL DEFAULT 1;

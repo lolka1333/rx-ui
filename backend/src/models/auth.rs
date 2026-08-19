@@ -163,6 +163,10 @@ pub struct PanelSettings {
     pub xray_direct_domains: Vec<String>,
     /// Domains forced out over IPv4 (routed to a freedom `UseIPv4` outbound).
     pub xray_ipv4_domains: Vec<String>,
+    /// Whether the `dns` section is emitted at all. Off keeps the whole setup
+    /// in the database and simply stops applying it — deleting the servers was
+    /// the only "off" before, and it took the configuration with it.
+    pub xray_dns_enabled: bool,
     /// Name servers for the core's own resolver, in query order. Empty (with no
     /// hosts either) = emit no `dns` section at all, which leaves xray on the
     /// host resolver.
@@ -252,6 +256,10 @@ pub struct PanelSettingsUpdate {
     #[serde(default)]
     pub xray_direct_domains: Vec<String>,
     pub xray_ipv4_domains: Vec<String>,
+    // Absent in a body from an older client means "on": that is the state every
+    // install had before the switch existed.
+    #[serde(default = "crate::models::default_true")]
+    pub xray_dns_enabled: bool,
     #[serde(default)]
     pub xray_dns_servers: Vec<DnsServer>,
     #[serde(default)]

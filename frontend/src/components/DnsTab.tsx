@@ -30,9 +30,31 @@ const SWITCHES = [
 
 export function DnsTab() {
   const { t } = useTranslation();
+  const enabled = Form.useWatch<boolean>('xray_dns_enabled');
+  const on = enabled !== false;
 
   return (
     <div className="app-dns">
+      {/* The master switch. Off keeps every field below on screen — dimmed,
+          not hidden: a setup that disappears reads as deleted, and the whole
+          point of the switch is that nothing is lost. */}
+      <label className="app-dns-master">
+        <Form.Item name="xray_dns_enabled" noStyle valuePropName="checked">
+          <Switch />
+        </Form.Item>
+        <span className="app-dns-master-text">
+          <span className="app-dns-master-name">{t('settings.dnsEnabled')}</span>
+          <span className="app-dns-master-desc">
+            {on ? t('settings.dnsEnabledOnHint') : t('settings.dnsEnabledOffHint')}
+          </span>
+        </span>
+      </label>
+
+      {/* The wrapper always carries `app-dns-body` — the spacing between the
+          sections lives there. It used to live in `app-dns-off`, which is only
+          applied while the resolver is switched off, so with DNS ON the
+          sections had no gap at all and sat glued to each other. */}
+      <div className={`app-dns-body${on ? '' : ' app-dns-off'}`} aria-disabled={!on}>
       <Form.Item name="xray_dns_servers" noStyle>
         <DnsServersField />
       </Form.Item>
@@ -141,6 +163,7 @@ export function DnsTab() {
           </div>
         </div>
       </section>
+      </div>
     </div>
   );
 }
