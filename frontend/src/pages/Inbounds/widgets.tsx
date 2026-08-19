@@ -298,16 +298,23 @@ export function AutoCompleteField({
     >
       <AutoComplete
         options={options}
-        allowClear
         style={{ width: '100%' }}
-        placeholder={placeholderKey ? t(placeholderKey) : undefined}
         showSearch={{
           filterOption: (input, option) =>
             String(option?.value ?? '')
               .toLowerCase()
               .includes(input.toLowerCase()),
         }}
-      />
+      >
+        {/* Its own input: the one rc-select builds carries
+            `autocomplete="new-password"`, which Chrome reads as a password box
+            and answers with saved passwords on top of the suggestions. */}
+        <Input
+          allowClear
+          autoComplete="off"
+          placeholder={placeholderKey ? t(placeholderKey) : undefined}
+        />
+      </AutoComplete>
     </Form.Item>
   );
 }

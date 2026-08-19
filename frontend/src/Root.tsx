@@ -56,7 +56,16 @@ export function Root() {
   );
 
   return (
-    <ConfigProvider locale={ANTD_LOCALES[locale]} theme={antdTheme}>
+    // `input.autoComplete` is set once here rather than field by field: this
+    // is an operator console, and every text field in it — a server address, a
+    // tag, a path — is a value the browser has no business remembering or
+    // offering back. The two password fields ask for their own semantics at
+    // their call sites, which overrides this.
+    <ConfigProvider
+      locale={ANTD_LOCALES[locale]}
+      theme={antdTheme}
+      input={{ autoComplete: 'off' }}
+    >
       {/* <AntdApp> provides a context-aware message/notification/modal so
           static `message.success(...)` calls pick up the current theme and
           locale instead of antd's global fallback. Components should switch

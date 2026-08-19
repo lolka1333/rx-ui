@@ -342,8 +342,14 @@ function ServerModal({
                 .toLowerCase()
                 .includes(input.toLowerCase())
             }
-            placeholder="1.1.1.1"
-          />
+          >
+            {/* Its own input, which is how antd lets the field be customised.
+                The one rc-select builds carries `autocomplete="new-password"`,
+                and Chrome reads that as a password box: clicking the field
+                covered the resolver list with the browser's saved passwords
+                and strings typed into other forms. */}
+            <Input placeholder="1.1.1.1" autoComplete="off" spellCheck={false} />
+          </AutoComplete>
         </Form.Item>
         <Form.Item
           name="port"
