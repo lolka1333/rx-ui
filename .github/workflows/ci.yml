@@ -68,11 +68,11 @@ jobs:
         # version literal here — single source of truth.
         run: rustup show
 
-      - name: Install protoc (vendored)
-        # The build script uses `protoc-bin-vendored`, so we don't strictly
-        # need a system protoc — but the cache key benefits from a stable
-        # apt cache layer.
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      # No protoc step: `build.rs` points `PROTOC` at the binary shipped by
+      # `protoc-bin-vendored`, so the system package was never used. Installing
+      # it cost every run an `apt-get update` against the runner's Ubuntu
+      # mirrors — and when those stop answering, that is a job that hangs
+      # instead of building.
 
       - name: Cache cargo
         uses: actions/cache@v6
