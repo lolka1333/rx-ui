@@ -35,3 +35,18 @@ export const DNS_PRESET_BY_VALUE = new Map(DNS_PRESETS.map((p) => [p.value, p]))
 /** `dns.queryStrategy`: which address families the resolver may answer with.
  *  Mirrors `resolveQueryStrategy` in the core; `UseIP` is its default. */
 export const DNS_QUERY_STRATEGIES = ['UseIP', 'UseIPv4', 'UseIPv6', 'UseSystem'] as const;
+
+/** Whether a per-server strategy and the section-wide one leave the core
+ *  nothing to ask for.
+ *
+ *  A per-server value does not replace the section's, it narrows it — the core
+ *  intersects the two (`ResolveIpOptionOverride`). Ask for one family at the
+ *  top and the other at a server and no family is left, at which point the core
+ *  refuses the entire config, not just that server. The API rejects the pair;
+ *  disabling the option keeps it from being picked in the first place. */
+export function strategyClashes(section: string, perServer: string): boolean {
+  return (
+    (section === 'UseIPv4' && perServer === 'UseIPv6') ||
+    (section === 'UseIPv6' && perServer === 'UseIPv4')
+  );
+}

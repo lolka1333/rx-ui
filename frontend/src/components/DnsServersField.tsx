@@ -43,7 +43,7 @@ import {
 import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { DnsServer } from '@/api/types/settings';
-import { DNS_PRESETS, DNS_QUERY_STRATEGIES } from '@/lib/dnsPresets';
+import { DNS_PRESETS, DNS_QUERY_STRATEGIES, strategyClashes } from '@/lib/dnsPresets';
 import { GEOIP_PRESETS, GEOSITE_PRESETS } from '@/lib/geoPresets';
 
 /** A server with nothing but an address — what "+ Add" starts from and what
@@ -99,6 +99,13 @@ interface Props {
 
 export function DnsServersField({ value, onChange }: Props) {
   const { t } = useTranslation();
+  // The section's own strategy, read from the page form this field lives in:
+  // a per-server value is checked against it before it can be picked.
+  const page = Form.useFormInstance();
+  // `useWatch` has nothing on the first render — it subscribes in an effect —
+  // and the form itself already knows the answer.
+  const watched = Form.useWatch<string>('xray_dns_query_strategy', page);
+  const sectionStrategy = watched ?? page.getFieldValue('xray_dns_query_strategy') ?? 'UseIP';
   const list = useMemo(() => value ?? [], [value]);
   const [editing, setEditing] = useState<number | null>(null);
 
@@ -247,6 +254,7 @@ export function DnsServersField({ value, onChange }: Props) {
           closed, so there was nothing on screen for antd to animate out. */}
       <ServerModal
         open={editing !== null}
+        sectionStrategy={sectionStrategy}
         formKey={editing ?? NEW}
         server={(editing !== null && editing !== NEW && list[editing]) || emptyDnsServer()}
         onCancel={() => setEditing(null)}
@@ -277,11 +285,15 @@ export function DnsServersField({ value, onChange }: Props) {
 function ServerModal({
   open,
   formKey,
+  sectionStrategy,
   server,
   onOk,
   onCancel,
 }: {
   open: boolean;
+  /** What the section as a whole asks for. A server may narrow it, never
+   *  contradict it. */
+  sectionStrategy: string;
   /** Remounts the form per opened row: `destroyOnHidden` clears the fields,
    *  and a fresh key makes the next row's `initialValues` actually apply. */
   formKey: number;
@@ -395,11 +407,23 @@ function ServerModal({
 
   const extra = (
     <>
-      <Form.Item name="query_strategy" label={t('settings.dnsServerQueryStrategy')}>
+      <Form.Item
+        name="query_strategy"
+        label={t('settings.dnsServerQueryStrategy')}
+        extra={
+          sectionStrategy === 'UseIPv4' || sectionStrategy === 'UseIPv6'
+            ? t('settings.dnsStrategyClashHint', { section: sectionStrategy })
+            : undefined
+        }
+      >
         <Select
           allowClear
           placeholder={t('settings.dnsInherit')}
-          options={DNS_QUERY_STRATEGIES.map((v) => ({ value: v, label: v }))}
+          options={DNS_QUERY_STRATEGIES.map((v) => ({
+            value: v,
+            label: v,
+            disabled: strategyClashes(sectionStrategy, v),
+          }))}
         />
       </Form.Item>
       <Form.Item

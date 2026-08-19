@@ -141,6 +141,8 @@ export const ru = {
     dnsSkipFallbackTag: 'не запасной',
     dnsFinalQueryTag: 'финальный',
     dnsDefault: 'по умолчанию',
+    dnsStrategyClashHint:
+      'Секция спрашивает только {{section}} — противоположная семья недоступна: адресов не осталось бы совсем.',
     dnsInherit: 'как у секции',
     dnsTabServer: 'Сервер',
     dnsTabExtra: 'Дополнительно',

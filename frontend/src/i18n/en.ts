@@ -140,6 +140,8 @@ export const en: Dict = {
     dnsSkipFallbackTag: 'not a fallback',
     dnsFinalQueryTag: 'final',
     dnsDefault: 'default',
+    dnsStrategyClashHint:
+      'The section asks for {{section}} only, so the opposite family is out — it would leave no addresses at all.',
     dnsInherit: 'same as section',
     dnsTabServer: 'Server',
     dnsTabExtra: 'Advanced',
