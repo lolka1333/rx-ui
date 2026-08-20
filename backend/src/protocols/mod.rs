@@ -27,6 +27,7 @@ pub struct ProtocolCompat {
 
 pub mod hysteria;
 pub mod vless;
+pub mod wireguard;
 
 /// Each protocol implements this trait. `build_proxy_settings` is the
 /// inbound-side proxy config xray expects; `build_user` produces the
@@ -59,6 +60,7 @@ pub trait Protocol: Send + Sync {
 pub enum ProtocolConfig {
     Vless(vless::VlessProtocol),
     Hysteria2(hysteria::HysteriaProtocol),
+    Wireguard(wireguard::WireguardProtocol),
 }
 
 impl ProtocolConfig {
@@ -66,6 +68,7 @@ impl ProtocolConfig {
         match self {
             Self::Vless(p) => p,
             Self::Hysteria2(p) => p,
+            Self::Wireguard(p) => p,
         }
     }
 
@@ -74,6 +77,7 @@ impl ProtocolConfig {
         match self {
             Self::Vless(_) => "VLESS",
             Self::Hysteria2(_) => "Hysteria 2",
+            Self::Wireguard(_) => "WireGuard",
         }
     }
 
@@ -87,6 +91,13 @@ impl ProtocolConfig {
             Self::Hysteria2(_) => ProtocolCompat {
                 allowed_transports: &[TransportKind::Hysteria],
                 allowed_securities: &[SecurityKind::Tls],
+            },
+            // WireGuard carries its own transport and its own crypto: the
+            // stream layer is never consulted, so the inbound keeps the
+            // neutral pair rather than offering choices that do nothing.
+            Self::Wireguard(_) => ProtocolCompat {
+                allowed_transports: &[TransportKind::Tcp],
+                allowed_securities: &[SecurityKind::None],
             },
         }
     }

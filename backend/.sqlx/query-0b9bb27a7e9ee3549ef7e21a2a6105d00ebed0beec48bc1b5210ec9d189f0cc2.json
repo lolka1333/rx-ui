@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT wg_address AS \"wg_address!: String\" FROM clients\n           WHERE inbound_id = ? AND wg_address IS NOT NULL",
+  "describe": {
+    "columns": [
+      {
+        "name": "wg_address!: String",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "wg_address"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "0b9bb27a7e9ee3549ef7e21a2a6105d00ebed0beec48bc1b5210ec9d189f0cc2"
+}

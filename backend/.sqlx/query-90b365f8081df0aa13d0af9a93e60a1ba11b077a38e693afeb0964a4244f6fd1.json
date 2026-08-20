@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id AS \"id!: String\" FROM clients\n           WHERE inbound_id = ?\n             AND (wg_address IS NULL OR wg_address = ''\n                  OR wg_public_key IS NULL OR wg_public_key = '')\n           ORDER BY created_at, id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: String",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "90b365f8081df0aa13d0af9a93e60a1ba11b077a38e693afeb0964a4244f6fd1"
+}

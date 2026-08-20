@@ -1,0 +1,12 @@
+-- WireGuard pre-shared key, one per peer.
+--
+-- A second, symmetric secret mixed into the handshake on top of the keypair.
+-- The core honours it on the server path: `proxy/wireguard/server.go` writes a
+-- `preshared_key=` line for every peer that has one, both when the device comes
+-- up and when a user is added to a running inbound.
+--
+-- Stored as WireGuard prints it (base64), because it goes into the client's
+-- config verbatim; the conversion to the hex the core's UAPI expects happens
+-- where the peer is built. NULL / empty ≡ no pre-shared key, which is what
+-- every peer created before this migration keeps.
+ALTER TABLE clients ADD COLUMN wg_preshared_key TEXT;

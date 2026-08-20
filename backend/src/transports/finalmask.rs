@@ -781,6 +781,25 @@ impl XmcParams {
 /// path instead, but that needs ALPN pinned to exactly `h3`; the API rejects
 /// that combination for TCP masks rather than letting the form present a
 /// transport whose masks depend on a field three tabs away.
+/// Masks a `WireGuard` inbound can carry.
+///
+/// The list is short because a `WireGuard` peer is not ours: whatever wraps the
+/// server socket, the far end is a stock `WireGuard` client that knows nothing
+/// about it, and the config the panel hands out has no field that could tell it.
+///
+/// `noise` survives that. Its server side only injects extra datagrams before
+/// the real ones and never rewrites a packet — there is no read-side transform
+/// in `finalmask/noise/conn.go` at all — so the client drops the junk as
+/// malformed and reads everything else unchanged.
+///
+/// `sudoku` and `salamander` re-encode every datagram on both sides
+/// (`sudoku/conn_udp.go`, `salamander/conn.go`), which a `WireGuard` client
+/// cannot do. `fragment` and `xmc` live in the TCP registry, which the
+/// `WireGuard` server never consults — they would save and do nothing.
+pub fn wireguard_supported_kinds() -> Vec<&'static str> {
+    vec!["noise"]
+}
+
 pub fn supported_kinds(
     transport: crate::transports::TransportKind,
     security: crate::security::SecurityKind,

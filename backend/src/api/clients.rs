@@ -67,6 +67,10 @@ pub fn routes_global() -> Router<AppState> {
             "/{id}/rotate-sub-token",
             axum::routing::post(rotate_sub_token),
         )
+        .route(
+            "/{id}/rotate-wireguard",
+            axum::routing::post(rotate_wireguard),
+        )
         .route("/bulk-assign", axum::routing::post(bulk_assign))
 }
 
@@ -160,7 +164,8 @@ async fn bulk_assign(
     // DB tx — INSERT / UPDATE / DELETE in one shot. Returns the list
     // of (inbound_id, was_update) so the caller can drive xray sync
     // per row.
-    let applied = commit_bulk_assign_tx(&state, &body, &target, &creds, &to_remove).await?;
+    let applied =
+        commit_bulk_assign_tx(&state, &body, &target, &creds, &to_remove, &target_inbounds).await?;
 
     // Post-commit gRPC sync — best-effort. DB is consistent regardless;
     // failures are collected into `xray_failures` so the frontend can
@@ -377,6 +382,7 @@ async fn commit_bulk_assign_tx(
     target: &[String],
     creds: &SharedCredentials,
     to_remove: &[(String, String)],
+    target_inbounds: &std::collections::HashMap<String, crate::models::Inbound>,
 ) -> AppResult<Vec<(String, bool)>> {
     // Same normalisation as the caller: this runs the INSERT, so the stored
     // identity has to be the trimmed form.
@@ -428,6 +434,14 @@ async fn commit_bulk_assign_tx(
         } else {
             let new_id = Uuid::new_v4().to_string();
             let sub_token = crate::api::subscription::generate_unique_token_on(&mut tx).await?;
+            // Per attachment, not per email: each WireGuard inbound hands out
+            // addresses from its own subnet, and the address is the peer's
+            // identity there.
+            let inbound = target_inbounds.get(inbound_id).ok_or_else(|| {
+                AppError::BadRequest(format!("inbound {inbound_id} disappeared mid-assign"))
+            })?;
+            let wg =
+                wireguard_peer_for(&mut tx, &inbound.id, &inbound.tag, &inbound.protocol).await?;
             // Seed the new attachment's lifetime counters from the email's
             // current total (xray accounts per email, so every attachment
             // shares one usage figure). Starting a fresh row at 0 would leave
@@ -439,8 +453,9 @@ async fn commit_bulk_assign_tx(
             sqlx::query!(
                 r#"INSERT INTO clients (id, inbound_id, email, uuid, auth, flow, reverse_tag, enabled,
                                         note, traffic_limit_bytes, disabled_reason, expires_at, sub_token,
+                                        wg_private_key, wg_public_key, wg_address, wg_preshared_key,
                                         uplink_total, downlink_total)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, NULL, ?, ?,
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, NULL, ?, ?, ?, ?, ?, ?,
                            COALESCE((SELECT MAX(uplink_total) FROM clients WHERE email = ?), 0),
                            COALESCE((SELECT MAX(downlink_total) FROM clients WHERE email = ?), 0))"#,
                 new_id,
@@ -454,6 +469,10 @@ async fn commit_bulk_assign_tx(
                 body.traffic_limit_bytes,
                 expires_at.clone(),
                 sub_token,
+                wg.private_key,
+                wg.public_key,
+                wg.address,
+                wg.preshared_key,
                 email,
                 email,
             )
@@ -550,7 +569,8 @@ async fn sync_xray_applied(
     }
     let mut qb = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
         "SELECT id, inbound_id, email, uuid, auth, flow, reverse_tag, enabled, note, \
-         traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at \
+         traffic_limit_bytes, disabled_reason, expires_at, sub_token,
+                  wg_private_key, wg_public_key, wg_address, wg_preshared_key, created_at, updated_at \
          FROM clients WHERE email = ",
     );
     qb.push_bind(email);
@@ -639,6 +659,83 @@ async fn rotate_sub_token(
     .await?;
     let row = read_row(&state, &inbound_id, &id).await?;
     Ok(Json(row_to_client(row)))
+}
+
+/// Mint a fresh keypair and pre-shared key for one `WireGuard` peer.
+///
+/// The tunnel address is deliberately kept: it is the peer's identity at
+/// runtime — xray attributes a connection to a user by the source address
+/// inside the tunnel — and it is what per-client traffic accounting hangs off,
+/// so rotating it would look like a different user to the stats poller.
+///
+/// The config already in someone's hands stops working the moment this
+/// returns; that is the point of the operation, and the UI says so before
+/// calling it.
+async fn rotate_wireguard(
+    _user: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> AppResult<Json<Client>> {
+    let inbound_id = inbound_id_for_client(&state, &id).await?;
+    let inbound = super::inbounds::fetch_inbound(&state, &inbound_id).await?;
+    if !matches!(
+        inbound.protocol,
+        crate::protocols::ProtocolConfig::Wireguard(_)
+    ) {
+        return Err(AppError::BadRequest(format!(
+            "inbound {} is not a WireGuard inbound — this client has no peer keys to rotate",
+            inbound.tag
+        )));
+    }
+
+    let issue_psk = match &inbound.protocol {
+        crate::protocols::ProtocolConfig::Wireguard(wg) => wg.issue_preshared_key,
+        _ => false,
+    };
+    let before = row_to_client(read_row(&state, &inbound_id, &id).await?);
+    let keys = crate::xray::keygen::generate_wireguard_keypair();
+    // A peer that never had an address gets one now. The rows in that state are
+    // the ones an inbound inherited when it changed protocol; without this the
+    // reissue writes fresh keys and then fails on the missing address, leaving
+    // the row half-rotated and the operator with nothing to try next.
+    // Reissuing follows the inbound's current policy: an operator who turned
+    // pre-shared keys off gets a peer without one, and one who turned them on
+    // is how a peer predating the setting finally gets its key.
+    let psk = issue_psk.then(crate::xray::keygen::generate_preshared_key);
+    let mut tx = state.db.begin().await?;
+    let address = match before.wg_address.clone().filter(|a| !a.trim().is_empty()) {
+        Some(existing) => existing,
+        // Allocated in this transaction, like any other peer's — the address is
+        // the identity, so it cannot be picked outside one.
+        None => wireguard_peer_for(&mut tx, &inbound_id, &inbound.tag, &inbound.protocol)
+            .await?
+            .address
+            .ok_or_else(|| {
+                AppError::Internal(anyhow::anyhow!(
+                    "inbound {} could not issue a tunnel address",
+                    inbound.tag
+                ))
+            })?,
+    };
+    sqlx::query!(
+        "UPDATE clients SET wg_private_key = ?, wg_public_key = ?, wg_preshared_key = ?,
+                            wg_address = ?, updated_at = datetime('now')
+         WHERE id = ?",
+        keys.private_key,
+        keys.public_key,
+        psk,
+        address,
+        id,
+    )
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    let after = row_to_client(read_row(&state, &inbound_id, &id).await?);
+    // The peer's public key IS its identity to the core, so the running handler
+    // has to be told: the old entry is dropped and the new one added.
+    sync_client_update_to_xray(&state, &inbound, &before, &after).await?;
+    Ok(Json(after))
 }
 
 /// Latest per-email traffic + online snapshot from xray's `StatsService`.
@@ -777,8 +874,128 @@ struct Row {
     disabled_reason: Option<String>,
     expires_at: Option<String>,
     sub_token: String,
+    wg_private_key: Option<String>,
+    wg_public_key: Option<String>,
+    wg_address: Option<String>,
+    wg_preshared_key: Option<String>,
     created_at: String,
     updated_at: String,
+}
+
+/// A peer's credentials on a `WireGuard` inbound: a fresh keypair and the
+/// lowest free address in the inbound's subnet. All `None` for every other
+/// protocol, which is what the columns hold there.
+///
+/// The address is picked inside the caller's transaction on purpose. It is the
+/// peer's identity at runtime — xray attributes a connection by the source
+/// address inside the tunnel — so two clients created at the same moment
+/// handed the same address would be one user to the core, with their traffic
+/// landing on whichever peer it found first.
+/// Give every client of a `WireGuard` inbound the peer credentials it is
+/// missing, in the caller's transaction.
+///
+/// The rows that need this are the ones that predate the inbound BEING
+/// `WireGuard`: an inbound that changes protocol keeps its clients, and they
+/// were inserted when there was no pool to draw an address from. Without a
+/// backfill the first of them to be enabled takes the whole inbound down —
+/// `build_user` refuses a peer with no key, and one refusal fails the config
+/// for every other peer on it.
+///
+/// Disabled rows are included on purpose: they are exactly the ones the
+/// inbound's own build gate cannot see, and re-enabling one later is what
+/// would otherwise break the inbound.
+pub async fn backfill_wireguard_peers(
+    tx: &mut sqlx::SqliteConnection,
+    inbound_id: &str,
+    tag: &str,
+    protocol: &crate::protocols::ProtocolConfig,
+) -> AppResult<()> {
+    if !matches!(protocol, crate::protocols::ProtocolConfig::Wireguard(_)) {
+        return Ok(());
+    }
+    let pending: Vec<String> = sqlx::query_scalar!(
+        r#"SELECT id AS "id!: String" FROM clients
+           WHERE inbound_id = ?
+             AND (wg_address IS NULL OR wg_address = ''
+                  OR wg_public_key IS NULL OR wg_public_key = '')
+           ORDER BY created_at, id"#,
+        inbound_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    for id in pending {
+        // One at a time: each row is written before the next address is
+        // picked, so the "taken" set the allocator reads is always current.
+        let peer = wireguard_peer_for(&mut *tx, inbound_id, tag, protocol).await?;
+        sqlx::query!(
+            "UPDATE clients SET wg_private_key = ?, wg_public_key = ?, wg_address = ?,
+                                wg_preshared_key = ?, updated_at = datetime('now')
+             WHERE id = ?",
+            peer.private_key,
+            peer.public_key,
+            peer.address,
+            peer.preshared_key,
+            id,
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    Ok(())
+}
+
+#[derive(Default)]
+struct WireguardPeerFields {
+    private_key: Option<String>,
+    public_key: Option<String>,
+    address: Option<String>,
+    preshared_key: Option<String>,
+}
+
+async fn wireguard_peer_for(
+    tx: &mut sqlx::SqliteConnection,
+    inbound_id: &str,
+    tag: &str,
+    protocol: &crate::protocols::ProtocolConfig,
+) -> AppResult<WireguardPeerFields> {
+    let crate::protocols::ProtocolConfig::Wireguard(wg) = protocol else {
+        return Ok(WireguardPeerFields::default());
+    };
+    let taken: std::collections::HashSet<String> = sqlx::query_scalar!(
+        r#"SELECT wg_address AS "wg_address!: String" FROM clients
+           WHERE inbound_id = ? AND wg_address IS NOT NULL"#,
+        inbound_id
+    )
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .collect();
+
+    let pool = wg
+        .client_addresses()
+        .map_err(|e| AppError::BadRequest(format!("inbound {tag}: {e}")))?;
+    let address = pool
+        .map(|a| a.to_string())
+        .find(|a| !taken.contains(a))
+        .ok_or_else(|| {
+            AppError::BadRequest(format!(
+                "inbound {tag}: every address in {} is taken",
+                wg.subnet
+            ))
+        })?;
+
+    let keys = crate::xray::keygen::generate_wireguard_keypair();
+    Ok(WireguardPeerFields {
+        private_key: Some(keys.private_key),
+        public_key: Some(keys.public_key),
+        address: Some(address),
+        // `WireGuard` treats a pre-shared key as optional, so the inbound says
+        // whether its peers get one. On by default; off means the config comes
+        // out exactly as a plain `WireGuard` server would write it.
+        preshared_key: wg
+            .issue_preshared_key
+            .then(crate::xray::keygen::generate_preshared_key),
+    })
 }
 
 fn row_to_client(r: Row) -> Client {
@@ -796,6 +1013,10 @@ fn row_to_client(r: Row) -> Client {
         disabled_reason: r.disabled_reason,
         expires_at: r.expires_at,
         sub_token: r.sub_token,
+        wg_private_key: r.wg_private_key,
+        wg_public_key: r.wg_public_key,
+        wg_address: r.wg_address,
+        wg_preshared_key: r.wg_preshared_key,
         created_at: r.created_at,
         updated_at: r.updated_at,
     }
@@ -813,7 +1034,8 @@ pub async fn load_enabled_clients(
     let rows = sqlx::query_as!(
         Row,
         r#"SELECT id, inbound_id, email, uuid, auth, flow, reverse_tag, enabled, note,
-                  traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at
+                  traffic_limit_bytes, disabled_reason, expires_at, sub_token,
+                  wg_private_key, wg_public_key, wg_address, wg_preshared_key, created_at, updated_at
            FROM clients
            WHERE inbound_id = ? AND enabled = 1
            ORDER BY created_at ASC"#,
@@ -874,7 +1096,8 @@ async fn list(
     let rows = sqlx::query_as!(
         Row,
         r#"SELECT id, inbound_id, email, uuid, auth, flow, reverse_tag, enabled, note,
-                  traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at
+                  traffic_limit_bytes, disabled_reason, expires_at, sub_token,
+                  wg_private_key, wg_public_key, wg_address, wg_preshared_key, created_at, updated_at
            FROM clients WHERE inbound_id = ?
            ORDER BY created_at"#,
         inbound_id
@@ -979,11 +1202,13 @@ async fn create(
     // half-applied. This is what makes a later per-inbound delete lossless even
     // for an email whose first hysteria attachment is created through this path.
     let mut tx = state.db.begin().await?;
+    let wg = wireguard_peer_for(&mut tx, &inbound.id, &inbound.tag, &inbound.protocol).await?;
     sqlx::query!(
         r#"INSERT INTO clients (id, inbound_id, email, uuid, auth, flow, reverse_tag, enabled, note,
                                 traffic_limit_bytes, disabled_reason, expires_at, sub_token,
+                                wg_private_key, wg_public_key, wg_address, wg_preshared_key,
                                 uplink_total, downlink_total)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, NULL, ?, ?,
+           VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, NULL, ?, ?, ?, ?, ?, ?,
                    COALESCE((SELECT MAX(uplink_total) FROM clients WHERE email = ?), 0),
                    COALESCE((SELECT MAX(downlink_total) FROM clients WHERE email = ?), 0))"#,
         id,
@@ -997,6 +1222,10 @@ async fn create(
         body.traffic_limit_bytes,
         expires_at,
         sub_token,
+        wg.private_key,
+        wg.public_key,
+        wg.address,
+        wg.preshared_key,
         email,
         email,
     )
@@ -1170,7 +1399,8 @@ async fn refetch_with_quota_recheck(
 ) -> AppResult<Client> {
     let row = sqlx::query!(
         r#"SELECT id, inbound_id, email, uuid, auth, flow, reverse_tag, enabled, note,
-                  traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at,
+                  traffic_limit_bytes, disabled_reason, expires_at, sub_token,
+                  wg_private_key, wg_public_key, wg_address, wg_preshared_key, created_at, updated_at,
                   (uplink_total + downlink_total) AS "used!: i64"
            FROM clients WHERE id = ? AND inbound_id = ?"#,
         id,
@@ -1194,6 +1424,10 @@ async fn refetch_with_quota_recheck(
         disabled_reason: row.disabled_reason,
         expires_at: row.expires_at,
         sub_token: row.sub_token,
+        wg_private_key: row.wg_private_key,
+        wg_public_key: row.wg_public_key,
+        wg_address: row.wg_address,
+        wg_preshared_key: row.wg_preshared_key,
         created_at: row.created_at,
         updated_at: row.updated_at,
     });
@@ -1266,7 +1500,13 @@ async fn sync_client_update_to_xray(
         // reverse handler, add_user re-registers with the new tag (or none).
         // Without this the live account keeps the stale Reverse state until an
         // unrelated identity edit or a restart.
-        || before.reverse_tag != after.reverse_tag;
+        || before.reverse_tag != after.reverse_tag
+        // A WireGuard peer is identified by its key and its address inside the
+        // tunnel; both live in the same PeerConfig `build_user` emits, so a
+        // change to either has to be re-pushed like any other identity edit.
+        || before.wg_public_key != after.wg_public_key
+        || before.wg_preshared_key != after.wg_preshared_key
+        || before.wg_address != after.wg_address;
     // Reuse one protocol handle across the identity / enabled branches —
     // `build_user` only needs the protocol layer, never the rest.
     let protocol = inbound.protocol.as_protocol();
@@ -1369,7 +1609,8 @@ async fn read_row(state: &AppState, inbound_id: &str, id: &str) -> AppResult<Row
     sqlx::query_as!(
         Row,
         r#"SELECT id, inbound_id, email, uuid, auth, flow, reverse_tag, enabled, note,
-                  traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at
+                  traffic_limit_bytes, disabled_reason, expires_at, sub_token,
+                  wg_private_key, wg_public_key, wg_address, wg_preshared_key, created_at, updated_at
            FROM clients WHERE id = ? AND inbound_id = ?"#,
         id,
         inbound_id
@@ -1420,7 +1661,8 @@ async fn list_global(
     let rows = sqlx::query_as!(
         Row,
         r#"SELECT id, inbound_id, email, uuid, auth, flow, reverse_tag, enabled, note,
-                  traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at
+                  traffic_limit_bytes, disabled_reason, expires_at, sub_token,
+                  wg_private_key, wg_public_key, wg_address, wg_preshared_key, created_at, updated_at
            FROM clients ORDER BY created_at DESC"#
     )
     .fetch_all(&state.db)

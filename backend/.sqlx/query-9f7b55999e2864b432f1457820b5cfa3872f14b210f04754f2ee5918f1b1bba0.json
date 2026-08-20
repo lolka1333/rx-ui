@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, inbound_id, email, uuid, auth, flow, reverse_tag, enabled, note,\n                  traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at\n           FROM clients\n           WHERE inbound_id = ? AND enabled = 1\n           ORDER BY created_at ASC",
+  "query": "SELECT id, inbound_id, email, uuid, auth, flow, reverse_tag, enabled, note,\n                  traffic_limit_bytes, disabled_reason, expires_at, sub_token,\n                  wg_private_key, wg_public_key, wg_address, wg_preshared_key, created_at, updated_at\n           FROM clients\n           WHERE inbound_id = ? AND enabled = 1\n           ORDER BY created_at ASC",
   "describe": {
     "columns": [
       {
@@ -147,8 +147,52 @@
         }
       },
       {
-        "name": "created_at",
+        "name": "wg_private_key",
         "ordinal": 13,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "wg_private_key"
+          }
+        }
+      },
+      {
+        "name": "wg_public_key",
+        "ordinal": 14,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "wg_public_key"
+          }
+        }
+      },
+      {
+        "name": "wg_address",
+        "ordinal": 15,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "wg_address"
+          }
+        }
+      },
+      {
+        "name": "wg_preshared_key",
+        "ordinal": 16,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "wg_preshared_key"
+          }
+        }
+      },
+      {
+        "name": "created_at",
+        "ordinal": 17,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -159,7 +203,7 @@
       },
       {
         "name": "updated_at",
-        "ordinal": 14,
+        "ordinal": 18,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -186,9 +230,13 @@
       true,
       true,
       false,
+      true,
+      true,
+      true,
+      true,
       false,
       false
     ]
   },
-  "hash": "429079473c76d472ad73dbeba838a2737e1526ed2b4742a880926ff0566413b2"
+  "hash": "9f7b55999e2864b432f1457820b5cfa3872f14b210f04754f2ee5918f1b1bba0"
 }

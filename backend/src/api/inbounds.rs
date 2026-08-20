@@ -406,12 +406,51 @@ fn validate_xhttp_mode(transport: &TransportConfig) -> AppResult<()> {
 /// `check_matrix` decides whether the transport×mask matrix applies. See
 /// `validate_finalmask` — it is off when a stored mask is being carried
 /// forward untouched, so a legacy row stays editable.
+/// The mask rule for a `WireGuard` inbound, which is its own rule.
+///
+/// A `WireGuard` peer is not ours: whatever wraps the inbound's socket, the far
+/// end is a stock `WireGuard` client, and the config the panel hands out has no
+/// field that could tell it to speak the same wrapping. Only the masks that
+/// survive that asymmetry are allowed \u2014 `wireguard_supported_kinds` says which
+/// and why.
+///
+/// The transport/security matrix deliberately gets no say here. It judges a
+/// mask by the layers underneath it, and this inbound has none: the `tcp` it
+/// stores is a placeholder the layer validator wants, not a socket anything
+/// runs on. Judged by it, the one mask that does work would be refused for
+/// sitting on the wrong registry.
+///
+/// `check` is off only when the caller is carrying a stored mask forward
+/// untouched, so a `{enabled: false}` PATCH on a row that predates this rule
+/// stays possible.
+fn validate_wireguard_finalmask(finalmask: &FinalMask, check: bool) -> AppResult<()> {
+    if !check || !finalmask.is_configured() {
+        return Ok(());
+    }
+    let allowed = crate::transports::finalmask::wireguard_supported_kinds();
+    if allowed.contains(&finalmask.kind()) {
+        return Ok(());
+    }
+    Err(AppError::BadRequest(format!(
+        concat!(
+            "FinalMask '{}' cannot be used on a WireGuard inbound: a stock ",
+            "WireGuard client has no way to speak it, so the tunnel would stop ",
+            "completing its handshake. Supported here: {}."
+        ),
+        finalmask.kind(),
+        allowed.join(", "),
+    )))
+}
+
 fn validate_layers(
     protocol: &ProtocolConfig,
     transport: &TransportConfig,
     security: &SecurityConfig,
     finalmask: &FinalMask,
     check_matrix: bool,
+    // True when this call carries a protocol choice being made now — a create,
+    // or a PATCH whose body names a protocol.
+    check_protocol_mask: bool,
 ) -> AppResult<()> {
     // Cross-layer protocol/transport/security compatibility — declared
     // per protocol in `ProtocolConfig::compat`. The validator just
@@ -461,10 +500,23 @@ fn validate_layers(
     // helper to keep this function readable).
     validate_xhttp_mode(transport)?;
 
-    // FinalMask compatibility with the transport and the security layer
-    // (Reality panics on Sudoku/XMC; XMC needs a TCP path; zero-length
-    // fragment) — grouped in `validate_finalmask`.
-    validate_finalmask(transport, security, finalmask, check_matrix)?;
+    // A WireGuard peer is not ours: whatever wraps the inbound's socket, the
+    // far end is a stock WireGuard client, and the config the panel hands out
+    // has no field that could tell it to speak the same wrapping. Only the
+    // masks that survive that asymmetry are allowed — see
+    // `wireguard_supported_kinds` for which and why. Keyed on its own flag as
+    // well as `check_matrix`: a PATCH that switches an inbound TO WireGuard
+    // carries no transport/security/finalmask block, so the matrix flag is off
+    // and the stored mask would ride along unchecked. A PATCH that touches
+    // neither still passes, so `{enabled: false}` on such a row stays possible.
+    if matches!(protocol, ProtocolConfig::Wireguard(_)) {
+        validate_wireguard_finalmask(finalmask, check_matrix || check_protocol_mask)?;
+    } else {
+        // FinalMask compatibility with the transport and the security layer
+        // (Reality panics on Sudoku/XMC; XMC needs a TCP path; zero-length
+        // fragment) — grouped in `validate_finalmask`.
+        validate_finalmask(transport, security, finalmask, check_matrix)?;
+    }
 
     // VLESS fallbacks — xray-core rejects two combos at startup:
     //   * `fallbacks` + `decryption != "none"` (VLESS Encryption) — they
@@ -603,6 +655,25 @@ async fn complete_server_managed_fields(
         }
     }
 
+    // WireGuard's device keypair, the same rule as Reality's: keep whatever
+    // private half arrived, always re-derive the public one from it so a
+    // hand-crafted request cannot ship a mismatched pair — every client config
+    // this inbound hands out carries that public key, and a wrong one is a
+    // tunnel that completes no handshake and says nothing about why.
+    if let ProtocolConfig::Wireguard(wg) = &mut *protocol {
+        crate::protocols::wireguard::parse_subnet(&wg.subnet)
+            .map_err(|e| AppError::BadRequest(format!("wireguard subnet: {e}")))?;
+        if wg.secret_key.trim().is_empty() {
+            let kp = keygen::generate_wireguard_keypair();
+            wg.secret_key = kp.private_key;
+            wg.public_key = kp.public_key;
+        } else {
+            wg.public_key = keygen::derive_wireguard_public_key(&wg.secret_key)
+                .map_err(|e| AppError::BadRequest(format!("wireguard private key: {e}")))?;
+        }
+        return Ok(());
+    }
+
     // VLESS-specific encryption key derivation. Hysteria 2 carries no
     // protocol-level encryption (everything is on the QUIC/TLS layer),
     // so the whole block is skipped for non-VLESS protocols.
@@ -674,6 +745,19 @@ async fn finalmask_support(_user: AuthUser) -> Json<serde_json::Value> {
             serde_json::Value::Object(per_security),
         );
     }
+    // WireGuard is keyed here as if it were a transport, because to this matrix
+    // it is one: it dials UDP itself, its allowed set does not vary with the
+    // security layer (there isn't one), and the form already folds a protocol
+    // into this vocabulary the same way it folds Hysteria 2.
+    let wg = crate::transports::finalmask::wireguard_supported_kinds();
+    let mut per_security = serde_json::Map::new();
+    for security in [SecurityKind::None, SecurityKind::Tls, SecurityKind::Reality] {
+        per_security.insert(security.as_db_str().to_owned(), serde_json::json!(wg));
+    }
+    out.insert(
+        "wireguard".to_owned(),
+        serde_json::Value::Object(per_security),
+    );
     Json(serde_json::Value::Object(out))
 }
 
@@ -739,7 +823,7 @@ async fn create(
 
     let mut finalmask = finalmask.unwrap_or_default();
     let sockopt = sockopt.unwrap_or_default();
-    validate_layers(&protocol, &transport, &security, &finalmask, true)?;
+    validate_layers(&protocol, &transport, &security, &finalmask, true, true)?;
     ensure_port_free(&state.db, port, None).await?;
     complete_server_managed_fields(&state, &mut protocol, &mut security).await?;
     // A derivation failure is the server's problem (missing binary, a core too
@@ -859,7 +943,15 @@ async fn update(
     // an illegal swap (Vision×WS, Reality×WS, …) doesn't leave the
     // panel and xray out of sync. Each layer either gets the operator's
     // new value or falls back to the current row.
-    let next_protocol = body.protocol.as_ref().unwrap_or(&before.protocol);
+    // Merged the same way the write path will merge it: a WireGuard PATCH that
+    // leaves the device key blank keeps the stored one, so the candidate below
+    // is built from the config that will actually be persisted: the stored key
+    // carried forward when the body left it blank, the public half re-derived
+    // when it didn't.
+    let next_protocol = &settle_wireguard_keys(
+        body.protocol.as_ref().unwrap_or(&before.protocol),
+        &before.protocol,
+    )?;
     let next_transport = body.transport.as_ref().unwrap_or(&before.transport);
     let next_security = body.security.as_ref().unwrap_or(&before.security);
     let next_finalmask = body.finalmask.as_ref().unwrap_or(&before.finalmask);
@@ -876,6 +968,7 @@ async fn update(
         next_security,
         next_finalmask,
         body.finalmask.is_some() || body.transport.is_some() || body.security.is_some(),
+        body.protocol.is_some(),
     )?;
     let next_sniffing = body.sniffing.as_ref().unwrap_or(&before.sniffing);
     crate::xray::orchestrator::validate_sniffing(next_sniffing)
@@ -1033,7 +1126,11 @@ async fn write_inbound_layers_tx(
     body: &InboundUpdate,
 ) -> AppResult<()> {
     if let Some(protocol) = &body.protocol {
-        let j = serde_json::to_string(protocol)?;
+        // Same treatment Reality's keypair gets below, for the same reason:
+        // a blank key in the body means "unchanged", never "wipe it". Only a
+        // WireGuard body with a blank key pays for the extra read.
+        let protocol = settle_wireguard_keys_tx(tx, id, protocol).await?;
+        let j = serde_json::to_string(&protocol)?;
         sqlx::query!(
             "UPDATE inbounds SET protocol_config = ?, updated_at = datetime('now') WHERE id = ?",
             j,
@@ -1041,6 +1138,19 @@ async fn write_inbound_layers_tx(
         )
         .execute(&mut **tx)
         .await?;
+        // An inbound that just became WireGuard keeps the clients it had, and
+        // they carry none of what a peer needs. Issue it now, in this same
+        // transaction: the alternative is a row that looks fine until someone
+        // enables it and takes every other peer on the inbound down with it.
+        if matches!(protocol, ProtocolConfig::Wireguard(_)) {
+            let tag = sqlx::query_scalar!(
+                r#"SELECT tag AS "tag!: String" FROM inbounds WHERE id = ?"#,
+                id
+            )
+            .fetch_one(&mut **tx)
+            .await?;
+            crate::api::clients::backfill_wireguard_peers(tx, id, &tag, &protocol).await?;
+        }
     }
     if let Some(transport) = &body.transport {
         let j = serde_json::to_string(transport)?;
@@ -1103,6 +1213,52 @@ async fn write_inbound_layers_tx(
     Ok(())
 }
 
+/// Settle a `WireGuard` inbound's device keypair for an update, doing for this
+/// path what `complete_server_managed_fields` does on create — which never runs
+/// here.
+///
+/// Two cases, and both matter because the public half is what every client
+/// config already handed out names as the server:
+///   * blank incoming `secret_key` → keep the stored pair. Covers the API
+///     caller who patches one field of the protocol block, and any future UI
+///     that stops showing the key. Wiping it would leave the inbound
+///     unbuildable, the same trap Reality's keypair has below.
+///   * a real incoming key → an intentional rotation, and the public half is
+///     RE-DERIVED from it. The form's public-key field is read-only, so a
+///     pasted private key arrives next to the previous public one; storing that
+///     pair would build a device on the new key while telling every client to
+///     expect the old one — a tunnel whose handshake fails with nothing said
+///     anywhere. The same derivation refuses a key that is not a key.
+fn settle_wireguard_keys(
+    incoming: &ProtocolConfig,
+    stored: &ProtocolConfig,
+) -> AppResult<ProtocolConfig> {
+    let ProtocolConfig::Wireguard(new) = incoming else {
+        return Ok(incoming.clone());
+    };
+    let stored_key = match stored {
+        ProtocolConfig::Wireguard(old) => old.secret_key.trim(),
+        _ => "",
+    };
+    let mut merged = new.clone();
+    if merged.secret_key.trim().is_empty() {
+        if stored_key.is_empty() {
+            // Nothing on either side: this is an inbound BECOMING WireGuard.
+            // Generate the device pair here, the way `create` does — the form
+            // only pre-fills one when its WireGuard tab is actually opened, and
+            // the operator who just flips the protocol select would otherwise
+            // store an inbound that can never be enabled (a blank key fails
+            // every later build) with nothing on screen to say so.
+            merged.secret_key = keygen::generate_wireguard_keypair().private_key;
+        } else {
+            stored_key.clone_into(&mut merged.secret_key);
+        }
+    }
+    merged.public_key = keygen::derive_wireguard_public_key(&merged.secret_key)
+        .map_err(|e| AppError::BadRequest(format!("wireguard private key: {e}")))?;
+    Ok(ProtocolConfig::Wireguard(merged))
+}
+
 /// Pure Reality keypair-preserve merge (no DB). Returns `incoming` unchanged
 /// unless it is Reality with a blank `private_key` layered over a `stored`
 /// Reality keypair, in which case the stored private/public keypair is lifted
@@ -1125,6 +1281,23 @@ fn preserve_reality_keypair(
     merged.private_key.clone_from(&old.private_key);
     merged.public_key.clone_from(&old.public_key);
     SecurityConfig::Reality(merged)
+}
+
+/// DB half of [`settle_wireguard_keys`]: reads the stored protocol only for a
+/// `WireGuard` body, which is the only one that has a keypair to settle.
+async fn settle_wireguard_keys_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    id: &str,
+    incoming: &ProtocolConfig,
+) -> AppResult<ProtocolConfig> {
+    if !matches!(incoming, ProtocolConfig::Wireguard(_)) {
+        return Ok(incoming.clone());
+    }
+    let stored = sqlx::query!("SELECT protocol_config FROM inbounds WHERE id = ?", id)
+        .fetch_optional(&mut **tx)
+        .await?
+        .and_then(|row| serde_json::from_str::<ProtocolConfig>(&row.protocol_config).ok());
+    settle_wireguard_keys(incoming, stored.as_ref().unwrap_or(incoming))
 }
 
 /// Preserve the server-managed Reality x25519 keypair across an inbound
@@ -1427,7 +1600,7 @@ mod validate_layers_tests {
     /// helper so adding a 5th parameter to `validate_layers` is a one-line
     /// edit instead of touching every existing assertion.
     fn vl(p: &ProtocolConfig, t: &TransportConfig, s: &SecurityConfig) -> AppResult<()> {
-        validate_layers(p, t, s, &FinalMask::None, true)
+        validate_layers(p, t, s, &FinalMask::None, true, true)
     }
 
     fn vless(flow: VlessFlow) -> ProtocolConfig {
@@ -1709,11 +1882,239 @@ mod validate_layers_tests {
             &reality_ok(),
             &FinalMask::Xmc(XmcParams::default()),
             true,
+            true,
         )
         .unwrap_err()
         .to_string();
         assert!(err.contains("Reality"), "got: {err}");
         assert!(err.contains("XMC"), "got: {err}");
+    }
+
+    /// A PATCH that leaves the device key blank means "unchanged", the way a
+    /// Reality PATCH does — wiping it would leave every client config naming a
+    /// public key the server no longer holds.
+    #[test]
+    fn a_blank_wireguard_key_keeps_the_stored_pair() {
+        let stored = crate::protocols::ProtocolConfig::Wireguard(
+            crate::protocols::wireguard::WireguardProtocol {
+                secret_key: "gI6EdUSYvn8ugXOt8QQD6Yc+JyiZxIhp3GInSWRfWGE=".to_owned(),
+                public_key: "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=".to_owned(),
+                ..crate::protocols::wireguard::WireguardProtocol::default()
+            },
+        );
+        let incoming = crate::protocols::ProtocolConfig::Wireguard(
+            crate::protocols::wireguard::WireguardProtocol {
+                subnet: "10.9.0.0/24".to_owned(),
+                ..crate::protocols::wireguard::WireguardProtocol::default()
+            },
+        );
+        let crate::protocols::ProtocolConfig::Wireguard(merged) =
+            settle_wireguard_keys(&incoming, &stored).unwrap()
+        else {
+            panic!("merge changed the protocol");
+        };
+        assert_eq!(
+            merged.secret_key,
+            "gI6EdUSYvn8ugXOt8QQD6Yc+JyiZxIhp3GInSWRfWGE="
+        );
+        // Derived, not copied: a pair stored crooked by an older path is
+        // straightened the next time the inbound is saved.
+        assert_eq!(
+            merged.public_key,
+            keygen::derive_wireguard_public_key("gI6EdUSYvn8ugXOt8QQD6Yc+JyiZxIhp3GInSWRfWGE=")
+                .unwrap()
+        );
+        // The rest of the PATCH still lands.
+        assert_eq!(merged.subnet, "10.9.0.0/24");
+    }
+
+    /// A key the operator actually typed is a rotation, and the public half has
+    /// to be re-derived from it. The form's public-key field is read-only, so a
+    /// pasted private key arrives beside the PREVIOUS public one — storing that
+    /// pair would run the device on the new key while every client config still
+    /// names the old one, and the handshake would fail with nothing logged.
+    #[test]
+    fn an_explicit_wireguard_key_is_paired_with_its_own_public_half() {
+        let stored = crate::protocols::ProtocolConfig::Wireguard(
+            crate::protocols::wireguard::WireguardProtocol {
+                secret_key: "gI6EdUSYvn8ugXOt8QQD6Yc+JyiZxIhp3GInSWRfWGE=".to_owned(),
+                public_key: "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=".to_owned(),
+                ..crate::protocols::wireguard::WireguardProtocol::default()
+            },
+        );
+        let rotated = "yPz3Yq0mQ5tHhP2xLZ9nR4cVwK7sJd8bFgN6uT1aX0E=";
+        let incoming = crate::protocols::ProtocolConfig::Wireguard(
+            crate::protocols::wireguard::WireguardProtocol {
+                secret_key: rotated.to_owned(),
+                // Exactly what the form submits: the key that belonged to the
+                // pair before the operator pasted a new private half.
+                public_key: "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=".to_owned(),
+                ..crate::protocols::wireguard::WireguardProtocol::default()
+            },
+        );
+        let crate::protocols::ProtocolConfig::Wireguard(merged) =
+            settle_wireguard_keys(&incoming, &stored).unwrap()
+        else {
+            panic!("merge changed the protocol");
+        };
+        assert_eq!(merged.secret_key, rotated);
+        assert_eq!(
+            merged.public_key,
+            keygen::derive_wireguard_public_key(rotated).unwrap(),
+            "public key was not re-derived from the rotated private key"
+        );
+        assert_ne!(
+            merged.public_key,
+            "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo="
+        );
+    }
+
+    /// An inbound BECOMING `WireGuard` arrives with both halves blank — the form
+    /// only pre-fills a pair when its tab is opened, and the operator who just
+    /// flips the protocol select never opens it. Storing that blank would leave
+    /// an inbound that can never be enabled, so the pair is generated here the
+    /// way `create` generates it.
+    #[test]
+    fn switching_a_protocol_to_wireguard_mints_a_device_pair() {
+        let stored = vless(VlessFlow::None);
+        let incoming = crate::protocols::ProtocolConfig::Wireguard(
+            crate::protocols::wireguard::WireguardProtocol {
+                secret_key: String::new(),
+                public_key: String::new(),
+                ..crate::protocols::wireguard::WireguardProtocol::default()
+            },
+        );
+        let crate::protocols::ProtocolConfig::Wireguard(merged) =
+            settle_wireguard_keys(&incoming, &stored).unwrap()
+        else {
+            panic!("merge changed the protocol");
+        };
+        assert!(!merged.secret_key.is_empty(), "no private key was minted");
+        assert_eq!(
+            merged.public_key,
+            keygen::derive_wireguard_public_key(&merged.secret_key).unwrap()
+        );
+    }
+
+    /// A private key that is not a key is refused rather than stored: every
+    /// client config would otherwise name a public key derived from nothing.
+    #[test]
+    fn a_wireguard_key_that_is_not_a_key_is_refused_on_update() {
+        let stored = crate::protocols::ProtocolConfig::Wireguard(
+            crate::protocols::wireguard::WireguardProtocol {
+                secret_key: "gI6EdUSYvn8ugXOt8QQD6Yc+JyiZxIhp3GInSWRfWGE=".to_owned(),
+                public_key: "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=".to_owned(),
+                ..crate::protocols::wireguard::WireguardProtocol::default()
+            },
+        );
+        let incoming = crate::protocols::ProtocolConfig::Wireguard(
+            crate::protocols::wireguard::WireguardProtocol {
+                secret_key: "definitely-not-a-key".to_owned(),
+                ..crate::protocols::wireguard::WireguardProtocol::default()
+            },
+        );
+        assert!(settle_wireguard_keys(&incoming, &stored).is_err());
+    }
+
+    /// A `WireGuard` inbound's clients are the standard `WireGuard` apps, and the
+    /// config the panel hands them has no field that could carry a mask. The
+    /// server socket DOES get wrapped, so accepting one would mean a tunnel
+    /// that stops completing handshakes with nothing in the log to explain it.
+    #[test]
+    fn wireguard_with_a_mask_is_refused() {
+        let wg = crate::protocols::ProtocolConfig::Wireguard(
+            crate::protocols::wireguard::WireguardProtocol::default(),
+        );
+        let err = validate_layers(
+            &wg,
+            &TransportConfig::Tcp(TcpTransport {}),
+            &SecurityConfig::None(crate::security::NoneSecurity {}),
+            &FinalMask::Sudoku(crate::transports::finalmask::SudokuParams {
+                // A mask only counts as chosen once it carries a secret —
+                // `is_configured` is what the guard keys on.
+                password: "not-a-secret".to_owned(),
+                ..crate::transports::finalmask::SudokuParams::default()
+            }),
+            true,
+            true,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("WireGuard"), "got: {err}");
+    }
+
+    /// Switching an existing inbound TO `WireGuard` is where the mask does its
+    /// damage: the PATCH carries only a protocol, so the transport/security
+    /// matrix flag is off, and without its own trigger the stored mask would
+    /// ride along onto a socket no `WireGuard` client can talk to.
+    #[test]
+    fn switching_to_wireguard_refuses_a_stored_mask() {
+        let wg = crate::protocols::ProtocolConfig::Wireguard(
+            crate::protocols::wireguard::WireguardProtocol::default(),
+        );
+        let err = validate_layers(
+            &wg,
+            &TransportConfig::Tcp(TcpTransport {}),
+            &SecurityConfig::None(crate::security::NoneSecurity {}),
+            &FinalMask::Sudoku(crate::transports::finalmask::SudokuParams {
+                password: "not-a-secret".to_owned(),
+                ..crate::transports::finalmask::SudokuParams::default()
+            }),
+            // The matrix flag is off: this PATCH touches none of the three.
+            false,
+            // But it does name a protocol.
+            true,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("WireGuard"), "got: {err}");
+    }
+
+    /// The one mask a stock `WireGuard` client survives: its server side only
+    /// injects extra datagrams and never rewrites a packet, so the client drops
+    /// the junk and reads the rest unchanged. Refusing it would be refusing
+    /// obfuscation that actually works here.
+    #[test]
+    fn wireguard_accepts_the_mask_a_stock_client_survives() {
+        let wg = crate::protocols::ProtocolConfig::Wireguard(
+            crate::protocols::wireguard::WireguardProtocol::default(),
+        );
+        validate_layers(
+            &wg,
+            &TransportConfig::Tcp(TcpTransport {}),
+            &SecurityConfig::None(crate::security::NoneSecurity {}),
+            &FinalMask::Noise(crate::transports::finalmask::NoiseParams {
+                items: vec![crate::transports::finalmask::NoiseItem {
+                    packet_hex: String::new(),
+                    rand_min: Some(5),
+                    rand_max: Some(10),
+                    delay_min: None,
+                    delay_max: None,
+                }],
+                ..crate::transports::finalmask::NoiseParams::default()
+            }),
+            true,
+            true,
+        )
+        .unwrap();
+    }
+
+    /// Same inbound without a mask stays valid — the guard must not turn into
+    /// "`WireGuard` inbounds cannot be saved".
+    #[test]
+    fn wireguard_without_a_mask_is_accepted() {
+        let wg = crate::protocols::ProtocolConfig::Wireguard(
+            crate::protocols::wireguard::WireguardProtocol::default(),
+        );
+        validate_layers(
+            &wg,
+            &TransportConfig::Tcp(TcpTransport {}),
+            &SecurityConfig::None(crate::security::NoneSecurity {}),
+            &FinalMask::None,
+            true,
+            true,
+        )
+        .unwrap();
     }
 
     /// Fragment is asymmetric — the panel ships it to the client via `fm=` and
@@ -1733,6 +2134,7 @@ mod validate_layers_tests {
                 lengths_max: vec![80],
                 ..FragmentParams::default()
             }),
+            true,
             true,
         )
         .expect("Fragment + Reality must be allowed (Fragment is client-only)");
@@ -1756,6 +2158,7 @@ mod validate_layers_tests {
                 ..FragmentParams::default()
             }),
             true,
+            true,
         )
         .unwrap_err()
         .to_string();
@@ -1778,6 +2181,7 @@ mod validate_layers_tests {
                 ..FragmentParams::default()
             }),
             true,
+            true,
         )
         .unwrap_err()
         .to_string();
@@ -1799,6 +2203,7 @@ mod validate_layers_tests {
                 lengths_max: vec![80],
                 ..FragmentParams::default()
             }),
+            true,
             true,
         )
         .unwrap_err()
@@ -1932,6 +2337,7 @@ mod validate_layers_tests {
                 ..SudokuParams::default()
             }),
             true,
+            true,
         )
         .unwrap();
     }
@@ -1978,6 +2384,7 @@ mod validate_layers_tests {
             &tls_ok(),
             &xmc_from_form(),
             true,
+            true,
         )
         .unwrap_err()
         .to_string();
@@ -1993,6 +2400,7 @@ mod validate_layers_tests {
             &tls_ok(),
             &xmc_from_form(),
             true,
+            true,
         )
         .unwrap();
     }
@@ -2007,6 +2415,7 @@ mod validate_layers_tests {
             &hysteria_transport(),
             &tls_ok(),
             &xmc_from_form(),
+            false,
             false,
         )
         .unwrap();
@@ -2024,6 +2433,7 @@ mod validate_layers_tests {
             &hysteria_transport(),
             &tls_ok(),
             &FinalMask::Fragment(FragmentParams::default()),
+            true,
             true,
         )
         .unwrap();
@@ -2050,6 +2460,7 @@ mod validate_layers_tests {
                 ..FragmentParams::default()
             }),
             true,
+            true,
         )
         .unwrap_err()
         .to_string();
@@ -2069,6 +2480,7 @@ mod validate_layers_tests {
             &tls_alpn(&["h3", "h3"]),
             &xmc_from_form(),
             true,
+            true,
         )
         .unwrap();
     }
@@ -2080,6 +2492,7 @@ mod validate_layers_tests {
             &TransportConfig::Tcp(TcpTransport {}),
             &reality_ok(),
             &FinalMask::None,
+            true,
             true,
         )
         .unwrap();

@@ -272,7 +272,15 @@ export function Inbounds() {
             render: (_, r) => (
               <Space size={4}>
                 <Tag color={PROTOCOL_COLOR}>{r.protocol.kind}</Tag>
-                <Tag>{TRANSPORT_LABEL[r.transport.kind]}</Tag>
+                {/* WireGuard's stored transport is a placeholder the layer
+                    validation needs; the socket is UDP. Printing "TCP" here
+                    would be the panel telling the operator the wrong thing
+                    about a port they may have to open. */}
+                <Tag>
+                  {r.protocol.kind === 'wireguard'
+                    ? 'UDP'
+                    : TRANSPORT_LABEL[r.transport.kind]}
+                </Tag>
                 {vlessFlow(r) === 'xtls-rprx-vision' && (
                   <Tag color="purple">Vision</Tag>
                 )}

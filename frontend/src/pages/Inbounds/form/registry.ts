@@ -20,6 +20,7 @@ import { Form } from 'antd';
 import { useFinalMaskGuard } from '@/api/finalmaskSupport';
 import { HysteriaTab } from '../tabs/HysteriaTab';
 import { VlessEncryption } from '../tabs/VlessEncryption';
+import { WireguardTab } from '../tabs/WireguardTab';
 import type {
   FormNetwork,
   FormProtocol,
@@ -46,6 +47,24 @@ export const PROTOCOL_REGISTRY: Record<FormProtocol, ProtocolDef> = {
     extraTabs: [
       { key: 'hysteria', labelKey: 'inbounds.tabHysteria', Component: HysteriaTab },
     ],
+    protocolHintKey: 'inbounds.protocolHysteriaHint',
+    securityHintKey: 'inbounds.securityTlsRequiredHysteriaHint',
+  },
+  // WireGuard carries its own crypto and rides UDP directly: no transport to
+  // pick, no TLS layer to put under it. Both single-entry lists hide their
+  // selectors, which is exactly right — there is nothing to choose.
+  wireguard: {
+    label: 'WireGuard',
+    allowedTransports: ['tcp'],
+    allowedSecurities: ['none'],
+    defaultSecurity: 'none',
+    hasFlow: false,
+    extraTabs: [
+      { key: 'wireguard', labelKey: 'inbounds.tabWireguard', Component: WireguardTab },
+    ],
+    protocolHintKey: 'inbounds.protocolWireguardHint',
+    securityHintKey: 'inbounds.securityWireguardHint',
+    badgeKey: 'inbounds.protocolLegacyBadge',
   },
 };
 
@@ -69,6 +88,18 @@ export function useProtocolGuards(form: ReturnType<typeof Form.useForm<FormValue
       form.setFieldValue('vless_flow', 'none');
     }
 
+    // Same for the transport: the selector hides once a protocol allows a
+    // single one, so a value carried over from the previous protocol would
+    // be invisible and still reach `buildTransport`. Only snap to a
+    // transport the network selector can actually hold — Hysteria 2's
+    // 'hysteria' is not one of them, and it ignores `network` anyway.
+    const snapTo = def.allowedTransports.find(
+      (k): k is FormNetwork => k === 'tcp' || k === 'ws' || k === 'xhttp',
+    );
+    if (network && snapTo && !def.allowedTransports.includes(network)) {
+      form.setFieldValue('network', snapTo);
+    }
+
     // XTLS Vision is raw-TCP-only. Snap back to 'none' when the
     // operator picks a non-TCP transport.
     if (def.hasFlow && network !== undefined && network !== 'tcp' && flow === 'xtls-rprx-vision') {
@@ -90,7 +121,9 @@ export function useProtocolGuards(form: ReturnType<typeof Form.useForm<FormValue
     // No fallbacks: an unknown transport must stay unknown. Substituting
     // 'tcp'/'none' here made the guard judge a not-yet-registered form
     // against the wrong matrix and silently turn off a legitimate mask.
-    protocol === 'hysteria2' ? 'hysteria' : network,
+    // Two protocols carry their own socket and are keyed as transports in the
+    // matrix; everything else is judged by the transport it selected.
+    protocol === 'hysteria2' ? 'hysteria' : protocol === 'wireguard' ? 'wireguard' : network,
     security,
     () => form.getFieldValue('finalmask_kind'),
     () => form.setFieldValue('finalmask_kind', 'none'),

@@ -173,7 +173,8 @@ export const InboundForm = memo(function InboundForm({
       // FinalMask is protocol-agnostic — sudoku wraps the socket after
       // TLS/Reality regardless of whether the proxy is vless or
       // hysteria. Always render the tab last; it stays cheap when the
-      // operator leaves `kind = none`.
+      // operator leaves `kind = none`, and which masks it offers comes from
+      // the backend's matrix rather than from anything decided here.
       {
         key: 'finalmask',
         label: t('inbounds.tabFinalMask'),
@@ -183,7 +184,13 @@ export const InboundForm = memo(function InboundForm({
             // TCP family, and Hysteria arrives as a protocol carrying its QUIC
             // transport with it. Fold them into the backend's vocabulary here,
             // where both fields are already at hand.
-            transport={watchedProtocol === 'hysteria2' ? 'hysteria' : (watchedNetwork ?? 'tcp')}
+            transport={
+              watchedProtocol === 'hysteria2'
+                ? 'hysteria'
+                : watchedProtocol === 'wireguard'
+                  ? 'wireguard'
+                  : (watchedNetwork ?? 'tcp')
+            }
             security={watchedSecurity ?? 'none'}
           />
         ),

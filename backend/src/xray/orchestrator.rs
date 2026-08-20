@@ -606,6 +606,10 @@ mod tests {
             disabled_reason: None,
             expires_at: None,
             sub_token: "0000000000000000000000000000000a".into(),
+            wg_private_key: None,
+            wg_public_key: None,
+            wg_address: None,
+            wg_preshared_key: None,
             created_at: "now".into(),
             updated_at: "now".into(),
         }

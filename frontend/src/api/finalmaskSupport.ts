@@ -9,6 +9,9 @@
 //! Shared by the inbound and the outbound form. Their protocol vocabularies
 //! differ (`hysteria2` vs `hysteria`), so each folds its own fields into
 //! [`FinalMaskTransport`] and nothing below this line knows about protocols.
+//! WireGuard rides in the same vocabulary: it carries its own UDP socket the
+//! way Hysteria does, and its allowed set is narrower than any transport's
+//! because the far end is a stock WireGuard client that speaks no mask.
 
 import { useEffect, useMemo, useRef } from 'react';
 import { App } from 'antd';
@@ -18,7 +21,7 @@ import { apiClient } from './client';
 import type { FinalMask } from './types';
 
 /** Transport in the vocabulary the backend matrix is keyed by. */
-export type FinalMaskTransport = 'tcp' | 'ws' | 'xhttp' | 'hysteria';
+export type FinalMaskTransport = 'tcp' | 'ws' | 'xhttp' | 'hysteria' | 'wireguard';
 
 /** `transport -> security -> kinds`, exactly as the endpoint returns it. */
 type FinalMaskSupport = Record<string, Record<string, FinalMask['kind'][]>>;

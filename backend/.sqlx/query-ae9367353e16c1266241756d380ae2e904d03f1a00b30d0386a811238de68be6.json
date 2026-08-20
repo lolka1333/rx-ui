@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE clients SET wg_private_key = ?, wg_public_key = ?, wg_address = ?,\n                                wg_preshared_key = ?, updated_at = datetime('now')\n             WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "ae9367353e16c1266241756d380ae2e904d03f1a00b30d0386a811238de68be6"
+}

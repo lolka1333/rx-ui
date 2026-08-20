@@ -23,6 +23,7 @@ use crate::protocols::ProtocolConfig;
 use crate::security::SecurityConfig;
 use crate::transports::TransportConfig;
 use crate::transports::finalmask::FinalMask;
+use std::fmt::Write as _;
 
 /// Wrap an IPv6 literal in `[...]` per RFC 3986 so the URL's
 /// `host:port` separator is unambiguous. IPv4 / DNS names pass
@@ -43,7 +44,98 @@ pub fn build_share_link(inbound: &Inbound, client: &Client, host: &str) -> anyho
     match &inbound.protocol {
         ProtocolConfig::Vless(_) => build_vless_share_link(inbound, client, host),
         ProtocolConfig::Hysteria2(_) => build_hysteria2_share_link(inbound, client, host),
+        ProtocolConfig::Wireguard(wg) => build_wireguard_config(wg, inbound, client, host),
     }
+}
+
+/// A `WireGuard` client config — the `[Interface]` / `[Peer]` text every
+/// `WireGuard` app reads, and what its QR code carries.
+///
+/// Not a URI, unlike every other protocol here: `WireGuard` has no share-link
+/// convention, and its own apps import exactly this file. The panel can write
+/// it at all only because it generated the client's keypair — the private key
+/// on the first line is the client's, and it exists nowhere else.
+///
+/// `AllowedIPs` is the whole internet on purpose: the point of the tunnel is
+/// that the client's traffic reaches the node and leaves through the routing
+/// rules configured here, not that it splits at the client.
+/// What the client's `AllowedIPs` line should say. An empty setting means the
+/// operator never touched it, not that they want a tunnel that carries
+/// nothing — a config with an empty `AllowedIPs` routes no traffic at all.
+fn effective_allowed_ips(wg: &crate::protocols::wireguard::WireguardProtocol) -> &str {
+    let configured = wg.client_allowed_ips.trim();
+    if configured.is_empty() {
+        crate::protocols::wireguard::DEFAULT_CLIENT_ALLOWED_IPS
+    } else {
+        configured
+    }
+}
+
+pub fn build_wireguard_config(
+    wg: &crate::protocols::wireguard::WireguardProtocol,
+    inbound: &Inbound,
+    client: &Client,
+    host: &str,
+) -> anyhow::Result<String> {
+    let private_key = client
+        .wg_private_key
+        .as_deref()
+        .filter(|k| !k.trim().is_empty())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "client '{}' has no wireguard key — the config cannot be written",
+                client.email
+            )
+        })?;
+    let address = client
+        .wg_address
+        .as_deref()
+        .filter(|a| !a.trim().is_empty())
+        .ok_or_else(|| anyhow::anyhow!("client '{}' has no tunnel address", client.email))?;
+    anyhow::ensure!(
+        !wg.public_key.trim().is_empty(),
+        "inbound {} has no wireguard public key",
+        inbound.tag
+    );
+
+    // `writeln!` into a String cannot fail; the format machinery still wants
+    // the Result, so the writes are grouped and the one error path is named
+    // once rather than unwrapped nine times.
+    let mtu = if wg.mtu == 0 {
+        crate::protocols::wireguard::DEFAULT_MTU
+    } else {
+        wg.mtu
+    };
+    let dns = wg.dns.trim();
+    let mut out = String::new();
+    writeln!(out, "[Interface]")?;
+    writeln!(out, "PrivateKey = {private_key}")?;
+    writeln!(out, "Address = {address}/32")?;
+    if !dns.is_empty() {
+        writeln!(out, "DNS = {dns}")?;
+    }
+    writeln!(out, "MTU = {mtu}")?;
+    writeln!(out)?;
+    writeln!(out, "[Peer]")?;
+    writeln!(out, "PublicKey = {}", wg.public_key.trim())?;
+    // Base64 here, hex on the wire to the core — same key, two spellings.
+    if let Some(psk) = client
+        .wg_preshared_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|k| !k.is_empty())
+    {
+        writeln!(out, "PresharedKey = {psk}")?;
+    }
+    writeln!(out, "Endpoint = {}:{}", url_host(host), inbound.port)?;
+    writeln!(out, "AllowedIPs = {}", effective_allowed_ips(wg))?;
+    // Keeps the mapping alive through NAT, which is where most phones live.
+    // Zero is the operator saying "don't" — the line is left out entirely
+    // rather than written as 0, which some clients read as malformed.
+    if wg.client_keepalive > 0 {
+        writeln!(out, "PersistentKeepalive = {}", wg.client_keepalive)?;
+    }
+    Ok(out)
 }
 
 /// `hysteria2://AUTH@HOST:PORT/?sni=...&alpn=h3&insecure=0#NAME` per the
@@ -455,6 +547,10 @@ mod tests {
             disabled_reason: None,
             expires_at: None,
             sub_token: "0000000000000000000000000000000a".into(),
+            wg_private_key: None,
+            wg_public_key: None,
+            wg_address: None,
+            wg_preshared_key: None,
             created_at: "now".into(),
             updated_at: "now".into(),
         }
@@ -1737,5 +1833,121 @@ mod tests {
         assert!(v["tcp"].is_array(), "tcp not array: {v}");
         assert!(v["udp"].is_array(), "udp not array: {v}");
         assert_eq!(v.as_object().unwrap().len(), 2, "extra top-level keys: {v}");
+    }
+    /// Build the config for a peer on a `WireGuard` inbound, with whatever
+    /// tweaks the test wants applied to the inbound's settings.
+    fn wg_config(
+        tweak: impl FnOnce(&mut crate::protocols::wireguard::WireguardProtocol),
+    ) -> String {
+        let mut wg = crate::protocols::wireguard::WireguardProtocol {
+            secret_key: "gI6EdUSYvn8ugXOt8QQD6Yc+JyiZxIhp3GInSWRfWGE=".into(),
+            public_key: "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=".into(),
+            ..crate::protocols::wireguard::WireguardProtocol::default()
+        };
+        tweak(&mut wg);
+        let mut inb = inbound(
+            TransportConfig::Tcp(TcpTransport {}),
+            SecurityConfig::None(NoneSecurity {}),
+        );
+        inb.protocol = crate::protocols::ProtocolConfig::Wireguard(wg.clone());
+        let mut client = base_client();
+        client.wg_private_key = Some("yPz3Yq0mQ5tHhP2xLZ9nR4cVwK7sJd8bFgN6uT1aX0E=".into());
+        client.wg_public_key = Some("bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=".into());
+        client.wg_address = Some("10.66.66.4".into());
+        client.wg_preshared_key = Some("0PZ0kZ8mM1uYwq7dHn4RJ0i2Nf8mGxUu1cQm5aLbJ0Y=".into());
+        build_wireguard_config(&wg, &inb, &client, "1.2.3.4").unwrap()
+    }
+
+    /// The defaults a client actually needs, and the pre-shared key the peer
+    /// carries — without it the client's handshake is refused by a server that
+    /// has one on its side.
+    #[test]
+    fn wireguard_config_carries_the_peer_secret_and_defaults() {
+        let cfg = wg_config(|_| {});
+        assert!(cfg.contains("PrivateKey = yPz3Yq0mQ5tHhP2xLZ9nR4cVwK7sJd8bFgN6uT1aX0E="));
+        assert!(cfg.contains("Address = 10.66.66.4/32"));
+        assert!(cfg.contains("PresharedKey = 0PZ0kZ8mM1uYwq7dHn4RJ0i2Nf8mGxUu1cQm5aLbJ0Y="));
+        assert!(cfg.contains("AllowedIPs = 0.0.0.0/0"));
+        assert!(cfg.contains("PersistentKeepalive = 25"));
+        // The tunnel hands out v4 addresses only; promising a v6 default route
+        // would send the client's IPv6 traffic into a device that cannot carry
+        // it — a black hole rather than a tunnel.
+        assert!(
+            !cfg.contains("::/0"),
+            "v6 default route in a v4-only tunnel: {cfg}"
+        );
+    }
+
+    /// A peer created before pre-shared keys existed has none, and its config
+    /// must not carry an empty `PresharedKey` line — wg-quick refuses the file.
+    #[test]
+    fn wireguard_config_without_a_preshared_key_omits_the_line() {
+        let wg = crate::protocols::wireguard::WireguardProtocol {
+            secret_key: "gI6EdUSYvn8ugXOt8QQD6Yc+JyiZxIhp3GInSWRfWGE=".into(),
+            public_key: "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=".into(),
+            ..crate::protocols::wireguard::WireguardProtocol::default()
+        };
+        let mut inb = inbound(
+            TransportConfig::Tcp(TcpTransport {}),
+            SecurityConfig::None(NoneSecurity {}),
+        );
+        inb.protocol = crate::protocols::ProtocolConfig::Wireguard(wg.clone());
+        let mut client = base_client();
+        client.wg_private_key = Some("yPz3Yq0mQ5tHhP2xLZ9nR4cVwK7sJd8bFgN6uT1aX0E=".into());
+        client.wg_public_key = Some("bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=".into());
+        client.wg_address = Some("10.66.66.4".into());
+        let cfg = build_wireguard_config(&wg, &inb, &client, "1.2.3.4").unwrap();
+        assert!(!cfg.contains("PresharedKey"), "{cfg}");
+    }
+
+    /// The peer entry the core is handed carries the pre-shared key as hex,
+    /// while the client's config spells the same key in base64 — a mismatch
+    /// between the two would be a handshake that never completes.
+    #[test]
+    fn the_preshared_key_reaches_the_core_as_hex() {
+        use crate::protocols::Protocol as _;
+        let wg = crate::protocols::wireguard::WireguardProtocol {
+            secret_key: "gI6EdUSYvn8ugXOt8QQD6Yc+JyiZxIhp3GInSWRfWGE=".into(),
+            public_key: "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=".into(),
+            ..crate::protocols::wireguard::WireguardProtocol::default()
+        };
+        let psk = "0PZ0kZ8mM1uYwq7dHn4RJ0i2Nf8mGxUu1cQm5aLbJ0Y=";
+        let mut client = base_client();
+        client.wg_public_key = Some("bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=".into());
+        client.wg_address = Some("10.66.66.4".into());
+        client.wg_preshared_key = Some(psk.into());
+        let user = wg.build_user(&client).unwrap();
+        let account = user.account.unwrap();
+        let peer =
+            <crate::xray::proto::xray::proxy::wireguard::PeerConfig as prost::Message>::decode(
+                account.value.as_slice(),
+            )
+            .unwrap();
+        assert_eq!(
+            peer.pre_shared_key,
+            crate::xray::keygen::parse_wireguard_key(psk).unwrap()
+        );
+        // Same key, the other spelling, in what the operator hands over.
+        assert!(wg_config(|_| {}).contains(&format!("PresharedKey = {psk}")));
+    }
+
+    /// Split tunnelling, and a keepalive the operator turned off. Zero means
+    /// "leave it out", not "write 0" — clients read that as malformed.
+    #[test]
+    fn wireguard_config_honours_split_tunnel_and_no_keepalive() {
+        let cfg = wg_config(|wg| {
+            wg.client_allowed_ips = "10.0.0.0/8, 192.168.0.0/16".into();
+            wg.client_keepalive = 0;
+        });
+        assert!(cfg.contains("AllowedIPs = 10.0.0.0/8, 192.168.0.0/16"));
+        assert!(!cfg.contains("PersistentKeepalive"), "{cfg}");
+    }
+
+    /// An emptied field is the operator not having chosen, and a config whose
+    /// `AllowedIPs` is blank routes nothing at all.
+    #[test]
+    fn wireguard_config_falls_back_to_full_tunnel_when_allowed_ips_is_blank() {
+        let cfg = wg_config(|wg| wg.client_allowed_ips = "   ".into());
+        assert!(cfg.contains("AllowedIPs = 0.0.0.0/0"));
     }
 }

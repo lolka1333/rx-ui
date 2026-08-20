@@ -68,10 +68,17 @@ export function FinalMaskTab({
 
   return (
     <>
+      {/* WireGuard gets its own notice: the generic one talks about masks
+          riding to the client in the share-link, and here they cannot. The
+          client is a stock WireGuard app, its config has no field for a mask,
+          and the one kind offered is offered precisely because the client
+          never has to know about it. */}
       <Alert
         type="info"
         showIcon
-        title={t('inbounds.finalmaskNotice')}
+        title={t(
+          transport === 'wireguard' ? 'inbounds.finalmaskNoticeWg' : 'inbounds.finalmaskNotice',
+        )}
         style={{ marginBottom: 16 }}
       />
       <Form.Item

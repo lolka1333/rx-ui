@@ -309,9 +309,24 @@ pub fn decode_x25519_key(encoded: &str) -> anyhow::Result<Vec<u8>> {
 
 /// A `WireGuard` keypair, encoded the way `WireGuard` itself prints keys:
 /// standard base64 with padding, 44 characters.
+///
+/// Serialised because the create form asks for a pair up front (`POST
+/// /api/keygen/wireguard-keypair`) the same way Reality does: the operator sees
+/// the public key the clients will carry before the inbound exists, instead of
+/// staring at an empty field until the first save.
+#[derive(serde::Serialize, ts_rs::TS)]
+#[ts(export, export_to = "../../frontend/src/api/types/protocol.ts")]
 pub struct WireguardKeypair {
     pub private_key: String,
     pub public_key: String,
+}
+
+/// Generate a `WireGuard` pre-shared key: 32 random bytes in the same base64
+/// `wg genpsk` prints. Unlike the keypair this one has no public half — both
+/// sides hold the identical string, so it is generated once per peer and
+/// written into that peer's config and into the server's peer entry.
+pub fn generate_preshared_key() -> String {
+    STANDARD.encode(os_random_bytes::<32>())
 }
 
 /// Generate a `WireGuard` keypair. Same curve as Reality's, different clothes —
@@ -324,6 +339,24 @@ pub fn generate_wireguard_keypair() -> WireguardKeypair {
         private_key: STANDARD.encode(secret.to_bytes()),
         public_key: STANDARD.encode(public.to_bytes()),
     }
+}
+
+/// Derive the public half of a `WireGuard` keypair from its private half.
+///
+/// The mirror of `derive_reality_public_key` for the other key format: it takes
+/// whatever spelling the private key arrived in and answers in the one
+/// `WireGuard` prints, so the value can go straight into a client's config.
+pub fn derive_wireguard_public_key(private_key: &str) -> anyhow::Result<String> {
+    let hex = parse_wireguard_key(private_key)?;
+    let raw = (0..32)
+        .map(|i| u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16))
+        .collect::<Result<Vec<u8>, _>>()
+        .map_err(|e| anyhow::anyhow!("private key is not hex after parsing: {e}"))?;
+    let arr: [u8; 32] = raw
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("wireguard private key must be 32 bytes"))?;
+    let public = PublicKey::from(&StaticSecret::from(arr));
+    Ok(STANDARD.encode(public.to_bytes()))
 }
 
 /// Normalise a `WireGuard` key to the hex form the core's proto carries.
@@ -525,5 +558,47 @@ mod tests {
     fn decode_short_id_roundtrips_with_generator() {
         let s = generate_short_id();
         assert_eq!(decode_short_id(&s).unwrap().len(), 8);
+    }
+}
+
+#[cfg(test)]
+mod wireguard_tests {
+    use super::*;
+
+    /// A generated pair must round-trip: the public half derived from the
+    /// private one has to match what generation returned, or every client
+    /// config this panel writes would name a key the server does not hold.
+    #[test]
+    fn a_generated_pair_derives_back_to_itself() {
+        let kp = generate_wireguard_keypair();
+        assert_eq!(
+            derive_wireguard_public_key(&kp.private_key).unwrap(),
+            kp.public_key
+        );
+        // WireGuard prints 44-character base64, padding included.
+        assert_eq!(kp.private_key.len(), 44);
+        assert_eq!(kp.public_key.len(), 44);
+    }
+
+    /// The key a peer's config carries is whichever spelling the far end used;
+    /// the proto wants hex either way.
+    #[test]
+    fn every_spelling_of_a_key_lands_on_the_same_hex() {
+        let kp = generate_wireguard_keypair();
+        let hex = parse_wireguard_key(&kp.private_key).unwrap();
+        assert_eq!(hex.len(), 64);
+        assert_eq!(parse_wireguard_key(&hex).unwrap(), hex);
+        // Deriving from the hex form gives the same public key as from base64.
+        assert_eq!(
+            derive_wireguard_public_key(&hex).unwrap(),
+            derive_wireguard_public_key(&kp.private_key).unwrap()
+        );
+    }
+
+    #[test]
+    fn a_key_that_is_not_a_key_is_refused() {
+        for bad in ["", "hunter2", "not base64 at all!!", "deadbeef"] {
+            assert!(parse_wireguard_key(bad).is_err(), "{bad} should be refused");
+        }
     }
 }

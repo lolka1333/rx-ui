@@ -6,7 +6,7 @@ export type HysteriaProtocol = Record<symbol, never>;
  * Tagged-union of every protocol variant. Lives on `Inbound` as the
  * `protocol` field; serializes to a single JSON blob in the DB.
  */
-export type ProtocolConfig = { "kind": "vless" } & VlessProtocol | { "kind": "hysteria2" } & HysteriaProtocol;
+export type ProtocolConfig = { "kind": "vless" } & VlessProtocol | { "kind": "hysteria2" } & HysteriaProtocol | { "kind": "wireguard" } & WireguardProtocol;
 
 export type VlessEncryptionAuth = "mlkem768" | "x25519";
 
@@ -124,3 +124,73 @@ encryption_client_key: string | null,
 fallbacks: Array<VlessFallback>, };
 
 export type VlessXorMode = "native" | "xorpub" | "random";
+
+/**
+ * A `WireGuard` keypair, encoded the way `WireGuard` itself prints keys:
+ * standard base64 with padding, 44 characters.
+ *
+ * Serialised because the create form asks for a pair up front (`POST
+ * /api/keygen/wireguard-keypair`) the same way Reality does: the operator sees
+ * the public key the clients will carry before the inbound exists, instead of
+ * staring at an empty field until the first save.
+ */
+export type WireguardKeypair = { private_key: string, public_key: string, };
+
+export type WireguardProtocol = { 
+/**
+ * The server device's private key, as `WireGuard` writes keys (base64).
+ * Generated when an inbound is created without one.
+ */
+secret_key: string, 
+/**
+ * Derived from `secret_key`. Stored rather than derived on demand because
+ * every client config carries it, and a share link is built far from here.
+ */
+public_key: string, 
+/**
+ * The tunnel network. The device takes the first usable address and every
+ * client gets one of the rest.
+ */
+subnet: string, 
+/**
+ * 0 ≡ the core's default.
+ */
+mtu: number, 
+/**
+ * What a client's config should use for DNS. The core never reads it —
+ * it exists because a config without a resolver leaves the client with
+ * the network's own, which is usually the thing being avoided.
+ */
+dns: string, 
+/**
+ * What goes on the client's `AllowedIPs` line: the traffic it sends into
+ * the tunnel. `0.0.0.0/0` is everything; narrowing it is split tunnelling.
+ *
+ * Client-side only — the core never sees this. The peer's own
+ * `allowed_ips` stays a `/32` no matter what is written here, because on
+ * the server side that field is the peer's identity.
+ *
+ * Deliberately not `::/0` by default: the tunnel is IPv4-only, so a client
+ * promised a v6 default route hands its IPv6 traffic to a device that has
+ * no v6 address and no v6 route — a black hole rather than a tunnel.
+ */
+client_allowed_ips: string, 
+/**
+ * Seconds between keepalives in the client's config. 0 omits the line.
+ * 25 is the usual choice: often enough to hold a NAT binding open, rare
+ * enough not to matter for a phone's battery.
+ */
+client_keepalive: number, 
+/**
+ * Whether a peer added to this inbound gets a pre-shared key.
+ *
+ * `WireGuard` itself treats one as optional — an extra symmetric secret
+ * mixed into a handshake that is already public-key — so this is the
+ * operator's call, not the panel's. Left on by default: the panel writes
+ * both sides of every config it hands out, so the key costs nothing and
+ * every implementation understands it.
+ *
+ * Turning it off changes nothing for peers that already have one; their
+ * configs keep working. It only decides what the next peer is issued.
+ */
+issue_preshared_key: boolean, };

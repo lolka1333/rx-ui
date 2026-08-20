@@ -31,7 +31,7 @@ export type FormSecurity = 'none' | 'tls' | 'reality';
 
 /** Operator-facing protocol label. The set of registered protocols
  *  lives in `./registry::PROTOCOL_REGISTRY` — keep this union in sync. */
-export type FormProtocol = 'vless' | 'hysteria2';
+export type FormProtocol = 'vless' | 'hysteria2' | 'wireguard';
 
 /** Operator-facing masquerade mode for the Hysteria 2 transport. */
 export type FormMasqueradeKind = 'notfound' | 'file' | 'proxy' | 'string';
@@ -77,6 +77,18 @@ export interface ProtocolDef {
   /** Optional component rendered inside `GeneralTab` below the security
    *  row — used by VLESS for its post-quantum encryption section. */
   MainTabExtras?: () => React.ReactElement;
+  /** i18n key explaining why this protocol hides the transport selector.
+   *  Shown on the protocol Select; omit for protocols that offer a real
+   *  choice of transport. */
+  protocolHintKey?: string;
+  /** i18n key explaining why the security layer is fixed. Shown on the
+   *  security row when the protocol allows exactly one. */
+  securityHintKey?: string;
+  /** i18n key for a muted suffix on the protocol's own option — the same
+   *  treatment WebSocket gets in the transport selector. Present when the
+   *  protocol still works but is a poor default, so the operator sees it
+   *  while choosing rather than after deploying. */
+  badgeKey?: string;
 }
 
 /** Shape of the form's value store, with array fields kept as arrays
@@ -211,6 +223,18 @@ export interface FormValues {
   hysteria_masq_proxy_insecure: boolean;
   hysteria_masq_string_content: string;
   hysteria_masq_string_status_code: number;
+  // WireGuard inbound — the panel is the server device. The keypair is
+  // server-managed (generated on create, derived on edit), so the form
+  // only ever displays it; the subnet is the pool every client's tunnel
+  // address is drawn from, and DNS/MTU are written into client configs.
+  wg_secret_key: string;
+  wg_public_key: string;
+  wg_subnet: string;
+  wg_mtu: number | null;
+  wg_dns: string;
+  wg_client_allowed_ips: string;
+  wg_client_keepalive: number | null;
+  wg_issue_preshared_key: boolean;
   // Stream-level QUIC tuning. Shared between Hysteria 2 and XHTTP+H3:
   // both transports route the values onto `StreamConfig.quic_params`.
   // Every field is optional — empty leaves xray's default in place.

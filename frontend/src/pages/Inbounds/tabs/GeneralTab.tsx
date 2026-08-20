@@ -69,11 +69,24 @@ export function GeneralTab() {
       <Form.Item
         name="protocol_kind"
         label={t('inbounds.protocol')}
-        tooltip={!networkSelectable ? t('inbounds.protocolHysteriaHint') : undefined}
+        tooltip={!networkSelectable && def.protocolHintKey ? t(def.protocolHintKey) : undefined}
       >
         <Select
-          options={(Object.entries(PROTOCOL_REGISTRY) as Array<[FormProtocol, ProtocolDef]>)
-            .map(([value, d]) => ({ value, label: d.label }))}
+          options={(Object.entries(PROTOCOL_REGISTRY) as Array<[FormProtocol, ProtocolDef]>).map(
+            ([value, d]) => ({
+              value,
+              label: d.badgeKey ? (
+                <span>
+                  {d.label}
+                  <span style={{ opacity: 0.55, fontSize: 11, marginLeft: 6 }}>
+                    ({t(d.badgeKey)})
+                  </span>
+                </span>
+              ) : (
+                d.label
+              ),
+            }),
+          )}
         />
       </Form.Item>
 
@@ -112,8 +125,8 @@ export function GeneralTab() {
           label={t('inbounds.security')}
           htmlFor="security-radio-first"
           tooltip={
-            !def.allowedSecurities.includes('reality') && def.allowedSecurities.length === 1
-              ? t('inbounds.securityTlsRequiredHysteriaHint')
+            def.allowedSecurities.length === 1 && def.securityHintKey
+              ? t(def.securityHintKey)
               : watchedNetwork === 'ws'
                 ? t('inbounds.securityNoRealityOnWs')
                 : watchedSecurity === 'none'

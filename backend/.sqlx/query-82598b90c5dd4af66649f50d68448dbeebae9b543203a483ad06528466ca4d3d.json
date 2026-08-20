@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT protocol_config FROM inbounds WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "protocol_config",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbounds",
+            "name": "protocol_config"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "82598b90c5dd4af66649f50d68448dbeebae9b543203a483ad06528466ca4d3d"
+}

@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, inbound_id, email, uuid, auth, flow, reverse_tag, enabled, note,\n                  traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at,\n                  (uplink_total + downlink_total) AS \"used!: i64\"\n           FROM clients WHERE id = ? AND inbound_id = ?",
+  "query": "SELECT id, inbound_id, email, uuid, auth, flow, reverse_tag, enabled, note,\n                  traffic_limit_bytes, disabled_reason, expires_at, sub_token,\n                  wg_private_key, wg_public_key, wg_address, wg_preshared_key, created_at, updated_at\n           FROM clients WHERE id = ? AND inbound_id = ?",
   "describe": {
     "columns": [
       {
@@ -147,8 +147,52 @@
         }
       },
       {
-        "name": "created_at",
+        "name": "wg_private_key",
         "ordinal": 13,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "wg_private_key"
+          }
+        }
+      },
+      {
+        "name": "wg_public_key",
+        "ordinal": 14,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "wg_public_key"
+          }
+        }
+      },
+      {
+        "name": "wg_address",
+        "ordinal": 15,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "wg_address"
+          }
+        }
+      },
+      {
+        "name": "wg_preshared_key",
+        "ordinal": 16,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "wg_preshared_key"
+          }
+        }
+      },
+      {
+        "name": "created_at",
+        "ordinal": 17,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -159,7 +203,7 @@
       },
       {
         "name": "updated_at",
-        "ordinal": 14,
+        "ordinal": 18,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -167,12 +211,6 @@
             "name": "updated_at"
           }
         }
-      },
-      {
-        "name": "used!: i64",
-        "ordinal": 15,
-        "type_info": "Integer",
-        "origin": "Expression"
       }
     ],
     "parameters": {
@@ -192,10 +230,13 @@
       true,
       true,
       false,
-      false,
+      true,
+      true,
+      true,
+      true,
       false,
       false
     ]
   },
-  "hash": "3f4458a55e10b0759f572f06471120bad14b59898228894c3445e9c75fa1c609"
+  "hash": "c00dc6e90aaff2b52c186e2f110fae8430cbb73e0b735245135ec2dc81e10a1e"
 }

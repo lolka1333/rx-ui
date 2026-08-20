@@ -28,6 +28,8 @@ export type {
   VlessXorMode,
   VlessFallback,
   VlessFallbackType,
+  WireguardProtocol,
+  WireguardKeypair,
 } from './protocol';
 
 export type {

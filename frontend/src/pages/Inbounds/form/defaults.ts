@@ -27,6 +27,22 @@ export const DEFAULTS: FormValues = {
   hysteria_masq_proxy_insecure: false,
   hysteria_masq_string_content: '',
   hysteria_masq_string_status_code: 200,
+  // WireGuard: keys stay empty so the backend generates the device pair on
+  // create. The subnet mirrors the backend's own default — a /24 out of the
+  // private range that rarely collides with a home network.
+  wg_secret_key: '',
+  wg_public_key: '',
+  wg_subnet: '10.66.66.0/24',
+  wg_mtu: 1420,
+  wg_dns: '1.1.1.1',
+  // Full tunnel, minus the v6 default route: the tunnel hands out IPv4 only,
+  // so promising `::/0` would send a client's IPv6 traffic nowhere.
+  wg_client_allowed_ips: '0.0.0.0/0',
+  wg_client_keepalive: 25,
+  // WireGuard itself treats a pre-shared key as optional; the panel writes both
+  // sides of every config it hands out, so issuing one costs nothing and the
+  // default is on.
+  wg_issue_preshared_key: true,
   quic_congestion: 'default',
   quic_bbr_profile: '',
   quic_brutal_up_mbps: null,

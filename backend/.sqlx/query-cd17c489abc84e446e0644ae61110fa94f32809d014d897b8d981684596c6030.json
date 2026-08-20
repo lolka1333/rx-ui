@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, inbound_id, email, uuid, auth, flow, reverse_tag, enabled, note,\n                  traffic_limit_bytes, disabled_reason, expires_at, sub_token, created_at, updated_at\n           FROM clients WHERE inbound_id = ?\n           ORDER BY created_at",
+  "query": "SELECT id, inbound_id, email, uuid, auth, flow, reverse_tag, enabled, note,\n                  traffic_limit_bytes, disabled_reason, expires_at, sub_token,\n                  wg_private_key, wg_public_key, wg_address, wg_preshared_key, created_at, updated_at\n           FROM clients ORDER BY created_at DESC",
   "describe": {
     "columns": [
       {
@@ -147,8 +147,52 @@
         }
       },
       {
-        "name": "created_at",
+        "name": "wg_private_key",
         "ordinal": 13,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "wg_private_key"
+          }
+        }
+      },
+      {
+        "name": "wg_public_key",
+        "ordinal": 14,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "wg_public_key"
+          }
+        }
+      },
+      {
+        "name": "wg_address",
+        "ordinal": 15,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "wg_address"
+          }
+        }
+      },
+      {
+        "name": "wg_preshared_key",
+        "ordinal": 16,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "clients",
+            "name": "wg_preshared_key"
+          }
+        }
+      },
+      {
+        "name": "created_at",
+        "ordinal": 17,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -159,7 +203,7 @@
       },
       {
         "name": "updated_at",
-        "ordinal": 14,
+        "ordinal": 18,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -170,7 +214,7 @@
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 0
     },
     "nullable": [
       false,
@@ -186,9 +230,13 @@
       true,
       true,
       false,
+      true,
+      true,
+      true,
+      true,
       false,
       false
     ]
   },
-  "hash": "3aa578c173d629a9b1658029d76d7f3ae079f04a36e316b92f08e105dd8b42b9"
+  "hash": "cd17c489abc84e446e0644ae61110fa94f32809d014d897b8d981684596c6030"
 }

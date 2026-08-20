@@ -54,6 +54,21 @@ export function inboundToForm(inb: Inbound): FormValues {
     v.vless_fallbacks = inb.protocol.fallbacks ?? [];
   }
 
+  if (inb.protocol.kind === 'wireguard') {
+    v.wg_secret_key = inb.protocol.secret_key;
+    v.wg_public_key = inb.protocol.public_key;
+    v.wg_subnet = inb.protocol.subnet;
+    // 0 is how the backend spells "the core's default" — show the number
+    // the client config will actually carry rather than a bare zero.
+    v.wg_mtu = inb.protocol.mtu === 0 ? DEFAULTS.wg_mtu : inb.protocol.mtu;
+    v.wg_dns = inb.protocol.dns;
+    v.wg_client_allowed_ips = inb.protocol.client_allowed_ips;
+    // 0 is a real choice here — "write no keepalive line" — so it is carried
+    // through rather than replaced by the default the way MTU's 0 is.
+    v.wg_client_keepalive = inb.protocol.client_keepalive;
+    v.wg_issue_preshared_key = inb.protocol.issue_preshared_key;
+  }
+
   // Hysteria transport hydration. The transport carries the QUIC/masq
   // knobs; the protocol layer is empty in v1 (per HysteriaProtocol = {}).
   if (inb.transport.kind === 'hysteria') {
@@ -273,6 +288,22 @@ export function hydrateFinalMask(target: FinalMaskFormFields, fm: FinalMask): vo
 function buildProtocol(v: FormValues): ProtocolConfig {
   if (v.protocol_kind === 'hysteria2') {
     return { kind: 'hysteria2' };
+  }
+  if (v.protocol_kind === 'wireguard') {
+    // Keys travel back unchanged: on create they are empty and the backend
+    // generates the pair, on edit they are what it generated. The form shows
+    // them read-only, so there is nothing here to sanitize.
+    return {
+      kind: 'wireguard',
+      secret_key: v.wg_secret_key,
+      public_key: v.wg_public_key,
+      subnet: v.wg_subnet.trim(),
+      mtu: v.wg_mtu ?? 0,
+      dns: v.wg_dns.trim(),
+      client_allowed_ips: v.wg_client_allowed_ips.trim(),
+      client_keepalive: v.wg_client_keepalive ?? 0,
+      issue_preshared_key: v.wg_issue_preshared_key,
+    };
   }
   const isEnc = v.vless_encryption_mode !== 'none';
   const vless: VlessProtocol = {

@@ -69,6 +69,23 @@ pub struct Client {
     /// 32 lowercase hex chars (16 random bytes). Rotated via
     /// `POST /api/clients/{id}/rotate-sub-token`.
     pub sub_token: String,
+    /// The peer's private key on a `WireGuard` inbound. `None` for every other
+    /// protocol. Held because `WireGuard` has no shared secret the way a VLESS
+    /// UUID is one: a config the operator can hand over — or a QR they can
+    /// scan — exists only if the panel generated both halves of the pair.
+    pub wg_private_key: Option<String>,
+    /// Derived from `wg_private_key`; this is what reaches xray as the peer.
+    pub wg_public_key: Option<String>,
+    /// The address this peer holds inside the tunnel, from the inbound's
+    /// subnet. It is the peer's identity at runtime — xray attributes traffic
+    /// by the source address inside the tunnel — so it is unique per inbound.
+    pub wg_address: Option<String>,
+    /// The peer's pre-shared key, as `WireGuard` prints it (base64). A second
+    /// symmetric secret both sides mix into the handshake; the core writes it
+    /// into the peer's UAPI entry, and it goes into the client's config
+    /// verbatim. `None` for peers created before it existed — and for every
+    /// client of every other protocol.
+    pub wg_preshared_key: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }

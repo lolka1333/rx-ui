@@ -360,6 +360,17 @@ fn build_bundle(
             );
             continue;
         };
+        // A bundle is a list of URIs, and a WireGuard peer's config is a
+        // file, not a URI. Skipped here rather than left to fail inside the
+        // builder: that path is for links that broke, and this one never
+        // could work — a client app parsing the bundle has nothing to do
+        // with it. The peer's config stays on the client's own share dialog.
+        if matches!(
+            inbound.protocol,
+            crate::protocols::ProtocolConfig::Wireguard(_)
+        ) {
+            continue;
+        }
         let client = row.to_client();
         match share_link::build_share_link(inbound, &client, host) {
             Ok(link) => links.push(link),
@@ -519,6 +530,13 @@ impl SubscriptionRow {
             disabled_reason: self.disabled_reason.clone(),
             expires_at: self.expires_at.clone(),
             sub_token: self.sub_token.clone(),
+            // A subscription is a list of URIs; a WireGuard peer's config is
+            // not one, so those rows never reach a bundle and their peer
+            // fields are not carried here.
+            wg_private_key: None,
+            wg_public_key: None,
+            wg_address: None,
+            wg_preshared_key: None,
             created_at: self.created_at.clone(),
             updated_at: self.updated_at.clone(),
         }

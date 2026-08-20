@@ -23,7 +23,7 @@ use crate::{
     auth::AuthUser,
     error::{AppError, AppResult},
     protocols::vless::VlessEncryptionAuth,
-    xray::keygen::{self, EchKeyBundle, RealityKeypair, VlessEncryptionKeypair},
+    xray::keygen::{self, EchKeyBundle, RealityKeypair, VlessEncryptionKeypair, WireguardKeypair},
 };
 use axum::{
     Json, Router,
@@ -36,6 +36,7 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/vless-encryption", post(vless_encryption))
         .route("/reality-keypair", post(reality_keypair))
+        .route("/wireguard-keypair", post(wireguard_keypair))
         .route("/ech", post(ech))
 }
 
@@ -46,6 +47,14 @@ pub fn routes() -> Router<AppState> {
 /// public from the private so the stored pair is always consistent.
 async fn reality_keypair(_user: AuthUser) -> Json<RealityKeypair> {
     Json(keygen::generate_reality_keypair())
+}
+
+/// Generate a fresh `WireGuard` device keypair. Same contract as Reality's
+/// above, different encoding — `WireGuard` prints keys in padded standard
+/// base64, and a key in Reality's url-safe spelling is refused by every
+/// `WireGuard` implementation without saying why.
+async fn wireguard_keypair(_user: AuthUser) -> Json<WireguardKeypair> {
+    Json(keygen::generate_wireguard_keypair())
 }
 
 #[derive(Debug, Deserialize)]
