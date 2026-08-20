@@ -70,7 +70,7 @@ export function DnsTab() {
       <section className="app-dns-section">
         <div className="app-dns-head">
           <span className="app-dns-title">{t('settings.xrayGroupDnsBehaviour')}</span>
-          <span className="app-dns-sub">{t('settings.dnsHoverHint')}</span>
+          <span className="app-dns-sub">{t('settings.hoverForHint')}</span>
         </div>
 
         <div className="app-dns-behaviour">

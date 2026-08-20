@@ -1,0 +1,194 @@
+/* ====================================================================
+   Routing tab — the same surface language as the DNS tab.
+
+   The Xray tabs size their rows `minmax(240px, 1fr) minmax(200px, 460px)`:
+   the name column takes every spare pixel and the control is capped, which
+   is why this tab read as a wall of text with a strip of nothing down the
+   middle. That split earns its keep when a row's explanation is a paragraph
+   beside the control — and it stops earning it at six rows, where the
+   paragraphs are the page and the controls are an afterthought.
+
+   Here the explanations move into tooltips (`FieldLabel hint`) and the name
+   column becomes a fixed track, so the lists get the width and every row is
+   one line tall. Only the group carrying `app-rt-dense` changes; the tab's
+   other groups keep the wide layout until they are moved over too.
+   ==================================================================== */
+
+.app-settings-tabs .app-rt-dense .app-settings-group .ant-form-item-row {
+  grid-template-columns: 220px minmax(0, 1fr);
+  column-gap: 18px;
+}
+
+/* A switch is not on the input grid (layout.css says so for the wide rows);
+   repeated here because the grid above is more specific than that rule. */
+.app-settings-tabs .app-rt-dense .app-settings-group .app-field-switch .ant-form-item-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+/* The two headings on this tab used to speak different languages: the group
+   title came from the tab rule (12px, sentence case) while the rule list drew
+   its own (11px, uppercase). One tab, one heading — the DNS tab's. */
+.app-settings-tabs .app-rt-dense .app-settings-fieldgroup-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Below the width where the label column and a usable control stop fitting
+   side by side, fall back to the stacked layout the rest of the panel uses. */
+@media (max-width: 700px) {
+  .app-settings-tabs .app-rt-dense .app-settings-group .ant-form-item-row {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 8px;
+  }
+}
+
+/* The name now carries the explanation, so it says so the way the DNS tab
+   does — a help cursor rather than a text caret. */
+.app-field-title-hint {
+  cursor: help;
+}
+
+/* Match the DNS tab's text and rhythm. A row's name was 14px/500 against the
+   13px the DNS tab uses, on a 13px block padding against its 8px — side by
+   side the two tabs read as different weights of the same panel. */
+.app-settings-tabs .app-rt-dense .app-settings-group {
+  --settings-row-block: 9px;
+}
+.app-settings-tabs .app-rt-dense .app-field-title {
+  font-size: 13px;
+  color: var(--text-2, #94a3b8);
+}
+
+/* ── The rule table ────────────────────────────────────────────────────── */
+
+/* Shell, row rhythm, header, number-cell-as-grip and the drag states come from
+   settings/table.css — shared with the resolver list. Only the columns and the
+   cells peculiar to a rule live here. */
+.app-rt-section {
+  margin-top: 20px;
+}
+.app-rt-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 10px 2px;
+}
+.app-rt-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3, #8a94a6);
+}
+.app-rt-sub {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-3, #8a94a6);
+  opacity: 0.75;
+}
+
+/* Conditions get the widest track: they are the part of a rule worth reading,
+   and the part that used to be squeezed onto a second line. */
+/* "Куда" is one short chip, so it takes the width of that chip and nothing
+   more — as a proportional track it owned ~150px of a wide table, which is
+   what put a band of nothing between the target and the row's controls, and
+   took the room from the one column that had something to say. */
+.app-rt-tr {
+  grid-template-columns:
+    26px minmax(130px, 1.2fr) minmax(200px, 3fr)
+    max-content 56px;
+}
+
+/* The target is a chip, not a column-wide bar: a grid child stretches to its
+   track unless told otherwise, which turned every tag into a 90px slab. */
+.app-rt-tr > .ant-tag {
+  justify-self: start;
+  margin: 0;
+}
+
+.app-rt-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.app-rt-icon {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-3, #8a94a6);
+}
+.app-rt-label {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.app-rt-muted {
+  overflow: hidden;
+  font-size: 11.5px;
+  color: var(--text-3, #8a94a6);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* One line of chips, clipped rather than wrapped: a rule that matches twelve
+   domains must not be three times the height of the one above it. */
+.app-rt-conds {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+/* Chips do not shrink. A matcher cut down to `geosi…` is worse than not being
+   on the row at all — the count pill already says how many are not shown, and
+   the fitting above only takes chips that fit whole. The cap catches the
+   pathological value (a 60-character regexp), which would otherwise push
+   everything else out of the row on its own. */
+.app-rt-conds .ant-tag {
+  flex: 0 0 auto;
+  max-width: 280px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.app-rt-tail {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+}
+.app-rt-more {
+  font-size: 16px;
+  color: var(--text-2, #94a3b8);
+  cursor: pointer;
+}
+
+/* A system row is read-only here (its matchers live in the block above), and a
+   rule switched off still has to be readable — neither is "disabled". */
+.app-rt-tr.is-sys .app-rt-label {
+  color: var(--text-2, #94a3b8);
+}
+.app-rt-tr.is-off {
+  opacity: 0.55;
+}
+
+/* ── Dragging a rule ───────────────────────────────────────────────────── */
+
+/* The gesture itself is table.css's: the whole row is the handle, and the rank
+   trades places with a grip under the pointer. Nothing routing-specific is
+   left except the rows that must NOT offer it — the pinned api rule and the
+   fallback, which carry no `draggable` and so keep the default cursor. */
+
+/* One line about the group, beside its heading instead of inside every row. */
+.app-settings-fieldgroup-sub {
+  margin-left: 10px;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--text-3, #8a94a6);
+  opacity: 0.75;
+}

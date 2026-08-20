@@ -39,7 +39,14 @@ import {
   MoreOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
-import { useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'react';
+import {
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type DragEvent,
+} from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/api/client';
@@ -232,6 +239,72 @@ function GroupList({
   );
 }
 
+/* How many chips fit is a question about the column, not about the viewport: a
+   `geosite:category-ads-all` chip is three times the width of a `tcp` one, so a
+   budget counted per breakpoint either wastes half the column or squeezes every
+   chip into an ellipsis. These estimate a chip from its text — the mono face
+   makes that reliable to a few pixels — and the column reports its own width. */
+const CHIP_CHAR = 6.7;
+const CHIP_PAD = 20;
+const CHIP_GAP = 6;
+/** Room kept for the "+N" pill, so it is never the thing that gets clipped. */
+const OVERFLOW_PILL = 46;
+/** Matches the cap in the stylesheet: past it a chip ellipsizes, so the
+ *  estimate must stop growing too or the fitting would reserve room the chip
+ *  never takes. */
+const CHIP_MAX = 280;
+const chipWidth = (text: string) => Math.min(text.length * CHIP_CHAR + CHIP_PAD, CHIP_MAX);
+
+/** How many of `items` fit `width`, leaving room for "+N" when some do not. */
+function fitChips(items: string[], width: number, reserve = 0): number {
+  if (width <= 0) return items.length;
+  let used = reserve;
+  let n = 0;
+  for (const it of items) {
+    const w = chipWidth(it) + (n ? CHIP_GAP : 0);
+    // The last one may use the pill's reserve: nothing is hidden behind it.
+    const avail = width - (n === items.length - 1 ? 0 : OVERFLOW_PILL);
+    if (used + w > avail) break;
+    used += w;
+    n++;
+  }
+  return Math.max(1, n);
+}
+
+/** A flat list of matchers in a table cell: as many as fit the budget, the rest
+ *  behind a "+N" that opens the full list. What a system row shows — it has one
+ *  kind of matcher, so it needs no per-kind headings. */
+function ChipList({ items, budget }: { items: string[]; budget: number }) {
+  const shown = items.slice(0, budget);
+  const rest = items.length - shown.length;
+  return (
+    <>
+      {shown.map((c) => (
+        <Tag key={c}>{c}</Tag>
+      ))}
+      {rest > 0 && (
+        <Popover
+          trigger="click"
+          content={
+            <Space size={[6, 6]} wrap style={{ maxWidth: 320 }}>
+              {items.map((c) => (
+                <Tag key={c} style={{ margin: 0 }}>
+                  {c}
+                </Tag>
+              ))}
+            </Space>
+          }
+        >
+          {/* Click-only, and it must not reach the draggable row underneath. */}
+          <Tag style={{ cursor: 'pointer', flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+            +{rest}
+          </Tag>
+        </Popover>
+      )}
+    </>
+  );
+}
+
 export function RoutingRulesField({
   value,
   onChange,
@@ -243,14 +316,24 @@ export function RoutingRulesField({
   const { token } = theme.useToken();
   // Phone layout: collapse each rule's condition chips into one count-pill so
   // the name + a tappable conditions affordance both fit on a narrow row.
-  const isMobile = !Grid.useBreakpoint().md;
-  // How many condition chips ride inline before the rest collapse into "+N".
-  // It used to be a flat 2, which hid most of a rule's matchers behind a
-  // popover while the row sat half empty. The row is now capped (see the
-  // wrapper below), so this is a flat budget too rather than one tied to the
-  // viewport: ~500px of the 780px row is left for labelled chips, which fits
-  // about four.
-  const inlineConds = isMobile ? 2 : 4;
+  const screens = Grid.useBreakpoint();
+  const isMobile = !screens.md;
+  // The conditions column reports its own width, and the chips are laid out to
+  // it (see `fitChips`). A flat budget was written for a row capped at 780px;
+  // on a wide monitor it left the widest column mostly empty with the rest of
+  // the rule behind a pill nobody clicks, and on a narrow one it squeezed every
+  // chip into an ellipsis.
+  const condsRef = useRef<HTMLSpanElement>(null);
+  const [condsWidth, setCondsWidth] = useState(0);
+  useLayoutEffect(() => {
+    const el = condsRef.current;
+    if (!el) return undefined;
+    const measure = () => setCondsWidth(el.getBoundingClientRect().width);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const rules = value ?? [];
   // Enabled custom outbound tags become additional rule targets — the backend's
   // `valid_rule_targets` does the same (reserved ∪ enabled outbound tags). A
@@ -355,25 +438,34 @@ export function RoutingRulesField({
   // sides together: add a token there and this file stops compiling until the
   // row it needs is written, and `isSystemToken` below reads its membership
   // off the same table rather than a second hand-written list.
-  const sysInfo: Record<SystemToken, { label: string; target: string }> = {
-    api: { label: t('settings.rulesSysApi'), target: 'api' },
-    bittorrent: { label: 'BitTorrent', target: 'blocked' },
+  // `items` is what the row actually matches on. It is shown in the conditions
+  // column as chips, the same way a custom rule shows its own — the row used to
+  // say "set in the block above", which is true and tells the operator nothing
+  // about what is in there. The two rows with no list of their own (the control
+  // channel, and BitTorrent, which matches a protocol) keep a short descriptor.
+  const sysInfo: Record<SystemToken, { label: string; target: string; items: string[] }> = {
+    api: { label: t('settings.rulesSysApi'), target: 'api', items: ['inbound: api'] },
+    bittorrent: { label: 'BitTorrent', target: 'blocked', items: ['protocol: bittorrent'] },
     blocked_domains: {
-      label: `${t('settings.xrayBlockedDomains')} · ${sysBlockedDomains.length}`,
+      label: t('settings.xrayBlockedDomains'),
       target: 'blocked',
+      items: sysBlockedDomains,
     },
     blocked_ips: {
-      label: `${t('settings.xrayBlockedIps')} · ${sysBlockedIps.length}`,
+      label: t('settings.xrayBlockedIps'),
       target: 'blocked',
+      items: sysBlockedIps,
     },
-    ipv4: { label: `${t('settings.xrayIpv4Domains')} · ${sysIpv4.length}`, target: 'direct-ipv4' },
+    ipv4: { label: t('settings.xrayIpv4Domains'), target: 'direct-ipv4', items: sysIpv4 },
     direct_domains: {
-      label: `${t('settings.xrayDirectDomains')} · ${sysDirectDomains.length}`,
+      label: t('settings.xrayDirectDomains'),
       target: 'direct',
+      items: sysDirectDomains,
     },
     direct_ips: {
-      label: `${t('settings.xrayDirectIps')} · ${sysDirectIps.length}`,
+      label: t('settings.xrayDirectIps'),
       target: 'direct',
+      items: sysDirectIps,
     },
   };
   // A token in the evaluation order is either a system row or a custom rule id;
@@ -496,79 +588,12 @@ export function RoutingRulesField({
     },
   });
 
-  const titleStyle: CSSProperties = {
-    fontSize: 11,
-    fontWeight: 600,
-    letterSpacing: '0.66px',
-    textTransform: 'uppercase',
-    color: token.colorTextTertiary,
-  };
-
   // The list IS the evaluation order — rules are tried top to bottom and the
-  // first match wins — but nothing said so, which is what made a plain stack of
-  // rows feel arbitrary (and left the drag handle unexplained). A numbered
-  // spine down the left says it, and it uses the width that a single line of
-  // conditions could never fill: conditions move to a second line under the
-  // name, the way every other settings tab already reads.
-  const SPINE_X = 30;
-  const rowBase: CSSProperties = {
-    position: 'relative',
-    display: 'flex',
-    alignItems: 'center',
-    gap: 10,
-    padding: '9px 14px 9px 52px',
-  };
-  /** Vertical line segment through a row, joining its neighbours' nodes. */
-  const spineSeg = (first: boolean, last: boolean): CSSProperties => ({
-    position: 'absolute',
-    left: SPINE_X,
-    top: first ? '50%' : 0,
-    bottom: last ? '50%' : 0,
-    width: 2,
-    background: token.colorBorderSecondary,
-    pointerEvents: 'none',
-  });
-  /** The node on the spine: filled for a live rule, hollow for system rows. */
-  const spineNode = (live: boolean): CSSProperties => ({
-    position: 'absolute',
-    left: SPINE_X - 3,
-    top: '50%',
-    transform: 'translateY(-50%)',
-    width: 8,
-    height: 8,
-    borderRadius: '50%',
-    background: live ? token.colorPrimary : token.colorTextQuaternary,
-    boxShadow: `0 0 0 3px ${token.colorBgElevated}`,
-    pointerEvents: 'none',
-  });
-  /** Evaluation position, sitting left of the spine. */
-  const ordStyle: CSSProperties = {
-    position: 'absolute',
-    left: 0,
-    width: SPINE_X - 9,
-    top: '50%',
-    transform: 'translateY(-50%)',
-    textAlign: 'right',
-    fontSize: 10,
-    fontVariantNumeric: 'tabular-nums',
-    color: token.colorTextQuaternary,
-    pointerEvents: 'none',
-  };
-  /** Second line of a rule: its conditions, muted under the name. */
-  const condRowStyle: CSSProperties = {
-    display: 'flex',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginTop: 4,
-  };
-  const divider = `1px solid ${token.colorSplit}`;
-  const iconGrabStyle: CSSProperties = {
-    color: token.colorTextQuaternary,
-    cursor: 'grab',
-    fontSize: 14,
-  };
-  const iconArrowStyle: CSSProperties = { color: token.colorTextQuaternary, fontSize: 13 };
+  // first match wins. The numbered column says so, and it is the same column
+  // you grab to change that order, exactly as in the resolver table: a spine
+  // with its own handle column beside it spent two columns of chrome before a
+  // row said anything at all.
+  //
   // Kind label before each group of condition chips. Quiet and small: it is
   // there to be read when the eye stops on a rule, not to compete with the
   // values themselves.
@@ -580,61 +605,51 @@ export function RoutingRulesField({
     whiteSpace: 'nowrap',
     flexShrink: 0,
   };
-  // Trailing controls (switch + ⋮) live in a fixed-width slot. System and
-  // default rows have neither, so without a reserved slot their target tag ran
-  // ~66px further right than every editable rule's — the target column the rail
-  // is there to create was bent by the rows that happen to carry no controls.
-  const tailStyle: CSSProperties = {
-    flex: 'none',
-    width: 52,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    gap: 9,
-  };
-
   return (
-    <div style={{ marginTop: 20 }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: 11,
-        }}
-      >
-        <span style={titleStyle}>{t('settings.rulesOrderGroup')}</span>
-        <Button type="primary" size="small" icon={<PlusOutlined />} onClick={openAdd}>
+    <section className="app-rt-section">
+      <div className="app-rt-head">
+        <span className="app-rt-title">{t('settings.rulesOrderGroup')}</span>
+        <span className="app-rt-sub">{t('settings.rulesOrderSub')}</span>
+        {/* Quiet, like the "add" buttons on the DNS tab. As a primary button it
+            was the loudest thing on the tab, which put the accent on adding a
+            rule rather than on the order the rules are read in. */}
+        <Button size="small" icon={<PlusOutlined />} onClick={openAdd}>
           {t('settings.rulesAdd')}
         </Button>
       </div>
 
-      <div
-        style={{
-          background: token.colorBgElevated,
-          border: `1px solid ${token.colorBorderSecondary}`,
-          borderRadius: 14,
-          overflow: 'hidden',
-        }}
-      >
+      {/* A table, the same one the resolver list is: the numbered spine and its
+          separate handle column spent two columns of chrome before a row said
+          anything, and the conditions — the part worth reading — got what was
+          left. Columns name themselves in a header instead. */}
+      <div className="app-rt-table">
+        <div className="app-rt-tr app-rt-th">
+          <span>№</span>
+          <span>{t('settings.rulesColRule')}</span>
+          {/* The column measures itself here, once, for every row below it. */}
+          <span ref={condsRef}>{t('settings.rulesColConditions')}</span>
+          <span>{t('settings.rulesColTarget')}</span>
+          <span />
+        </div>
+
         {order.map((tok, i) => {
           const dragging = dragIndex === i;
           const dropTarget = overIndex === i && dragIndex !== null && dragIndex !== i;
-          const rowStyle: CSSProperties = {
-            ...rowBase,
-            borderTop: i === 0 ? undefined : divider,
-            boxShadow: dropTarget ? `inset 0 2px 0 ${token.colorPrimary}` : undefined,
-          };
-          // The default row below is always last, so no row in this map ever
-          // terminates the spine.
-          const spine = (
-            <>
-              <span style={spineSeg(i === 0, false)} aria-hidden="true" />
-              <span style={spineNode(!isSystemToken(tok))} aria-hidden="true" />
-              <span style={ordStyle} aria-hidden="true">
-                {i + 1}
-              </span>
-            </>
+          const rowClass = (extra?: string) =>
+            [
+              'app-rt-tr',
+              dragging ? 'is-drag' : '',
+              dropTarget ? 'is-over' : '',
+              extra ?? '',
+            ]
+              .filter(Boolean)
+              .join(' ');
+          /** The rank, which is also the grip — one cell, as in the DNS table. */
+          const ord = (grabbable: boolean) => (
+            <span className="app-rt-num">
+              <span className="app-rt-ord">{i + 1}</span>
+              {grabbable && <HolderOutlined className="app-rt-grip" aria-hidden="true" />}
+            </span>
           );
 
           // System row — read-only content (edited in "Basic connections"),
@@ -647,33 +662,32 @@ export function RoutingRulesField({
             return (
               <div
                 key={tok}
+                className={rowClass('is-sys')}
                 {...(pinned ? {} : rowDnd(i))}
-                style={{ ...rowStyle, opacity: dragging && !pinned ? 0.4 : 0.6 }}
               >
-                {spine}
-                <HolderOutlined
-                  style={pinned ? { ...iconGrabStyle, cursor: 'default', opacity: 0.35 } : iconGrabStyle}
-                />
-                <LockOutlined style={{ color: token.colorTextQuaternary, fontSize: 12 }} />
-                {/* A system rule's matchers live in "Basic connections", so
-                    there is no second line to show — just its label. */}
-                <span
-                  style={{
-                    flex: 1,
-                    minWidth: 0,
-                    fontSize: 12.5,
-                    color: token.colorTextSecondary,
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
-                >
-                  {info.label}
+                {ord(!pinned)}
+                <span className="app-rt-name">
+                  <LockOutlined className="app-rt-icon" />
+                  <span className="app-rt-label">{info.label}</span>
                 </span>
+                {/* What the row matches on, in its own words. Edited in the
+                    block above — the tooltip on the name says so — but shown
+                    here, because "set in the block above" filled the widest
+                    column of the table with a sentence about somewhere else. */}
+                <div className="app-rt-conds">
+                  {info.items.length === 0 ? (
+                    <span className="app-rt-muted">{t('settings.rulesSysEmpty')}</span>
+                  ) : (
+                    <ChipList
+                      items={info.items}
+                      budget={isMobile ? 1 : fitChips(info.items, condsWidth)}
+                    />
+                  )}
+                </div>
                 <Tag color={colorOf(info.target)} style={{ margin: 0 }}>
                   {info.target}
                 </Tag>
-                <span style={tailStyle} aria-hidden="true" />
+                <span aria-hidden="true" />
               </div>
             );
           }
@@ -682,17 +696,33 @@ export function RoutingRulesField({
           if (!rule) return null;
           const groups = summarizeGroups(rule);
           const total = condCount(groups);
-          // Fill the row group by group until the inline budget runs out; the
+          // Fill the row group by group until the column runs out; the
           // remainder collapses into one "+N" pill. Splitting a group across
           // the boundary would leave a labelled kind showing only some of its
           // values with no sign the rest exist, so a group is taken whole or
-          // deferred whole.
+          // deferred whole — and a group's kind label is part of what it costs.
           const shownGroups: CondGroup[] = [];
-          let budget = inlineConds;
+          let used = 0;
           for (const g of groups) {
-            if (g.items.length > budget) break;
+            const cost =
+              t(g.key).length * CHIP_CHAR +
+              CHIP_GAP * 2 +
+              g.items.reduce((s, c) => s + chipWidth(c) + CHIP_GAP, 0);
+            const avail = condsWidth - (g === groups[groups.length - 1] ? 0 : OVERFLOW_PILL);
+            if (condsWidth > 0 && used + cost > avail) break;
             shownGroups.push(g);
-            budget -= g.items.length;
+            used += cost;
+          }
+          // Never collapse to a bare "+N": a row that shows only a count says
+          // nothing about the rule it belongs to. When even the first group is
+          // too wide, it comes along cut to the chips that fit whole — the
+          // pill counts what was left out, so a part-shown group still says
+          // there is more. Squeezing the whole group into ellipses instead
+          // would spend the same width on `geosi…`, which names nothing.
+          if (shownGroups.length === 0 && groups.length > 0) {
+            const [first] = groups;
+            const room = condsWidth - t(first.key).length * CHIP_CHAR - CHIP_GAP * 2 - OVERFLOW_PILL;
+            shownGroups.push({ ...first, items: first.items.slice(0, fitChips(first.items, room)) });
           }
           const rest = total - condCount(shownGroups);
           const hiddenGroups = groups.slice(shownGroups.length);
@@ -724,29 +754,14 @@ export function RoutingRulesField({
           return (
             <div
               key={rule.id}
+              className={rowClass(rule.enabled ? undefined : 'is-off')}
               {...rowDnd(i)}
-              style={{ ...rowStyle, opacity: dragging ? 0.4 : rule.enabled ? 1 : 0.5 }}
             >
-              {spine}
-              <HolderOutlined
-                style={iconGrabStyle}
-              />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div
-                  style={{
-                    fontSize: 12.5,
-                    fontWeight: 500,
-                    whiteSpace: 'nowrap',
-                    color: rule.name ? token.colorText : token.colorTextQuaternary,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
-                >
-                  {/* An unnamed rule still needs a first line, else its
-                      conditions read as a continuation of the row above. */}
-                  {rule.name || t('settings.rulesUnnamed')}
-                </div>
-                <div style={condRowStyle}>
+              {ord(true)}
+              <span className={rule.name ? 'app-rt-label' : 'app-rt-label app-rt-muted'}>
+                {rule.name || t('settings.rulesUnnamed')}
+              </span>
+              <div className="app-rt-conds">
                 {total === 0 ? (
                   <span
                     style={{ fontSize: 11.5, color: token.colorTextTertiary, flexShrink: 0 }}
@@ -821,17 +836,14 @@ export function RoutingRulesField({
                     )}
                   </>
                 )}
-                </div>
               </div>
               <Tag color={colorOf(rule.outbound_tag)} style={{ margin: 0 }}>
                 {rule.outbound_tag}
               </Tag>
-              <span style={tailStyle}>
+              <span className="app-rt-tail">
                 <Switch size="small" checked={rule.enabled} onChange={() => toggleId(rule.id)} />
                 <Dropdown menu={{ items: menu, onClick: onMenu }} trigger={['click']}>
-                  <MoreOutlined
-                    style={{ color: token.colorTextSecondary, cursor: 'pointer', fontSize: 16 }}
-                  />
+                  <MoreOutlined className="app-rt-more" />
                 </Dropdown>
               </span>
             </div>
@@ -839,19 +851,19 @@ export function RoutingRulesField({
         })}
 
         {/* The fallback: it matches whatever reached it, so it has no
-            conditions of its own — and it always ends the chain, so it is the
-            row that terminates the spine. */}
-        <div style={{ ...rowBase, borderTop: divider, opacity: 0.6 }}>
-          <span style={spineSeg(false, true)} aria-hidden="true" />
-          <span style={spineNode(false)} aria-hidden="true" />
-          <FlagOutlined style={iconArrowStyle} />
-          <span style={{ flex: 1, fontSize: 12.5, color: token.colorTextSecondary }}>
-            {t('settings.rulesDefaultLabel')}
+            conditions of its own, and it always ends the chain — no rank, and
+            no grip, because there is nowhere for it to move. */}
+        <div className="app-rt-tr is-sys">
+          <span className="app-rt-num" aria-hidden="true" />
+          <span className="app-rt-name">
+            <FlagOutlined className="app-rt-icon" />
+            <span className="app-rt-label">{t('settings.rulesDefaultLabel')}</span>
           </span>
+          <span className="app-rt-muted">{t('settings.rulesDefaultConds')}</span>
           <Tag color="success" style={{ margin: 0 }}>
             direct
           </Tag>
-          <span style={tailStyle} aria-hidden="true" />
+          <span aria-hidden="true" />
         </div>
       </div>
 
@@ -864,7 +876,7 @@ export function RoutingRulesField({
         onCancel={() => setModalOpen(false)}
         onSave={handleSave}
       />
-    </div>
+    </section>
   );
 }
 

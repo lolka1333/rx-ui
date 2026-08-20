@@ -409,19 +409,49 @@ function SectionFrame({ title, children }: { title: string; children: React.Reac
  *  directly beneath it in muted text, instead of hidden behind a `?` tooltip.
  *  The pair fills the row's left column; the control sits in the right one —
  *  that's what gives a settings row its weight. */
-function FieldLabel({ title, desc }: { title: string; desc?: string }) {
+/** A field's name, with its explanation either under it or behind it.
+ *
+ *  `desc` prints the explanation as a paragraph — right for a handful of
+ *  settings, wrong for a screenful: six paragraphs stacked turn a group into a
+ *  wall of prose and push every control into a narrow gutter. `hint` puts the
+ *  same sentence in a tooltip instead, which is what the DNS tab does. */
+function FieldLabel({ title, desc, hint }: { title: string; desc?: string; hint?: string }) {
+  const name = <span className="app-field-title">{title}</span>;
   return (
     <span className="app-field-label">
-      <span className="app-field-title">{title}</span>
+      {hint ? (
+        <Tooltip title={hint}>
+          <span className="app-field-title-hint">{name}</span>
+        </Tooltip>
+      ) : (
+        name
+      )}
       {desc ? <span className="app-field-desc">{desc}</span> : null}
     </span>
   );
 }
 
-function FieldGroup({ title, children }: { title?: string; children: ReactNode }) {
+function FieldGroup({
+  title,
+  sub,
+  className,
+  children,
+}: {
+  title?: string;
+  /** Sits beside the heading, quieter — the one line a group needs to say
+   *  about itself once, instead of repeating it per row. */
+  sub?: string;
+  className?: string;
+  children: ReactNode;
+}) {
   return (
-    <div className="app-settings-fieldgroup">
-      {title && <h2 className="app-settings-fieldgroup-title">{title}</h2>}
+    <div className={className ? `app-settings-fieldgroup ${className}` : 'app-settings-fieldgroup'}>
+      {title && (
+        <h2 className="app-settings-fieldgroup-title">
+          {title}
+          {sub && <span className="app-settings-fieldgroup-sub">{sub}</span>}
+        </h2>
+      )}
       <div className="app-settings-group">{children}</div>
     </div>
   );
@@ -2386,14 +2416,18 @@ function XraySection({
                 icon: <BranchesOutlined />,
                 children: (
                   <>
-                  <FieldGroup title={t('settings.xrayGroupRouting')}>
+                  <FieldGroup
+                    title={t('settings.xrayGroupRouting')}
+                    sub={t('settings.hoverForHint')}
+                    className="app-rt-dense"
+                  >
                     <Form.Item
                       name="xray_block_bittorrent"
                       className="app-field-switch"
                       label={
                         <FieldLabel
                           title={t('settings.xrayBlockBittorrent')}
-                          desc={t('settings.xrayBlockBittorrentHint')}
+                          hint={t('settings.xrayBlockBittorrentHint')}
                         />
                       }
                       valuePropName="checked"
@@ -2405,7 +2439,7 @@ function XraySection({
                       label={
                         <FieldLabel
                           title={t('settings.xrayBlockedIps')}
-                          desc={t('settings.xrayBlockedIpsHint')}
+                          hint={t('settings.xrayBlockedIpsHint')}
                         />
                       }
                     >
@@ -2416,7 +2450,7 @@ function XraySection({
                         optionRender={renderGeoOption}
                         tagRender={renderGeoTag}
                         tokenSeparators={[',', ' ']}
-                        placeholder={t('settings.xrayGeoPlaceholder')}
+                        placeholder={t('settings.xrayGeoIpPlaceholder')}
                       />
                     </Form.Item>
                     <Form.Item
@@ -2424,7 +2458,7 @@ function XraySection({
                       label={
                         <FieldLabel
                           title={t('settings.xrayBlockedDomains')}
-                          desc={t('settings.xrayBlockedDomainsHint')}
+                          hint={t('settings.xrayBlockedDomainsHint')}
                         />
                       }
                     >
@@ -2435,7 +2469,7 @@ function XraySection({
                         optionRender={renderGeoOption}
                         tagRender={renderGeoTag}
                         tokenSeparators={[',', ' ']}
-                        placeholder={t('settings.xrayGeoPlaceholder')}
+                        placeholder={t('settings.xrayGeoSitePlaceholder')}
                       />
                     </Form.Item>
                     {/* The mirror of the two lists above: same matcher syntax
@@ -2447,7 +2481,7 @@ function XraySection({
                       label={
                         <FieldLabel
                           title={t('settings.xrayDirectIps')}
-                          desc={t('settings.xrayDirectIpsHint')}
+                          hint={t('settings.xrayDirectIpsHint')}
                         />
                       }
                     >
@@ -2458,7 +2492,7 @@ function XraySection({
                         optionRender={renderGeoOption}
                         tagRender={renderGeoTag}
                         tokenSeparators={[',', ' ']}
-                        placeholder={t('settings.xrayGeoPlaceholder')}
+                        placeholder={t('settings.xrayGeoIpPlaceholder')}
                       />
                     </Form.Item>
                     <Form.Item
@@ -2466,7 +2500,7 @@ function XraySection({
                       label={
                         <FieldLabel
                           title={t('settings.xrayDirectDomains')}
-                          desc={t('settings.xrayDirectDomainsHint')}
+                          hint={t('settings.xrayDirectDomainsHint')}
                         />
                       }
                     >
@@ -2477,7 +2511,7 @@ function XraySection({
                         optionRender={renderGeoOption}
                         tagRender={renderGeoTag}
                         tokenSeparators={[',', ' ']}
-                        placeholder={t('settings.xrayGeoPlaceholder')}
+                        placeholder={t('settings.xrayGeoSitePlaceholder')}
                       />
                     </Form.Item>
                     <Form.Item
@@ -2485,7 +2519,7 @@ function XraySection({
                       label={
                         <FieldLabel
                           title={t('settings.xrayIpv4Domains')}
-                          desc={t('settings.xrayIpv4DomainsHint')}
+                          hint={t('settings.xrayIpv4DomainsHint')}
                         />
                       }
                     >
