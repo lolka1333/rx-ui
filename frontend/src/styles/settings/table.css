@@ -1,0 +1,131 @@
+/* ====================================================================
+   The settings tables — one description, two users.
+
+   The DNS tab and the routing tab show the same kind of thing: an ordered
+   list of rows the operator reorders by hand. Everything that makes them
+   look like one panel lives here — the card surface, the row grid and its
+   rhythm, the column header, the number cell that doubles as a drag grip,
+   and the drag states. Each rule names both tables, so a change to the row
+   height or the drop indicator cannot land on one tab and miss the other.
+
+   What stays with each tab is what genuinely differs: the column widths,
+   and the cells peculiar to it (a resolver's address and transport; a
+   rule's conditions and target).
+   ==================================================================== */
+
+/* The block IS the card — the panel's group surface, one radius, one fill. */
+.app-dns-table,
+.app-rt-table {
+  background: var(--surface-2);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* Columns are declared per table; the rhythm is shared. */
+.app-dns-tr,
+.app-rt-tr {
+  display: grid;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 15px;
+  min-height: 42px;
+}
+.app-dns-tr + .app-dns-tr,
+.app-rt-tr + .app-rt-tr {
+  border-top: 1px solid var(--border);
+}
+
+/* Column names, not data: quieter than everything under them. */
+.app-dns-th > span,
+.app-rt-th > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.app-dns-th,
+.app-rt-th {
+  padding-block: 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3, #8a94a6);
+}
+
+.app-dns-num,
+.app-rt-num {
+  position: relative;
+  font-size: 12px;
+  color: var(--text-3, #8a94a6);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Drag-reorder ──────────────────────────────────────────────────────── */
+
+/* The number and the grip share one cell: the grip is laid over the number and
+   they trade places on hover, so the affordance appears where the row's rank
+   is and nothing moves when it does. The whole row is the handle — aiming at a
+   14px icon is what made the old routing list feel stiff. */
+.app-dns-tr[draggable='true'],
+.app-rt-tr[draggable='true'] {
+  cursor: grab;
+}
+.app-dns-tr[draggable='true']:active,
+.app-rt-tr[draggable='true']:active {
+  cursor: grabbing;
+}
+.app-dns-grip,
+.app-rt-grip {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.app-dns-ord,
+.app-rt-ord {
+  transition: opacity 0.12s ease;
+}
+.app-dns-tr[draggable='true']:hover .app-dns-ord,
+.app-rt-tr[draggable='true']:hover .app-rt-ord {
+  opacity: 0;
+}
+.app-dns-tr[draggable='true']:hover .app-dns-grip,
+.app-rt-tr[draggable='true']:hover .app-rt-grip {
+  opacity: 0.8;
+}
+/* The row being carried. */
+.app-dns-tr.is-drag,
+.app-rt-tr.is-drag {
+  opacity: 0.4;
+}
+/* Where it would land: a line at the top edge of the row under the pointer,
+   drawn inside so it cannot add height mid-drag. */
+.app-dns-tr.is-over,
+.app-rt-tr.is-over {
+  box-shadow: inset 0 2px 0 var(--accent, #6366f1);
+}
+
+/* A cell that may hold a second, quieter line under its value. */
+.app-dns-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+/* Chip lists. The two tables lay them out differently — the resolver's wrap,
+   a rule's conditions stay on one clipped line — but a matcher is a matcher,
+   so it reads in the same mono face on both. */
+.app-dns-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.app-dns-tags .ant-tag,
+.app-rt-conds .ant-tag {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}

@@ -37,10 +37,11 @@ import {
   CloseOutlined,
   DeleteOutlined,
   EditOutlined,
+  HolderOutlined,
   MoreOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState, type DragEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { DnsServer } from '@/api/types/settings';
 import { DNS_PRESETS, DNS_QUERY_STRATEGIES, strategyClashes } from '@/lib/dnsPresets';
@@ -119,6 +120,44 @@ export function DnsServersField({ value, onChange }: Props) {
     commit(next);
   };
 
+  // Drag-reorder, the same native handlers the routing rules use — the source
+  // index lives in a ref so `onDrop` reads the current value whatever React's
+  // render timing does, and the state only drives the visuals.
+  //
+  // The order is the setting here: xray asks these servers top to bottom, so
+  // the menu's up/down alone made moving a server to the top of a five-row
+  // list four separate menu trips. The menu stays for keyboards and touch.
+  const dragFrom = useRef<number | null>(null);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
+  const rowDnd = (i: number) => ({
+    draggable: true,
+    onDragStart: (e: DragEvent) => {
+      dragFrom.current = i;
+      setDragIndex(i);
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', String(i));
+    },
+    onDragOver: (e: DragEvent) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (overIndex !== i) setOverIndex(i);
+    },
+    onDrop: (e: DragEvent) => {
+      e.preventDefault();
+      const from = dragFrom.current;
+      if (from !== null && from !== i) move(from, i);
+      dragFrom.current = null;
+      setDragIndex(null);
+      setOverIndex(null);
+    },
+    onDragEnd: () => {
+      dragFrom.current = null;
+      setDragIndex(null);
+      setOverIndex(null);
+    },
+  });
+
   // Adding used to append an empty server and then open the dialog on it, so
   // pressing Cancel left a nameless row behind — click the button five times,
   // get five of them. Nothing is committed until Save now.
@@ -171,8 +210,20 @@ export function DnsServersField({ value, onChange }: Props) {
               ...(s.final_query ? [t('settings.dnsFinalQueryTag')] : []),
             ];
             return (
-              <div key={`${s.address}-${i}`} className="app-dns-tr">
-                <span className="app-dns-num">{i + 1}</span>
+              <div
+                key={`${s.address}-${i}`}
+                className={`app-dns-tr${dragIndex === i ? ' is-drag' : ''}${
+                  overIndex === i && dragIndex !== null && dragIndex !== i ? ' is-over' : ''
+                }`}
+                {...rowDnd(i)}
+              >
+                {/* The row number doubles as the grip: the two swap inside one
+                    fixed cell, so hovering says the row can be grabbed without
+                    a permanent handle column or a width that shifts. */}
+                <span className="app-dns-num">
+                  <span className="app-dns-ord">{i + 1}</span>
+                  <HolderOutlined className="app-dns-grip" aria-hidden="true" />
+                </span>
 
                 {/* Address and how the query travels on ONE line: stacked, they
                     set the height of every row in the table for a value most
