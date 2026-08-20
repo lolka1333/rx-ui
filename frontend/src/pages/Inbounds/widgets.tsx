@@ -507,3 +507,24 @@ export function NumberUnitField({
     </Form.Item>
   );
 }
+
+/** Subsection heading inside a form: a hairline, then the name. The forms in
+ *  this panel group fields this way rather than with a `Divider` — a divider
+ *  puts a stub of rail to the left of its title, which reads as a rendering
+ *  slip when it sits between ordinary labelled fields. */
+export function SubHeader({ children }: { children: ReactNode }) {
+  return (
+    <div
+      style={{
+        marginTop: 8,
+        marginBottom: 12,
+        paddingTop: 10,
+        borderTop: '1px solid var(--border)',
+      }}
+    >
+      <Typography.Text strong style={{ fontSize: 14 }}>
+        {children}
+      </Typography.Text>
+    </div>
+  );
+}

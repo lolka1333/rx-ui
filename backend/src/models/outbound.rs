@@ -153,6 +153,18 @@ pub struct WireguardOutbound {
     /// Keepalive seconds; 0 = off.
     #[serde(default)]
     pub keep_alive: u32,
+    /// The peer's pre-shared key, as `WireGuard` prints it (base64). Empty ≡
+    /// none. A provider that requires one is otherwise unreachable: the core
+    /// writes `preshared_key=` for the peer on the client path too, and
+    /// without a matching value the handshake never completes.
+    #[serde(default)]
+    pub pre_shared_key: String,
+    /// How the core resolves a peer named by domain. Empty ≡ the core's own
+    /// default (`ForceIP`, which picks at random among every A and AAAA).
+    /// `ForceIPv4` / `ForceIPv6` and their `v6v4` / `v4v6` preference forms
+    /// are what pin a flaky dual-stack peer to one family.
+    #[serde(default)]
+    pub domain_strategy: String,
     /// Registered through the panel's WARP button rather than typed in. Only
     /// affects what the UI says about the row.
     #[serde(default)]

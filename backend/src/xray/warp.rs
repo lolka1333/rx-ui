@@ -57,6 +57,11 @@ impl WarpRegistration {
             address: self.addresses,
             peer_public_key: self.peer_public_key,
             endpoint: self.endpoint,
+            // The edge offers neither: WARP authenticates by the registration
+            // it just handed back, and its peer is an IP, so there is no
+            // domain for a strategy to resolve.
+            pre_shared_key: String::new(),
+            domain_strategy: String::new(),
             reserved: self.reserved,
             mtu: WARP_MTU,
             // WARP's edge does not need one, and a keepalive on an idle tunnel

@@ -365,7 +365,14 @@ export function Outbounds() {
               ) : (
                 <Space size={4}>
                   <Tag color="geekblue">{r.ob.protocol.kind}</Tag>
-                  <Tag>{TRANSPORT_LABEL[r.ob.transport.kind]}</Tag>
+                  {/* A WireGuard tunnel dials UDP itself and never touches
+                      the stream layer; its stored transport is a placeholder,
+                      so printing it would name a protocol that isn't in play. */}
+                  <Tag>
+                    {r.ob.protocol.kind === 'wireguard'
+                      ? 'UDP'
+                      : TRANSPORT_LABEL[r.ob.transport.kind]}
+                  </Tag>
                   {r.ob.security.kind !== 'none' && (
                     <Tag color={r.ob.security.kind === 'reality' ? 'purple' : 'green'}>
                       {r.ob.security.kind}

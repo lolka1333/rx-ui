@@ -41,6 +41,22 @@ const TYPE_WIREGUARD_OUTBOUND: &str = "xray.proxy.wireguard.DeviceConfig";
 /// peer that allows nothing carries no traffic at all.
 const WIREGUARD_ALLOW_ALL: [&str; 2] = ["0.0.0.0/0", "::0/0"];
 
+/// Map the operator's `domainStrategy` spelling onto the proto enum, accepting
+/// exactly the strings xray's own JSON config does (`infra/conf/wireguard.go`)
+/// so a value copied out of an xray config keeps working here. Empty ≡ the
+/// core's default: resolve a peer's domain to any A or AAAA.
+fn wireguard_domain_strategy(value: &str) -> anyhow::Result<i32> {
+    use crate::xray::proto::xray::proxy::wireguard::device_config::DomainStrategy;
+    Ok(match value.trim().to_ascii_lowercase().as_str() {
+        "" | "forceip" => DomainStrategy::ForceIp,
+        "forceipv4" => DomainStrategy::ForceIp4,
+        "forceipv6" => DomainStrategy::ForceIp6,
+        "forceipv4v6" => DomainStrategy::ForceIp46,
+        "forceipv6v4" => DomainStrategy::ForceIp64,
+        other => anyhow::bail!("unsupported wireguard domain strategy: {other}"),
+    } as i32)
+}
+
 /// Build the `InboundHandlerConfig` proto from an `Inbound` + its
 /// enabled-only client list. Caller filters out disabled clients —
 /// disabled rows stay in the panel DB but are absent from xray's
@@ -202,7 +218,14 @@ fn outbound_proxy_settings(protocol: &OutboundProtocolConfig) -> anyhow::Result<
                     w.keep_alive.to_string()
                 },
                 allowed_ips: WIREGUARD_ALLOW_ALL.map(str::to_owned).to_vec(),
-                ..WireguardPeerConfig::default()
+                // Hex on the wire like every other key here. Empty stays
+                // empty: the core skips the `preshared_key=` line entirely,
+                // which is what a peer without one expects.
+                pre_shared_key: if w.pre_shared_key.trim().is_empty() {
+                    String::new()
+                } else {
+                    crate::xray::keygen::parse_wireguard_key(&w.pre_shared_key)?
+                },
             };
             let cfg = WireguardDeviceConfig {
                 secret_key: crate::xray::keygen::parse_wireguard_key(&w.secret_key)?,
@@ -210,6 +233,7 @@ fn outbound_proxy_settings(protocol: &OutboundProtocolConfig) -> anyhow::Result<
                 peers: vec![peer],
                 mtu: w.mtu,
                 reserved: w.reserved.clone(),
+                domain_strategy: wireguard_domain_strategy(&w.domain_strategy)?,
                 is_client: true,
                 // Userspace only. With a kernel TUN the core would create a
                 // real interface on the host and needs the privileges to do
@@ -258,7 +282,14 @@ pub fn outbound_to_handler_config(ob: &CustomOutbound) -> anyhow::Result<Outboun
 
     let proxy = outbound_proxy_settings(&ob.protocol)?;
 
-    let multiplex_settings = ob.mux.enabled.then(|| MultiplexingConfig {
+    // Mux is a stream the far end has to speak. A WireGuard peer speaks
+    // WireGuard: wrapping its outbound in mux produces a tunnel that dials and
+    // then carries nothing. The form does not offer the switch for WireGuard,
+    // and a value left over from another protocol is dropped here rather than
+    // trusted.
+    let multiplex_settings = (ob.mux.enabled
+        && !matches!(ob.protocol, OutboundProtocolConfig::Wireguard(_)))
+    .then(|| MultiplexingConfig {
         enabled: true,
         concurrency: ob.mux.concurrency,
         ..MultiplexingConfig::default()
@@ -815,5 +846,70 @@ mod tests {
             inbound_to_handler_config(&hysteria2_tls_inbound(vec![inline_cert()]), &[]).is_ok(),
             "TLS with one certificate should build"
         );
+    }
+    /// Mux is a stream the far end has to speak, and a `WireGuard` peer speaks
+    /// `WireGuard`. A value carried over from another protocol must not reach
+    /// the handler: the tunnel would dial and then carry nothing.
+    #[test]
+    fn a_wireguard_outbound_carries_no_mux() {
+        let ob = CustomOutbound {
+            id: "ob-1".into(),
+            tag: "wg-out".into(),
+            enabled: true,
+            protocol: OutboundProtocolConfig::Wireguard(crate::models::WireguardOutbound {
+                secret_key: "gI6EdUSYvn8ugXOt8QQD6Yc+JyiZxIhp3GInSWRfWGE=".into(),
+                address: vec!["10.2.0.2/32".into()],
+                peer_public_key: "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=".into(),
+                endpoint: "peer.example.com:51820".into(),
+                pre_shared_key: String::new(),
+                domain_strategy: String::new(),
+                reserved: Vec::new(),
+                mtu: 1420,
+                keep_alive: 0,
+                warp: false,
+            }),
+            transport: TransportConfig::Tcp(crate::transports::tcp::TcpTransport {}),
+            security: SecurityConfig::None(NoneSecurity {}),
+            finalmask: crate::transports::finalmask::FinalMask::None,
+            // Left on by a previous protocol in the same form session.
+            mux: OutboundMux {
+                enabled: true,
+                concurrency: 8,
+            },
+            send_through: String::new(),
+            proxy_tag: String::new(),
+            created_at: "now".into(),
+            updated_at: "now".into(),
+        };
+        let cfg = outbound_to_handler_config(&ob).unwrap();
+        let sender = cfg.sender_settings.unwrap();
+        let sender: SenderConfig = prost::Message::decode(sender.value.as_slice()).unwrap();
+        assert!(
+            sender.multiplex_settings.is_none(),
+            "mux reached a WireGuard outbound"
+        );
+    }
+
+    /// The spellings are xray's own (`infra/conf/wireguard.go`), so a value
+    /// copied out of a working xray config keeps working here — and anything
+    /// else is refused at build time rather than silently becoming `ForceIP`.
+    #[test]
+    fn wireguard_domain_strategy_matches_xrays_own_spellings() {
+        use crate::xray::proto::xray::proxy::wireguard::device_config::DomainStrategy;
+        for (input, want) in [
+            ("", DomainStrategy::ForceIp),
+            ("ForceIP", DomainStrategy::ForceIp),
+            ("forceipv4", DomainStrategy::ForceIp4),
+            ("ForceIPv6", DomainStrategy::ForceIp6),
+            ("ForceIPv4v6", DomainStrategy::ForceIp46),
+            ("  ForceIPv6v4  ", DomainStrategy::ForceIp64),
+        ] {
+            assert_eq!(
+                wireguard_domain_strategy(input).unwrap(),
+                want as i32,
+                "input: {input}"
+            );
+        }
+        assert!(wireguard_domain_strategy("prefer-ipv4").is_err());
     }
 }

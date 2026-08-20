@@ -119,6 +119,22 @@ export interface OutboundFormValues extends FinalMaskFormFields {
   // advanced
   send_through: string;
   proxy_tag: string;
+  // WireGuard. Keys as WireGuard itself writes them (base64); `wg_reserved` is
+  // the comma-separated triple a WARP config carries and a plain peer leaves
+  // empty. `wg_warp` is carried, never edited: it only says where the tunnel
+  // came from.
+  wg_secret_key: string;
+  wg_peer_public_key: string;
+  wg_endpoint: string;
+  wg_address: string[];
+  wg_reserved: string;
+  wg_mtu: number | null;
+  wg_keep_alive: number | null;
+  // Optional second secret shared with the peer, and how the core should
+  // resolve a peer named by domain. Both empty ≡ the core's own behaviour.
+  wg_pre_shared_key: string;
+  wg_domain_strategy: string;
+  wg_warp: boolean;
 }
 
 export const OUTBOUND_DEFAULTS: OutboundFormValues = {
@@ -181,6 +197,16 @@ export const OUTBOUND_DEFAULTS: OutboundFormValues = {
   mux_concurrency: 8,
   send_through: '',
   proxy_tag: '',
+  wg_secret_key: '',
+  wg_peer_public_key: '',
+  wg_endpoint: '',
+  wg_address: [],
+  wg_reserved: '',
+  wg_mtu: null,
+  wg_keep_alive: null,
+  wg_pre_shared_key: '',
+  wg_domain_strategy: '',
+  wg_warp: false,
   // FinalMask defaults reused verbatim from the inbound form.
   finalmask_kind: INB_DEFAULTS.finalmask_kind,
   finalmask_sudoku_password: INB_DEFAULTS.finalmask_sudoku_password,
@@ -361,12 +387,21 @@ export function formToOutbound(
     tag: v.tag.trim(),
     enabled: v.enabled,
     protocol:
-      // A WireGuard tunnel is kept verbatim. Its keys, addresses and reserved
-      // bytes come from a registration, not from this form — and without this
-      // branch the `else` below would rewrite a working tunnel as a VLESS
-      // outbound pointing at nothing, silently, on any save of the row.
-      v.protocol_kind === 'wireguard' && existing?.protocol.kind === 'wireguard'
-        ? existing.protocol
+      v.protocol_kind === 'wireguard'
+        ? {
+            kind: 'wireguard',
+            secret_key: v.wg_secret_key.trim(),
+            peer_public_key: v.wg_peer_public_key.trim(),
+            endpoint: v.wg_endpoint.trim(),
+            address: v.wg_address.map((a) => a.trim()).filter(Boolean),
+            reserved: parseReserved(v.wg_reserved),
+            mtu: v.wg_mtu ?? 0,
+            keep_alive: v.wg_keep_alive ?? 0,
+            pre_shared_key: v.wg_pre_shared_key.trim(),
+            domain_strategy: v.wg_domain_strategy.trim(),
+            // Carried, not edited: a registered tunnel stays a registered one.
+            warp: v.wg_warp,
+          }
         : v.protocol_kind === 'hysteria'
           ? { kind: 'hysteria', address: v.address.trim(), port: v.port }
           : {
@@ -396,12 +431,29 @@ export function formToOutbound(
             masquerade: { kind: 'notfound' },
             quic_params: buildHyQuic(v),
           }
-        : buildTransport(v),
-    security: buildSecurity(v),
+        : v.protocol_kind === 'wireguard'
+          ? { kind: 'tcp' }
+          : buildTransport(v),
+    // A WireGuard tunnel dials UDP itself, so the stream layer, its security
+    // and the masks are never consulted — the same reason the backend pins
+    // them for a registered WARP tunnel. The form shows none of these controls
+    // for WireGuard either, so what is left here is the VLESS defaults: sending
+    // them would store a Reality block with no key on a tunnel that cannot use
+    // one, and the save is refused.
+    security: v.protocol_kind === 'wireguard' ? { kind: 'none' } : buildSecurity(v),
     // `buildFinalMask` reads only the finalmask_* fields, which OutboundFormValues
     // carries via FinalMaskFormFields — the cast just bridges the wider param type.
-    finalmask: buildFinalMask(v as unknown as InbFormValues),
-    mux: { enabled: v.mux_enabled, concurrency: v.mux_concurrency },
+    finalmask:
+      v.protocol_kind === 'wireguard'
+        ? { kind: 'none' }
+        : buildFinalMask(v as unknown as InbFormValues),
+    // Mux belongs to the same group as the three above: a WireGuard peer has
+    // no idea what it is, and the form does not offer the switch there — what
+    // is left in the field is whatever the previous protocol had.
+    mux:
+      v.protocol_kind === 'wireguard'
+        ? { enabled: false, concurrency: 0 }
+        : { enabled: v.mux_enabled, concurrency: v.mux_concurrency },
     send_through: v.send_through.trim(),
     proxy_tag: v.proxy_tag.trim(),
     created_at: existing?.created_at ?? now,
@@ -410,6 +462,18 @@ export function formToOutbound(
 }
 
 /** Hydrate the flat form from a stored outbound (edit path). */
+/** WARP's client id as typed: `1, 2, 3`. Anything that is not three bytes is
+ *  passed on as-is for the backend to refuse — silently dropping a stray value
+ *  would hide the typo rather than report it. */
+function parseReserved(text: string): number[] {
+  return text
+    .split(/[,\s]+/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => Number(p))
+    .filter((n) => Number.isFinite(n));
+}
+
 export function outboundToForm(ob: CustomOutbound): OutboundFormValues {
   const d: OutboundFormValues = { ...OUTBOUND_DEFAULTS };
   d.tag = ob.tag;
@@ -432,10 +496,18 @@ export function outboundToForm(ob: CustomOutbound): OutboundFormValues {
     d.address = ob.protocol.address;
     d.port = ob.protocol.port;
   } else {
-    // A WireGuard tunnel carries no address/port pair and nothing here is
-    // meant to be retyped — the form shows it and hands the protocol object
-    // back untouched (see `toOutbound`).
+    const p = ob.protocol;
     d.protocol_kind = 'wireguard';
+    d.wg_secret_key = p.secret_key;
+    d.wg_peer_public_key = p.peer_public_key;
+    d.wg_endpoint = p.endpoint;
+    d.wg_address = p.address;
+    d.wg_reserved = p.reserved.join(', ');
+    d.wg_mtu = p.mtu || null;
+    d.wg_keep_alive = p.keep_alive || null;
+    d.wg_pre_shared_key = p.pre_shared_key;
+    d.wg_domain_strategy = p.domain_strategy;
+    d.wg_warp = p.warp;
   }
 
   const tr = ob.transport;

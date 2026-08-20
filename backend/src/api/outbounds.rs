@@ -449,6 +449,167 @@ fn validate_outbounds(outbounds: &[CustomOutbound], previous: &[CustomOutbound])
             }
             _ => {}
         }
+        if let OutboundProtocolConfig::Wireguard(w) = &o.protocol {
+            validate_wireguard(w)
+                .map_err(|e| AppError::BadRequest(format!("outbound '{tag}': {e}")))?;
+        }
     }
     Ok(())
+}
+
+/// A hand-written `WireGuard` peer, checked before it reaches the core.
+///
+/// The keys are checked by the same parser the emitter uses, so a bad one is a
+/// 400 rather than a handler that fails to build. The rest is checked here
+/// because the core takes those fields as strings and only complains when the
+/// tunnel is already being added — which the API reports as "saved but not
+/// applied", the least useful moment to learn about a typo.
+fn validate_wireguard(w: &crate::models::WireguardOutbound) -> anyhow::Result<()> {
+    crate::xray::keygen::parse_wireguard_key(&w.secret_key)
+        .map_err(|e| anyhow::anyhow!("private key: {e}"))?;
+    crate::xray::keygen::parse_wireguard_key(&w.peer_public_key)
+        .map_err(|e| anyhow::anyhow!("peer public key: {e}"))?;
+    if !w.pre_shared_key.trim().is_empty() {
+        crate::xray::keygen::parse_wireguard_key(&w.pre_shared_key)
+            .map_err(|e| anyhow::anyhow!("pre-shared key: {e}"))?;
+    }
+    // Rejected here rather than at push time: the same strings xray's own JSON
+    // config takes, so a bad one is a 400 with the list instead of an outbound
+    // that saves and then fails to build.
+    anyhow::ensure!(
+        matches!(
+            w.domain_strategy.trim().to_ascii_lowercase().as_str(),
+            "" | "forceip" | "forceipv4" | "forceipv6" | "forceipv4v6" | "forceipv6v4"
+        ),
+        "unsupported domain strategy: {} (use ForceIP, ForceIPv4, ForceIPv6, \
+         ForceIPv4v6 or ForceIPv6v4)",
+        w.domain_strategy
+    );
+
+    anyhow::ensure!(
+        !w.address.is_empty(),
+        "the tunnel needs at least one address"
+    );
+    for addr in &w.address {
+        let a = addr.trim();
+        // `10.2.0.2/32` or a bare `10.2.0.2` — the core's netstack takes both.
+        let ip = a.split_once('/').map_or(a, |(head, _)| head);
+        anyhow::ensure!(
+            ip.parse::<std::net::IpAddr>().is_ok(),
+            "tunnel address is not an IP: {a}"
+        );
+        if let Some((_, prefix)) = a.split_once('/') {
+            let bits: u8 = prefix
+                .parse()
+                .map_err(|_| anyhow::anyhow!("prefix is not a number: {a}"))?;
+            let max = if ip.contains(':') { 128 } else { 32 };
+            anyhow::ensure!(bits <= max, "prefix out of range for the family: {a}");
+        }
+    }
+
+    let endpoint = w.endpoint.trim();
+    let (host, port) = endpoint
+        .rsplit_once(':')
+        .ok_or_else(|| anyhow::anyhow!("peer endpoint needs a port: {endpoint}"))?;
+    anyhow::ensure!(!host.is_empty(), "peer endpoint has no host: {endpoint}");
+    let port: u32 = port
+        .parse()
+        .map_err(|_| anyhow::anyhow!("peer port is not a number: {endpoint}"))?;
+    anyhow::ensure!(
+        (1..=65535).contains(&port),
+        "peer port out of range: {endpoint}"
+    );
+
+    // WARP's client id is three bytes; a plain peer has none. Any other length
+    // is a value the edge would silently ignore or reject.
+    anyhow::ensure!(
+        w.reserved.is_empty() || w.reserved.len() == 3,
+        "reserved must be empty or exactly three bytes"
+    );
+    anyhow::ensure!(
+        w.mtu == 0 || (576..=1500).contains(&w.mtu),
+        "mtu must be 0 (the core's default) or between 576 and 1500"
+    );
+    anyhow::ensure!(w.keep_alive <= 65535, "keepalive must be at most 65535");
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_wireguard;
+    use crate::models::WireguardOutbound;
+
+    fn peer() -> WireguardOutbound {
+        WireguardOutbound {
+            secret_key: "yPz3Yq0mQ5tHhP2xLZ9nR4cVwK7sJd8bFgN6uT1aX0E=".to_owned(),
+            address: vec!["10.2.0.2/32".to_owned()],
+            peer_public_key: "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=".to_owned(),
+            endpoint: "vpn.example.com:51820".to_owned(),
+            pre_shared_key: String::new(),
+            domain_strategy: String::new(),
+            reserved: Vec::new(),
+            mtu: 0,
+            keep_alive: 25,
+            warp: false,
+        }
+    }
+
+    /// The shapes a peer is normally written in, all of which the core accepts.
+    #[test]
+    fn a_hand_written_peer_is_accepted() {
+        assert!(validate_wireguard(&peer()).is_ok());
+
+        let mut both_families = peer();
+        both_families.address = vec![
+            "10.2.0.2/32".to_owned(),
+            "fd00::2/128".to_owned(),
+            // A bare address is legal too — the netstack treats it as a host.
+            "10.2.0.3".to_owned(),
+        ];
+        both_families.mtu = 1280;
+        both_families.reserved = vec![1, 2, 3];
+        assert!(validate_wireguard(&both_families).is_ok());
+
+        // The keys travel in whichever encoding the far end printed them in.
+        let mut hex_key = peer();
+        hex_key.secret_key =
+            "c8fd3e62ad2643b4787ed8b2d9fa77b8715ec927d6f81f8593b7ad35f5344f41".to_owned();
+        assert!(validate_wireguard(&hex_key).is_ok());
+    }
+
+    /// Every one of these reaches the core as a string and fails there — while
+    /// the tunnel is being added, which the API can only report as "saved but
+    /// not applied". They belong in a 400 instead.
+    #[test]
+    fn a_peer_the_core_would_choke_on_is_refused() {
+        /// What one broken peer looks like: a name for the failure and the
+        /// edit that produces it.
+        type Break = (&'static str, fn(&mut WireguardOutbound));
+        let cases: [Break; 7] = [
+            ("key that is not a key", |w| {
+                w.secret_key = "hunter2".to_owned();
+            }),
+            ("peer key that is not a key", |w| {
+                w.peer_public_key = "not-a-key".to_owned();
+            }),
+            ("no address at all", |w| w.address.clear()),
+            ("address that is not an IP", |w| {
+                w.address = vec!["home.example.com/32".to_owned()];
+            }),
+            ("prefix past the family", |w| {
+                w.address = vec!["10.2.0.2/33".to_owned()];
+            }),
+            ("endpoint without a port", |w| {
+                w.endpoint = "vpn.example.com".to_owned();
+            }),
+            // Two bytes are not WARP's client id and not "no client id" either:
+            // the edge answers such a tunnel with silence.
+            ("reserved of the wrong length", |w| w.reserved = vec![1, 2]),
+        ];
+        for (what, break_it) in cases {
+            let mut w = peer();
+            break_it(&mut w);
+            assert!(validate_wireguard(&w).is_err(), "{what} should be refused");
+        }
+    }
 }

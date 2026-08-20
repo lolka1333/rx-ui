@@ -9,7 +9,6 @@
 import {
   App,
   Button,
-  Descriptions,
   Form,
   Input,
   InputNumber,
@@ -17,7 +16,7 @@ import {
   Space,
   Typography,
 } from 'antd';
-import { memo, useCallback, useLayoutEffect, useMemo, useState, type ReactNode } from 'react';
+import { memo, useCallback, useLayoutEffect, useMemo, useState } from 'react';
 import { ImportOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import type { CustomOutbound, VlessEncryptionMode } from '@/api/types';
@@ -34,6 +33,7 @@ import {
   Section,
   SelectField,
   SideBySide,
+  SubHeader,
   SwitchField,
 } from '@/pages/Inbounds/widgets';
 import {
@@ -55,6 +55,7 @@ interface OutboundFormProps {
 const PROTOCOL_OPTIONS = [
   { value: 'vless', label: 'VLESS' },
   { value: 'hysteria', label: 'Hysteria2' },
+  { value: 'wireguard', label: 'WireGuard' },
 ];
 
 const NETWORK_OPTIONS = [
@@ -87,23 +88,6 @@ const ALPN_OPTIONS = [
 
 // Small inline heading for a conditional block, with a hairline divider above
 // so transport / security groups read as distinct without nesting a Collapse.
-function SubHeader({ children }: { children: ReactNode }) {
-  return (
-    <div
-      style={{
-        marginTop: 8,
-        marginBottom: 12,
-        paddingTop: 10,
-        borderTop: '1px solid var(--border)',
-      }}
-    >
-      <Typography.Text strong style={{ fontSize: 14 }}>
-        {children}
-      </Typography.Text>
-    </div>
-  );
-}
-
 export const OutboundForm = memo(function OutboundForm({
   formKey,
   form,
@@ -113,6 +97,8 @@ export const OutboundForm = memo(function OutboundForm({
   const { t } = useTranslation();
   const protocol = Form.useWatch('protocol_kind', form) as OutboundProtocol | undefined;
   const isHysteria = protocol === 'hysteria';
+  const isWireguard = protocol === 'wireguard';
+  const isWarpTunnel = editing?.protocol.kind === 'wireguard' && editing.protocol.warp;
   const network = Form.useWatch('network', form) as OutboundNetwork | undefined;
   const security = Form.useWatch('security', form) as OutboundSecurity | undefined;
   const encryptionMode = Form.useWatch('encryption_mode', form) as
@@ -165,14 +151,11 @@ export const OutboundForm = memo(function OutboundForm({
     [editing],
   );
 
-  // A WireGuard tunnel is registered, not typed: its keys, addresses and
-  // reserved bytes come from the far end and mean nothing edited by hand. The
-  // form shows what it is and lets the two fields that ARE the operator's —
-  // the tag and the switch — through; `toOutbound` hands the tunnel itself
-  // back untouched. Sharing the relay form instead would offer an address, a
-  // port and a UUID that a WireGuard outbound has no place to put.
-  if (editing?.protocol.kind === 'wireguard') {
-    const wg = editing.protocol;
+  // WireGuard is its own shape: the tunnel dials UDP itself, so the stream
+  // layer, its security, the masks and mux are never consulted — offering them
+  // would be four sections of settings that do nothing. What it does need is a
+  // keypair, a peer and the addresses the tunnel hands out.
+  if (isWireguard) {
     return (
       <Form
         className="app-form-rows"
@@ -189,40 +172,107 @@ export const OutboundForm = memo(function OutboundForm({
           tooltipKey="outbounds.tagHint"
           rules={[{ required: true, message: t('outbounds.tagRequired') }]}
         />
-        <Descriptions
-          size="small"
-          column={1}
-          bordered
-          style={{ marginBottom: 12 }}
-          items={[
-            {
-              key: 'kind',
-              label: t('outbounds.protocol'),
-              children: wg.warp ? t('outbounds.wgWarp') : 'WireGuard',
-            },
-            { key: 'endpoint', label: t('outbounds.wgEndpoint'), children: <code>{wg.endpoint}</code> },
-            {
-              key: 'address',
-              label: t('outbounds.wgAddress'),
-              children: <code>{wg.address.join('  ')}</code>,
-            },
-            {
-              key: 'peer',
-              label: t('outbounds.wgPeerKey'),
-              children: <code>{wg.peer_public_key}</code>,
-            },
-            ...(wg.reserved.length > 0
-              ? [
-                  {
-                    key: 'reserved',
-                    label: t('outbounds.wgReserved'),
-                    children: <code>{wg.reserved.join(', ')}</code>,
-                  },
-                ]
-              : []),
-          ]}
+
+        <Form.Item name="protocol_kind" label={t('outbounds.protocol')}>
+          <Select options={PROTOCOL_OPTIONS} />
+        </Form.Item>
+
+        {/* A registered tunnel says so: its keys came from Cloudflare, and
+            retyping them by hand is how one stops working. */}
+        {isWarpTunnel && (
+          <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+            {t('outbounds.wgWarpNote')}
+          </Typography.Text>
+        )}
+
+        <SubHeader>{t('outbounds.wgPeerSection')}</SubHeader>
+
+        <InputField
+          name="wg_endpoint"
+          labelKey="outbounds.wgEndpoint"
+          tooltipKey="outbounds.wgEndpointHint"
+          rules={[{ required: true, message: t('outbounds.wgEndpointRequired') }]}
         />
-        <SwitchField name="enabled" labelKey="outbounds.enabled" />
+        <InputField
+          name="wg_peer_public_key"
+          labelKey="outbounds.wgPeerKey"
+          tooltipKey="outbounds.wgPeerKeyHint"
+          rules={[{ required: true, message: t('outbounds.wgPeerKeyRequired') }]}
+        />
+        {/* Optional on most peers, mandatory on the ones that use it: without a
+            matching value the handshake with such a peer never completes. */}
+        <InputField
+          name="wg_pre_shared_key"
+          labelKey="outbounds.wgPreSharedKey"
+          tooltipKey="outbounds.wgPreSharedKeyHint"
+        />
+
+        <SubHeader>{t('outbounds.wgLocalSection')}</SubHeader>
+
+        <InputField
+          name="wg_secret_key"
+          labelKey="outbounds.wgSecretKey"
+          tooltipKey="outbounds.wgSecretKeyHint"
+          rules={[{ required: true, message: t('outbounds.wgSecretKeyRequired') }]}
+        />
+        <Form.Item
+          name="wg_address"
+          label={t('outbounds.wgAddress')}
+          tooltip={t('outbounds.wgAddressHint')}
+          rules={[{ required: true, message: t('outbounds.wgAddressRequired') }]}
+          style={{ marginBottom: 12 }}
+        >
+          {/* Free entry: these come from the peer's own config, one per family. */}
+          <Select mode="tags" open={false} tokenSeparators={[',', ' ']} placeholder="10.2.0.2/32" />
+        </Form.Item>
+
+        <SideBySide>
+          <Form.Item
+            name="wg_mtu"
+            label={t('outbounds.wgMtu')}
+            tooltip={t('outbounds.wgMtuHint')}
+            style={{ flex: 1, marginBottom: 12 }}
+          >
+            <InputNumber min={0} max={1500} placeholder="1420" style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item
+            name="wg_keep_alive"
+            label={t('outbounds.wgKeepAlive')}
+            tooltip={t('outbounds.wgKeepAliveHint')}
+            style={{ flex: 1, marginBottom: 12 }}
+          >
+            <InputNumber min={0} max={65535} placeholder="0" style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item
+            name="wg_reserved"
+            label={t('outbounds.wgReserved')}
+            tooltip={t('outbounds.wgReservedHint')}
+            style={{ flex: 1, marginBottom: 12 }}
+          >
+            <Input placeholder="—" spellCheck={false} />
+          </Form.Item>
+        </SideBySide>
+
+        {/* Only bites when the peer is named by domain: the core's default
+            picks at random among every A and AAAA it gets back, which on a
+            half-broken v6 path is a tunnel that works every other time. */}
+        <Form.Item
+          name="wg_domain_strategy"
+          label={t('outbounds.wgDomainStrategy')}
+          tooltip={t('outbounds.wgDomainStrategyHint')}
+        >
+          <Select
+            options={[
+              { value: '', label: t('outbounds.wgDomainStrategyDefault') },
+              { value: 'ForceIPv4', label: 'ForceIPv4' },
+              { value: 'ForceIPv6', label: 'ForceIPv6' },
+              { value: 'ForceIPv4v6', label: 'ForceIPv4v6' },
+              { value: 'ForceIPv6v4', label: 'ForceIPv6v4' },
+            ]}
+          />
+        </Form.Item>
+
+        <SwitchField name="enabled" labelKey="outbounds.enabled" last />
       </Form>
     );
   }
