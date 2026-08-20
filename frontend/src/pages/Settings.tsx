@@ -1677,7 +1677,14 @@ function SubscriptionSection({
                       label={
                         <FieldLabel
                           title={t('settings.subTlsMode')}
-                          desc={t('settings.subTlsModeHint')}
+                          // Locked is the common case (the port defaults to 0),
+                          // so the row says why instead of leaving the operator
+                          // to guess what greyed it out.
+                          desc={
+                            ownListener
+                              ? t('settings.subTlsModeHint')
+                              : t('settings.subTlsModeLocked')
+                          }
                         />
                       }
                     >

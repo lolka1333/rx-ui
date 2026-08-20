@@ -354,6 +354,7 @@ export const en: Dict = {
     subPortRange: 'Between 1 and 65535 (or 0 to disable)',
     subTlsMode: 'Subscription TLS',
     subTlsModeHint: 'How /sub is served: panel certificate, custom certificate, or plain HTTP behind a CDN.',
+    subTlsModeLocked: 'While the subscription port is 0, /sub is served by the panel port on the panel certificate — there is nothing to choose here. Set a separate port above and this comes alive.',
     subTlsInherit: 'Panel certificate',
     subTlsOff: 'Plain HTTP',
     subTlsCustom: 'Custom certificate',
