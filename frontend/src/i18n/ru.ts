@@ -227,6 +227,23 @@ export const ru = {
     xrayGeoSitePlaceholder: 'geosite:cn · example.com',
     // Пользовательские правила (упорядочены, первое совпадение, после базовых)
     rulesOrderGroup: 'Порядок правил',
+    warpTitle: 'Туннель Cloudflare WARP',
+    warpCreate: 'Создать',
+    warpServicesPlaceholder: 'выбери или впиши свой',
+    warpLicense: 'Ключ WARP+',
+    warpLicensePlaceholder: 'необязательно',
+    warpLicenseHint:
+      'Ключ из приложения 1.1.1.1 (Настройки → Аккаунт). Без него туннель тоже работает, но со свободной квотой скорости.',
+    warpServices: 'В туннель',
+    warpServicesHint:
+      'На выбранное будет создано одно правило маршрутизации. Его можно поправить или удалить как любое другое. Ничего не выбрано — туннель просто появится в исходящих.',
+    warpRuleName: 'Через {{tag}}',
+    warpAddedWithRule: 'Туннель {{tag}} добавлен, правило создано — не забудь сохранить настройки.',
+    warpAdd: 'WARP',
+    warpHint:
+      'Зарегистрировать туннель Cloudflare WARP и добавить его в исходящие. Дальше правило может слать в него трафик — например, то, что не пускают напрямую.',
+    warpAdded: 'Туннель WARP добавлен: {{tag}}. Он уже в списке исходящих.',
+    warpFailed: 'Не удалось зарегистрировать туннель WARP',
     rulesOrderSub: 'проверяются сверху вниз, первое совпадение выигрывает',
     rulesColRule: 'Правило',
     rulesColConditions: 'Условия',
@@ -395,6 +412,12 @@ export const ru = {
     xrayRestartedToast: 'Xray перезапущен',
   },
   outbounds: {
+    enabled: 'Включён',
+    wgWarp: 'Cloudflare WARP (WireGuard)',
+    wgEndpoint: 'Пир',
+    wgAddress: 'Адрес в туннеле',
+    wgPeerKey: 'Публичный ключ пира',
+    wgReserved: 'reserved',
     addOutbound: 'Добавить исходящее',
     link: 'Ссылка',
     linkPlaceholder: 'vless:// или hysteria2://… — вставьте, чтобы заполнить форму',

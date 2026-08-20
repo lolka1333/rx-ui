@@ -64,6 +64,7 @@ pub struct CustomOutbound {
 pub enum OutboundProtocolConfig {
     Vless(VlessOutbound),
     Hysteria(HysteriaOutbound),
+    Wireguard(WireguardOutbound),
 }
 
 /// VLESS client settings → xray `settings.vnext[0]`. One endpoint, one user.
@@ -116,6 +117,46 @@ pub struct HysteriaOutbound {
     pub address: String,
     /// Remote server port.
     pub port: u16,
+}
+
+/// A `WireGuard` tunnel used as an outbound — xray dials it in userspace, so no
+/// kernel interface and no root are involved.
+///
+/// This is also the shape a Cloudflare WARP tunnel takes: WARP is ordinary
+/// `WireGuard` plus `reserved`, three bytes derived from the client id that
+/// Cloudflare's edge uses to tell registrations apart. `POST /outbounds/warp`
+/// fills every field in here from a registration; a hand-written peer leaves
+/// `reserved` empty.
+///
+/// Keys are held the way `WireGuard` writes them (base64, 44 chars). The core's
+/// proto wants hex, and the orchestrator converts on the way out — mirroring
+/// `ParseWireGuardKey` in `infra/conf/wireguard.go`.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../frontend/src/api/types/outbound.ts")]
+pub struct WireguardOutbound {
+    /// Our private key.
+    pub secret_key: String,
+    /// The addresses the tunnel gives us, with prefix — the v4 one always, the
+    /// v6 one when the peer hands one out.
+    pub address: Vec<String>,
+    /// The peer's public key.
+    pub peer_public_key: String,
+    /// `host:port` of the peer.
+    pub endpoint: String,
+    /// WARP's client-id bytes. Empty for a plain `WireGuard` peer; a WARP tunnel
+    /// without them is answered by the edge with silence.
+    #[serde(default)]
+    pub reserved: Vec<u8>,
+    /// 0 = the core's default (1420). WARP wants 1280.
+    #[serde(default)]
+    pub mtu: i32,
+    /// Keepalive seconds; 0 = off.
+    #[serde(default)]
+    pub keep_alive: u32,
+    /// Registered through the panel's WARP button rather than typed in. Only
+    /// affects what the UI says about the row.
+    #[serde(default)]
+    pub warp: bool,
 }
 
 /// Mux settings → xray `mux`. Disabled by default.

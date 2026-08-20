@@ -51,7 +51,11 @@ import { formToOutbound, type OutboundFormValues } from './form';
  *  directly — no per-kind branch. (The old code special-cased vless and left
  *  hysteria showing a bare "—".) */
 function endpointOf(ob: CustomOutbound): string {
-  return `${ob.protocol.address}:${ob.protocol.port}`;
+  // A WireGuard peer names one endpoint, host and port together; the relay
+  // protocols keep the two apart.
+  return ob.protocol.kind === 'wireguard'
+    ? ob.protocol.endpoint
+    : `${ob.protocol.address}:${ob.protocol.port}`;
 }
 
 /** xray's always-present built-in outbounds — emitted into every bootstrap

@@ -34,7 +34,7 @@ interface HeaderPair {
   value: string;
 }
 
-export type OutboundProtocol = 'vless' | 'hysteria';
+export type OutboundProtocol = 'vless' | 'hysteria' | 'wireguard';
 export type OutboundNetwork = 'tcp' | 'ws' | 'xhttp';
 export type OutboundSecurity = 'none' | 'tls' | 'reality';
 
@@ -361,9 +361,15 @@ export function formToOutbound(
     tag: v.tag.trim(),
     enabled: v.enabled,
     protocol:
-      v.protocol_kind === 'hysteria'
-        ? { kind: 'hysteria', address: v.address.trim(), port: v.port }
-        : {
+      // A WireGuard tunnel is kept verbatim. Its keys, addresses and reserved
+      // bytes come from a registration, not from this form — and without this
+      // branch the `else` below would rewrite a working tunnel as a VLESS
+      // outbound pointing at nothing, silently, on any save of the row.
+      v.protocol_kind === 'wireguard' && existing?.protocol.kind === 'wireguard'
+        ? existing.protocol
+        : v.protocol_kind === 'hysteria'
+          ? { kind: 'hysteria', address: v.address.trim(), port: v.port }
+          : {
             kind: 'vless',
             address: v.address.trim(),
             port: v.port,
@@ -375,9 +381,9 @@ export function formToOutbound(
             encryption_xor_mode: v.encryption_mode === 'none' ? null : v.encryption_xor_mode,
             encryption_client_key:
               v.encryption_mode === 'none' ? null : orNull(v.encryption_client_key),
-            encryption_padding:
-              v.encryption_mode === 'none' ? null : orNull(v.encryption_padding),
-          },
+              encryption_padding:
+                v.encryption_mode === 'none' ? null : orNull(v.encryption_padding),
+            },
     // Hysteria 2 IS its transport: the password rides on the hysteria transport
     // (where xray's dialer reads it), masquerade is server-only so a client
     // leaves it at the no-op `notfound`, and the QUIC knobs stay at defaults.
@@ -425,6 +431,11 @@ export function outboundToForm(ob: CustomOutbound): OutboundFormValues {
     d.protocol_kind = 'hysteria';
     d.address = ob.protocol.address;
     d.port = ob.protocol.port;
+  } else {
+    // A WireGuard tunnel carries no address/port pair and nothing here is
+    // meant to be retyped — the form shows it and hands the protocol object
+    // back untouched (see `toOutbound`).
+    d.protocol_kind = 'wireguard';
   }
 
   const tr = ob.transport;

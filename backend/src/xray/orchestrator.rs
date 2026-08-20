@@ -25,6 +25,9 @@ use crate::xray::proto::xray::core::{InboundHandlerConfig, OutboundHandlerConfig
 use crate::xray::proto::xray::proxy::hysteria::ClientConfig as HysteriaClientConfig;
 use crate::xray::proto::xray::proxy::vless::outbound::Config as VlessOutboundConfig;
 use crate::xray::proto::xray::proxy::vless::{Account as VlessAccount, Reverse as VlessReverse};
+use crate::xray::proto::xray::proxy::wireguard::{
+    DeviceConfig as WireguardDeviceConfig, PeerConfig as WireguardPeerConfig,
+};
 use crate::xray::proto::xray::transport::internet::{ProxyConfig, StreamConfig};
 
 const TYPE_RECEIVER_CONFIG: &str = "xray.app.proxyman.ReceiverConfig";
@@ -32,6 +35,11 @@ const TYPE_SENDER_CONFIG: &str = "xray.app.proxyman.SenderConfig";
 const TYPE_VLESS_OUTBOUND: &str = "xray.proxy.vless.outbound.Config";
 const TYPE_VLESS_ACCOUNT: &str = "xray.proxy.vless.Account";
 const TYPE_HYSTERIA_OUTBOUND: &str = "xray.proxy.hysteria.ClientConfig";
+const TYPE_WIREGUARD_OUTBOUND: &str = "xray.proxy.wireguard.DeviceConfig";
+/// What `infra/conf` fills in when a peer names no `allowedIPs`. The JSON path
+/// gets that default for free; building the proto here means saying it, and a
+/// peer that allows nothing carries no traffic at all.
+const WIREGUARD_ALLOW_ALL: [&str; 2] = ["0.0.0.0/0", "::0/0"];
 
 /// Build the `InboundHandlerConfig` proto from an `Inbound` + its
 /// enabled-only client list. Caller filters out disabled clients —
@@ -111,38 +119,12 @@ pub fn inbound_to_handler_config(
     })
 }
 
-/// Build the `OutboundHandlerConfig` proto from a `CustomOutbound`, ready for
-/// `HandlerService.AddOutbound`. Mirrors `inbound_to_handler_config` but emits
-/// a `SenderConfig` (dialer side: stream + mux + chaining + sendThrough) wrapped
-/// around the same `StreamConfig` building — only the security layer differs
-/// (client variant: no certs / Reality client fields), and there are no users
-/// or sniffing.
-pub fn outbound_to_handler_config(ob: &CustomOutbound) -> anyhow::Result<OutboundHandlerConfig> {
-    let transport = ob.transport.as_transport();
-    let security = ob.security.as_security();
-
-    // Client-side socket masks, mirrored to the upstream so a symmetric Sudoku
-    // (or UDP Noise) lines up — without it the server drops the connection.
-    // `client_side = true` puts Fragment in the TCP slot: the dialer fragments
-    // its OWN ClientHello (the asymmetric half the inbound deliberately omits).
-    let (tcpmasks, udpmasks) = ob.finalmask.masks(true);
-
-    // Same StreamConfig as inbounds, but the client-side security variant.
-    let stream_settings = StreamConfig {
-        protocol_name: transport.xray_protocol_name().to_owned(),
-        transport_settings: ob.transport.build_xray_transport_settings()?,
-        security_type: security.xray_type_url().to_owned(),
-        security_settings: security
-            .build_client_settings()?
-            .map_or_else(Vec::new, |msg| vec![msg]),
-        quic_params: transport.quic_params_proto(),
-        tcpmasks,
-        udpmasks,
-        ..StreamConfig::default()
-    };
-
-    // Protocol-specific outbound proxy settings.
-    let proxy = match &ob.protocol {
+/// The protocol half of an outbound handler: everything that differs between
+/// a VLESS relay, a Hysteria endpoint and a `WireGuard` tunnel. Split out of
+/// `outbound_to_handler_config` so that function stays about the sender and
+/// the stream, which is the part every protocol shares.
+fn outbound_proxy_settings(protocol: &OutboundProtocolConfig) -> anyhow::Result<TypedMessage> {
+    Ok(match protocol {
         OutboundProtocolConfig::Vless(v) => {
             // Mirror the upstream server's application-layer cipher. For native
             // (mlkem768x25519plus) this sets encryption(=key)/xor_mode/seconds/
@@ -208,7 +190,73 @@ pub fn outbound_to_handler_config(ob: &CustomOutbound) -> anyhow::Result<Outboun
                 value: prost::Message::encode_to_vec(&cfg),
             }
         }
+        OutboundProtocolConfig::Wireguard(w) => {
+            // Keys travel as hex in the proto — the core writes `secret_key`
+            // straight into wireguard-go's UAPI. See `parse_wireguard_key`.
+            let peer = WireguardPeerConfig {
+                public_key: crate::xray::keygen::parse_wireguard_key(&w.peer_public_key)?,
+                endpoint: w.endpoint.trim().to_owned(),
+                keep_alive: if w.keep_alive == 0 {
+                    String::new()
+                } else {
+                    w.keep_alive.to_string()
+                },
+                allowed_ips: WIREGUARD_ALLOW_ALL.map(str::to_owned).to_vec(),
+                ..WireguardPeerConfig::default()
+            };
+            let cfg = WireguardDeviceConfig {
+                secret_key: crate::xray::keygen::parse_wireguard_key(&w.secret_key)?,
+                endpoint: w.address.clone(),
+                peers: vec![peer],
+                mtu: w.mtu,
+                reserved: w.reserved.clone(),
+                is_client: true,
+                // Userspace only. With a kernel TUN the core would create a
+                // real interface on the host and needs the privileges to do
+                // it — a surprise for a panel that otherwise touches nothing
+                // outside its own process, and impossible in most containers.
+                no_kernel_tun: true,
+                ..WireguardDeviceConfig::default()
+            };
+            TypedMessage {
+                r#type: TYPE_WIREGUARD_OUTBOUND.to_owned(),
+                value: prost::Message::encode_to_vec(&cfg),
+            }
+        }
+    })
+}
+
+/// Build the `OutboundHandlerConfig` proto from a `CustomOutbound`, ready for
+/// `HandlerService.AddOutbound`. Mirrors `inbound_to_handler_config` but emits
+/// a `SenderConfig` (dialer side: stream + mux + chaining + sendThrough) wrapped
+/// around the same `StreamConfig` building — only the security layer differs
+/// (client variant: no certs / Reality client fields), and there are no users
+/// or sniffing.
+pub fn outbound_to_handler_config(ob: &CustomOutbound) -> anyhow::Result<OutboundHandlerConfig> {
+    let transport = ob.transport.as_transport();
+    let security = ob.security.as_security();
+
+    // Client-side socket masks, mirrored to the upstream so a symmetric Sudoku
+    // (or UDP Noise) lines up — without it the server drops the connection.
+    // `client_side = true` puts Fragment in the TCP slot: the dialer fragments
+    // its OWN ClientHello (the asymmetric half the inbound deliberately omits).
+    let (tcpmasks, udpmasks) = ob.finalmask.masks(true);
+
+    // Same StreamConfig as inbounds, but the client-side security variant.
+    let stream_settings = StreamConfig {
+        protocol_name: transport.xray_protocol_name().to_owned(),
+        transport_settings: ob.transport.build_xray_transport_settings()?,
+        security_type: security.xray_type_url().to_owned(),
+        security_settings: security
+            .build_client_settings()?
+            .map_or_else(Vec::new, |msg| vec![msg]),
+        quic_params: transport.quic_params_proto(),
+        tcpmasks,
+        udpmasks,
+        ..StreamConfig::default()
     };
+
+    let proxy = outbound_proxy_settings(&ob.protocol)?;
 
     let multiplex_settings = ob.mux.enabled.then(|| MultiplexingConfig {
         enabled: true,

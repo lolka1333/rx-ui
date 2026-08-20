@@ -36,8 +36,81 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/", get(list).put(replace))
         .route("/stats", get(stats))
+        .route("/warp", axum::routing::post(warp_register))
         .route("/{id}/test", axum::routing::post(test))
         .route("/builtin/{tag}/test", axum::routing::post(test_builtin))
+}
+
+/// Optional body of the WARP registration: a WARP+ license key, or nothing at
+/// all for a free tunnel.
+#[derive(Debug, serde::Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "../../frontend/src/api/types/outbound.ts")]
+pub struct WarpRequest {
+    #[serde(default)]
+    pub license: String,
+}
+
+/// Register a Cloudflare WARP tunnel and return it as a ready outbound —
+/// **without storing it**.
+///
+/// Saving goes through the ordinary whole-list PUT, so a WARP tunnel is
+/// validated, applied and reconciled by exactly the same code as an outbound
+/// typed by hand; this endpoint only does the part the operator cannot, which
+/// is talk to Cloudflare and generate the keys.
+async fn warp_register(
+    _user: AuthUser,
+    State(state): State<AppState>,
+    body: Option<Json<WarpRequest>>,
+) -> AppResult<Json<CustomOutbound>> {
+    let license = body.map(|Json(b)| b.license).unwrap_or_default();
+    let keys = crate::xray::keygen::generate_wireguard_keypair();
+    let registration = crate::xray::warp::register(keys.private_key, &keys.public_key, &license)
+        .await
+        .map_err(|e| {
+            // A rejected license is the operator's typo and comes back as such,
+            // with Cloudflare's own wording. Everything else is the panel's
+            // host failing to reach Cloudflare, where the cause chain is what
+            // says which step broke.
+            match e.downcast::<crate::xray::warp::BadLicense>() {
+                Ok(bad) => AppError::BadRequest(bad.0),
+                Err(other) => AppError::Internal(other),
+            }
+        })?;
+
+    let existing = load_custom_outbounds(&state.db).await?;
+    let now = chrono::Utc::now().to_rfc3339();
+    Ok(Json(CustomOutbound {
+        id: uuid::Uuid::new_v4().to_string(),
+        tag: free_warp_tag(&existing),
+        enabled: true,
+        protocol: OutboundProtocolConfig::Wireguard(registration.into_outbound()),
+        // A WireGuard outbound dials UDP itself: the stream layer, its security
+        // and the masks are not consulted, so they stay at their defaults.
+        transport: TransportConfig::Tcp(crate::transports::tcp::TcpTransport {}),
+        security: SecurityConfig::None(crate::security::NoneSecurity {}),
+        finalmask: crate::transports::finalmask::FinalMask::default(),
+        mux: crate::models::OutboundMux::default(),
+        send_through: String::new(),
+        proxy_tag: String::new(),
+        created_at: now.clone(),
+        updated_at: now,
+    }))
+}
+
+/// `warp`, or `warp-2`, `warp-3`… when the plain name is taken. Registering a
+/// second tunnel is a normal thing to do — one per exit country, say — and it
+/// must not collide with the first.
+fn free_warp_tag(existing: &[CustomOutbound]) -> String {
+    let taken: std::collections::HashSet<&str> = existing.iter().map(|o| o.tag.as_str()).collect();
+    if !taken.contains("warp") {
+        return "warp".to_owned();
+    }
+    // Bounded by the list's own ceiling: with at most `MAX_OUTBOUNDS` tags
+    // taken, one of `MAX_OUTBOUNDS + 1` candidates is always free.
+    (2..=MAX_OUTBOUNDS + 1)
+        .map(|n| format!("warp-{n}"))
+        .find(|t| !taken.contains(t.as_str()))
+        .unwrap_or_else(|| unreachable!("more candidates than the list can hold"))
 }
 
 /// Per-outbound lifetime traffic (`tag -> {uplink, downlink}`), including the

@@ -12,6 +12,7 @@ pub mod reload;
 pub mod router_rules;
 pub mod scratch;
 pub mod share_link;
+pub mod warp;
 pub mod xmc;
 
 pub use control::XrayController;

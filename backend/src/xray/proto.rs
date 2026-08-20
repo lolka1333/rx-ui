@@ -83,6 +83,9 @@ pub mod xray {
                 tonic::include_proto!("xray.proxy.hysteria.account");
             }
         }
+        pub mod wireguard {
+            tonic::include_proto!("xray.proxy.wireguard");
+        }
     }
     pub mod transport {
         pub mod internet {

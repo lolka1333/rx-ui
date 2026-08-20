@@ -12,7 +12,7 @@
 //! types it explicitly), not a default.
 
 use base64::Engine;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE_NO_PAD};
 // OS entropy via `rand`'s `SysRng` — the same OS-CSPRNG source the JWT secret
 // and subscription tokens draw from. We fill raw bytes and hand them to
 // `StaticSecret::from`, which stores them verbatim (x25519 clamps at DH time),
@@ -305,6 +305,57 @@ pub fn decode_x25519_key(encoded: &str) -> anyhow::Result<Vec<u8>> {
         anyhow::bail!("x25519 key must decode to 32 bytes, got {}", bytes.len());
     }
     Ok(bytes)
+}
+
+/// A `WireGuard` keypair, encoded the way `WireGuard` itself prints keys:
+/// standard base64 with padding, 44 characters.
+pub struct WireguardKeypair {
+    pub private_key: String,
+    pub public_key: String,
+}
+
+/// Generate a `WireGuard` keypair. Same curve as Reality's, different clothes —
+/// `WireGuard` tooling and Cloudflare both speak standard base64, and a key in
+/// Reality's url-safe form is rejected by the far end without explanation.
+pub fn generate_wireguard_keypair() -> WireguardKeypair {
+    let secret = StaticSecret::from(os_random_bytes::<32>());
+    let public = PublicKey::from(&secret);
+    WireguardKeypair {
+        private_key: STANDARD.encode(secret.to_bytes()),
+        public_key: STANDARD.encode(public.to_bytes()),
+    }
+}
+
+/// Normalise a `WireGuard` key to the hex form the core's proto carries.
+///
+/// A mirror of `ParseWireGuardKey` (`infra/conf/wireguard.go`): 64 hex chars
+/// pass through, anything else is base64 — standard alphabet when it contains
+/// `+` or `/`, url-safe otherwise, padding optional. `WireGuard` tools and
+/// Cloudflare both hand out standard base64, which is why this cannot reuse
+/// `decode_x25519_key` (Reality's url-safe-only decoder).
+///
+/// The conversion has to happen somewhere: the panel stores keys as `WireGuard`
+/// writes them, and the core's `DeviceConfig.secret_key` is written straight
+/// into wireguard-go's UAPI, which reads hex.
+pub fn parse_wireguard_key(key: &str) -> anyhow::Result<String> {
+    let key = key.trim();
+    anyhow::ensure!(!key.is_empty(), "wireguard key must not be empty");
+    if key.len() == 64 && key.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Ok(key.to_ascii_lowercase());
+    }
+    let stripped = key.trim_end_matches('=');
+    let raw = if stripped.contains('+') || stripped.contains('/') {
+        STANDARD_NO_PAD.decode(stripped.as_bytes())
+    } else {
+        URL_SAFE_NO_PAD.decode(stripped.as_bytes())
+    }
+    .map_err(|e| anyhow::anyhow!("wireguard key is neither hex nor base64: {e}"))?;
+    anyhow::ensure!(
+        raw.len() == 32,
+        "wireguard key must decode to 32 bytes, got {}",
+        raw.len()
+    );
+    Ok(hex_lower(&raw))
 }
 
 /// Decode a hex-encoded `short_id` (0–16 chars) into **exactly 8 bytes**,

@@ -226,6 +226,23 @@ export const en: Dict = {
     xrayGeoSitePlaceholder: 'geosite:cn · example.com',
     // Custom routing rules (ordered, first-match-wins, after the basic ones)
     rulesOrderGroup: 'Rule order',
+    warpTitle: 'Cloudflare WARP tunnel',
+    warpCreate: 'Create',
+    warpServicesPlaceholder: 'pick one or type your own',
+    warpLicense: 'WARP+ key',
+    warpLicensePlaceholder: 'optional',
+    warpLicenseHint:
+      'The key from the 1.1.1.1 app (Settings → Account). Without it the tunnel still works, on the free speed quota.',
+    warpServices: 'Into the tunnel',
+    warpServicesHint:
+      'One routing rule is created for what you pick, editable and removable like any other. Pick nothing and the tunnel simply joins the outbound list.',
+    warpRuleName: 'Through {{tag}}',
+    warpAddedWithRule: 'Tunnel {{tag}} added and a rule created — remember to save the settings.',
+    warpAdd: 'WARP',
+    warpHint:
+      'Register a Cloudflare WARP tunnel and add it to the outbounds. A rule can then send traffic into it — whatever will not go out directly, say.',
+    warpAdded: 'WARP tunnel added: {{tag}}. It is in the outbound list now.',
+    warpFailed: 'Could not register the WARP tunnel',
     rulesOrderSub: 'tried top to bottom, first match wins',
     rulesColRule: 'Rule',
     rulesColConditions: 'Conditions',
@@ -394,6 +411,12 @@ export const en: Dict = {
     xrayRestartedToast: 'Xray restarted',
   },
   outbounds: {
+    enabled: 'Enabled',
+    wgWarp: 'Cloudflare WARP (WireGuard)',
+    wgEndpoint: 'Peer',
+    wgAddress: 'Tunnel address',
+    wgPeerKey: 'Peer public key',
+    wgReserved: 'reserved',
     addOutbound: 'Add outbound',
     link: 'Link',
     linkPlaceholder: 'vless:// or hysteria2://… — paste to fill the form',

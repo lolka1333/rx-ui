@@ -48,6 +48,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // custom outbound relays through an upstream hysteria server.
         "proto/proxy/hysteria/config.proto",
         "proto/proxy/hysteria/account/config.proto",
+        // WireGuard — the client half is what a Cloudflare WARP tunnel is: a
+        // DeviceConfig with one peer. Keys travel as hex here, not base64;
+        // `orchestrator` converts, mirroring the core's `ParseWireGuardKey`.
+        "proto/proxy/wireguard/config.proto",
         // Transports we support today.
         "proto/transport/internet/reality/config.proto",
         "proto/transport/internet/splithttp/config.proto",

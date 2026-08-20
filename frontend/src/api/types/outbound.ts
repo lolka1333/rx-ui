@@ -70,7 +70,7 @@ concurrency: number, };
  * Protocol-specific outbound settings. Tagged enum mirrors the inbound
  * `ProtocolConfig` shape so the frontend form can dispatch the same way.
  */
-export type OutboundProtocolConfig = { "kind": "vless" } & VlessOutbound | { "kind": "hysteria" } & HysteriaOutbound;
+export type OutboundProtocolConfig = { "kind": "vless" } & VlessOutbound | { "kind": "hysteria" } & HysteriaOutbound | { "kind": "wireguard" } & WireguardOutbound;
 
 export type OutboundTestResult = { 
 /**
@@ -136,3 +136,60 @@ encryption_mode: VlessEncryptionMode, encryption_xor_mode: VlessXorMode | null,
  * server embeds in its share-links, NOT the server's private key.
  */
 encryption_client_key: string | null, encryption_padding: string | null, };
+
+/**
+ * Optional body of the WARP registration: a WARP+ license key, or nothing at
+ * all for a free tunnel.
+ */
+export type WarpRequest = { license: string, };
+
+/**
+ * A `WireGuard` tunnel used as an outbound — xray dials it in userspace, so no
+ * kernel interface and no root are involved.
+ *
+ * This is also the shape a Cloudflare WARP tunnel takes: WARP is ordinary
+ * `WireGuard` plus `reserved`, three bytes derived from the client id that
+ * Cloudflare's edge uses to tell registrations apart. `POST /outbounds/warp`
+ * fills every field in here from a registration; a hand-written peer leaves
+ * `reserved` empty.
+ *
+ * Keys are held the way `WireGuard` writes them (base64, 44 chars). The core's
+ * proto wants hex, and the orchestrator converts on the way out — mirroring
+ * `ParseWireGuardKey` in `infra/conf/wireguard.go`.
+ */
+export type WireguardOutbound = { 
+/**
+ * Our private key.
+ */
+secret_key: string, 
+/**
+ * The addresses the tunnel gives us, with prefix — the v4 one always, the
+ * v6 one when the peer hands one out.
+ */
+address: Array<string>, 
+/**
+ * The peer's public key.
+ */
+peer_public_key: string, 
+/**
+ * `host:port` of the peer.
+ */
+endpoint: string, 
+/**
+ * WARP's client-id bytes. Empty for a plain `WireGuard` peer; a WARP tunnel
+ * without them is answered by the edge with silence.
+ */
+reserved: Array<number>, 
+/**
+ * 0 = the core's default (1420). WARP wants 1280.
+ */
+mtu: number, 
+/**
+ * Keepalive seconds; 0 = off.
+ */
+keep_alive: number, 
+/**
+ * Registered through the panel's WARP button rather than typed in. Only
+ * affects what the UI says about the row.
+ */
+warp: boolean, };

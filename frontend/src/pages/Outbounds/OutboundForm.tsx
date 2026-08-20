@@ -6,7 +6,17 @@
 //! sub-fields appear inline the moment their kind is picked, since several carry
 //! required values (Reality publicKey…).
 
-import { App, Button, Form, Input, InputNumber, Select, Space, Typography } from 'antd';
+import {
+  App,
+  Button,
+  Descriptions,
+  Form,
+  Input,
+  InputNumber,
+  Select,
+  Space,
+  Typography,
+} from 'antd';
 import { memo, useCallback, useLayoutEffect, useMemo, useState, type ReactNode } from 'react';
 import { ImportOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -154,6 +164,68 @@ export const OutboundForm = memo(function OutboundForm({
     () => (editing != null ? outboundToForm(editing) : OUTBOUND_DEFAULTS),
     [editing],
   );
+
+  // A WireGuard tunnel is registered, not typed: its keys, addresses and
+  // reserved bytes come from the far end and mean nothing edited by hand. The
+  // form shows what it is and lets the two fields that ARE the operator's —
+  // the tag and the switch — through; `toOutbound` hands the tunnel itself
+  // back untouched. Sharing the relay form instead would offer an address, a
+  // port and a UUID that a WireGuard outbound has no place to put.
+  if (editing?.protocol.kind === 'wireguard') {
+    const wg = editing.protocol;
+    return (
+      <Form
+        className="app-form-rows"
+        key={formKey}
+        form={form}
+        layout="vertical"
+        initialValues={initialValues}
+        onFinish={onFinish}
+        style={{ marginTop: 8 }}
+      >
+        <InputField
+          name="tag"
+          labelKey="outbounds.tag"
+          tooltipKey="outbounds.tagHint"
+          rules={[{ required: true, message: t('outbounds.tagRequired') }]}
+        />
+        <Descriptions
+          size="small"
+          column={1}
+          bordered
+          style={{ marginBottom: 12 }}
+          items={[
+            {
+              key: 'kind',
+              label: t('outbounds.protocol'),
+              children: wg.warp ? t('outbounds.wgWarp') : 'WireGuard',
+            },
+            { key: 'endpoint', label: t('outbounds.wgEndpoint'), children: <code>{wg.endpoint}</code> },
+            {
+              key: 'address',
+              label: t('outbounds.wgAddress'),
+              children: <code>{wg.address.join('  ')}</code>,
+            },
+            {
+              key: 'peer',
+              label: t('outbounds.wgPeerKey'),
+              children: <code>{wg.peer_public_key}</code>,
+            },
+            ...(wg.reserved.length > 0
+              ? [
+                  {
+                    key: 'reserved',
+                    label: t('outbounds.wgReserved'),
+                    children: <code>{wg.reserved.join(', ')}</code>,
+                  },
+                ]
+              : []),
+          ]}
+        />
+        <SwitchField name="enabled" labelKey="outbounds.enabled" />
+      </Form>
+    );
+  }
 
   return (
     <Form

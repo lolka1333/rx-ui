@@ -176,6 +176,42 @@
   opacity: 0.55;
 }
 
+/* ── The WARP sheet ────────────────────────────────────────────────────── */
+
+/* Two rows of the panel's field grid. The name column is narrow and the names
+   sit against their controls: a wide label track leaves a band of nothing down
+   the middle of a dialog this small. The dividers run the full width of the
+   dialog, so the rows reach past the body's own padding. */
+.app-warp-rows {
+  display: flex;
+  flex-direction: column;
+  /* The dialog's header and footer are inset 24px; the rows reach past that so
+     their rules run edge to edge, which is what separates the fields from the
+     title and the buttons without drawing a box around them. */
+  margin-inline: -24px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.app-warp-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  padding: 10px 24px;
+}
+.app-warp-row + .app-warp-row {
+  border-top: 1px solid var(--border);
+}
+.app-warp-label {
+  justify-self: end;
+  font-size: 13px;
+  color: var(--text-2, #94a3b8);
+  text-align: right;
+  /* The explanation is behind the name, as on the routing rows above. */
+  cursor: help;
+}
+
+
 /* ── Dragging a rule ───────────────────────────────────────────────────── */
 
 /* The gesture itself is table.css's: the whole row is the handle, and the rank

@@ -24,12 +24,14 @@ import {
   Space,
   Switch,
   Tag,
+  Tooltip,
   theme,
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
   ArrowDownOutlined,
   ArrowUpOutlined,
+  CloudOutlined,
   DeleteOutlined,
   EditOutlined,
   FilterOutlined,
@@ -47,9 +49,10 @@ import {
   type CSSProperties,
   type DragEvent,
 } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/api/client';
+import { apiErrorMessage } from '@/api/errors';
 import {
   BUILTIN_OUTBOUND_TAGS,
   needsIpv4,
@@ -314,6 +317,8 @@ export function RoutingRulesField({
 }) {
   const { t } = useTranslation();
   const { token } = theme.useToken();
+  const { message } = App.useApp();
+  const qc = useQueryClient();
   // Phone layout: collapse each rule's condition chips into one count-pill so
   // the name + a tappable conditions affordance both fit on a narrow row.
   const screens = Grid.useBreakpoint();
@@ -343,6 +348,53 @@ export function RoutingRulesField({
     queryKey: ['outbounds'],
     queryFn: async () => (await apiClient.get<CustomOutbound[]>('/outbounds')).data,
   });
+  // Register a Cloudflare WARP tunnel and put it in the outbound list. The
+  // panel only does the part the operator cannot — generate the keys and talk
+  // to Cloudflare; saving goes through the ordinary whole-list PUT, so the
+  // tunnel is validated and applied exactly like a hand-written outbound.
+  const [warpOpen, setWarpOpen] = useState(false);
+  // Bumped on every opening so the sheet is a fresh component: `destroyOnHidden`
+  // clears the dialog's DOM but not the state of the component around it, and a
+  // second tunnel must not arrive pre-loaded with the first one's services.
+  const [warpKey, setWarpKey] = useState(0);
+  const [warpBusy, setWarpBusy] = useState(false);
+  /** Register, save the outbound, and — for the services ticked in the sheet —
+   *  add one rule that sends them into the new tunnel. */
+  const addWarp = async (license: string, services: string[]) => {
+    setWarpBusy(true);
+    try {
+      const { data: warp } = await apiClient.post<CustomOutbound>('/outbounds/warp', {
+        license,
+      });
+      const { data: current } = await apiClient.get<CustomOutbound[]>('/outbounds');
+      await apiClient.put('/outbounds', [...current, warp]);
+      await qc.invalidateQueries({ queryKey: ['outbounds'] });
+      if (services.length > 0) {
+        // One rule, not one per service: they all go to the same place, and a
+        // rule per service would bury the list under a click. Splitting it
+        // later is a chip away; merging six rules back is not.
+        const rule: RoutingRule = {
+          ...EMPTY_RULE,
+          id: uuid(),
+          name: t('settings.warpRuleName', { tag: warp.tag }),
+          domain: services,
+          outbound_tag: warp.tag,
+        };
+        apply([...rules, rule], [...order, rule.id]);
+      }
+      setWarpOpen(false);
+      message.success(
+        services.length > 0
+          ? t('settings.warpAddedWithRule', { tag: warp.tag })
+          : t('settings.warpAdded', { tag: warp.tag }),
+      );
+    } catch (e) {
+      message.error(apiErrorMessage(e) ?? t('settings.warpFailed'));
+    } finally {
+      setWarpBusy(false);
+    }
+  };
+
   const customTags = useMemo(
     () => customOutbounds.filter((o) => o.enabled).map((o) => o.tag),
     [customOutbounds],
@@ -610,6 +662,21 @@ export function RoutingRulesField({
       <div className="app-rt-head">
         <span className="app-rt-title">{t('settings.rulesOrderGroup')}</span>
         <span className="app-rt-sub">{t('settings.rulesOrderSub')}</span>
+        {/* A rule needs somewhere to send traffic, and this is the one exit a
+            server can grow without owning a second server — so it is offered
+            here, beside the rules, rather than only on the outbounds page. */}
+        <Tooltip title={t('settings.warpHint')}>
+          <Button
+            size="small"
+            icon={<CloudOutlined />}
+            onClick={() => {
+              setWarpKey((k) => k + 1);
+              setWarpOpen(true);
+            }}
+          >
+            {t('settings.warpAdd')}
+          </Button>
+        </Tooltip>
         {/* Quiet, like the "add" buttons on the DNS tab. As a primary button it
             was the loudest thing on the tab, which put the accent on adding a
             rule rather than on the order the rules are read in. */}
@@ -867,6 +934,14 @@ export function RoutingRulesField({
         </div>
       </div>
 
+      <WarpModal
+        key={warpKey}
+        open={warpOpen}
+        busy={warpBusy}
+        onCancel={() => setWarpOpen(false)}
+        onCreate={addWarp}
+      />
+
       <RuleModal
         open={modalOpen}
         initial={editId ? (customById.get(editId) ?? null) : null}
@@ -877,6 +952,96 @@ export function RoutingRulesField({
         onSave={handleSave}
       />
     </section>
+  );
+}
+
+/** What a WARP tunnel is usually built for: services that answer a datacentre
+ *  address with a block page, or not at all. Drawn from the panel's own geosite
+ *  presets, so every token here is one the bundled `geosite.dat` carries. */
+const WARP_SERVICES = [
+  'geosite:openai',
+  'geosite:spotify',
+  'geosite:netflix',
+  'geosite:youtube',
+  'geosite:google',
+  'geosite:tiktok',
+  'geosite:twitter',
+  'geosite:telegram',
+  'geosite:apple',
+  'geosite:microsoft',
+].map((value) => ({
+  value,
+  label: GEOSITE_PRESETS.find((p) => p.value === value)?.label ?? value,
+}));
+
+/** The sheet the WARP button opens: the services to point at the tunnel, and
+ *  an optional WARP+ key. Both are optional — the plain path is "press create,
+ *  get a tunnel".
+ *
+ *  Two rows of the panel's own field grid, the services first: that is what the
+ *  sheet is opened for, while the key is a thing few operators have. The
+ *  explanations live in tooltips on the names rather than in paragraphs under
+ *  the fields, the way the routing tab reads. */
+function WarpModal({
+  open,
+  busy,
+  onCancel,
+  onCreate,
+}: {
+  open: boolean;
+  busy: boolean;
+  onCancel: () => void;
+  onCreate: (license: string, services: string[]) => void;
+}) {
+  const { t } = useTranslation();
+  const [license, setLicense] = useState('');
+  const [services, setServices] = useState<string[]>([]);
+  return (
+    <Modal
+      open={open}
+      title={t('settings.warpTitle')}
+      okText={t('settings.warpCreate')}
+      cancelText={t('common.cancel')}
+      confirmLoading={busy}
+      onOk={() => onCreate(license.trim(), services)}
+      onCancel={onCancel}
+      destroyOnHidden
+      width={520}
+    >
+      <div className="app-warp-rows">
+        <label className="app-warp-row">
+          <Tooltip title={t('settings.warpServicesHint')}>
+            <span className="app-warp-label">{t('settings.warpServices')}</span>
+          </Tooltip>
+          {/* `tags`, not a fixed list: the presets are the common answers, and
+              anything the routing lists accept — a geosite category, a bare
+              domain — belongs here too. */}
+          <Select
+            mode="tags"
+            value={services}
+            onChange={setServices}
+            options={WARP_SERVICES}
+            tokenSeparators={[',', ' ']}
+            placeholder={t('settings.warpServicesPlaceholder')}
+            showSearch={{ optionFilterProp: 'label' }}
+          />
+        </label>
+
+        <label className="app-warp-row">
+          <Tooltip title={t('settings.warpLicenseHint')}>
+            <span className="app-warp-label">{t('settings.warpLicense')}</span>
+          </Tooltip>
+          <Input
+            value={license}
+            onChange={(e) => setLicense(e.target.value)}
+            placeholder={t('settings.warpLicensePlaceholder')}
+            autoComplete="off"
+            spellCheck={false}
+            allowClear
+          />
+        </label>
+      </div>
+    </Modal>
   );
 }
 
