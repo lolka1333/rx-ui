@@ -1,0 +1,22 @@
+-- Private subnets a client may reach through the `direct` outbound.
+--
+-- xray blocks every private / special-use destination for traffic arriving
+-- from a proxy inbound: `freedom.go` `getDefaultFinalRule` hands
+-- vless/vmess/trojan/hysteria/wireguard/shadowsocks a block rule built from
+-- `geodata.GetPrivateIPMatcher`. That is an anti-open-relay default, and it is
+-- why a connected client cannot reach anything on the server's own LAN — a
+-- local resolver, a NAS, a printer — however the DNS section is configured.
+--
+-- A handler's own `finalRules` are matched BEFORE that default
+-- (`matchFinalRule`), so one `allow` rule listing these ranges reopens exactly
+-- them. The default still decides everything the rule does not match, so the
+-- emitter deliberately does NOT re-state the block: restating it would also
+-- apply to traffic that never had a default rule — the core's own resolver,
+-- which carries no inbound name — and would break DNS to any private address
+-- outside this list.
+--
+-- Same storage shape as the other match lists (JSON array of xray IP
+-- matchers), so the existing entry validator and the tag-select in the UI
+-- apply unchanged. Empty by default: opening a path into the server's network
+-- is the operator's decision, never an upgrade's.
+ALTER TABLE panel_settings ADD COLUMN xray_freedom_allow_private TEXT NOT NULL DEFAULT '[]';

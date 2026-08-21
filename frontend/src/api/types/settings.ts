@@ -163,6 +163,13 @@ xray_freedom_strategy: string,
  */
 xray_routing_strategy: string, 
 /**
+ * Private ranges the freedom outbound may reach despite the core's
+ * built-in block on them. Empty (the default) leaves that block whole:
+ * a connected client cannot touch the server's own network. Same
+ * restart-to-apply rule as the two strategies above.
+ */
+xray_freedom_allow_private: Array<string>, 
+/**
  * URL the "test outbound" button fetches from the server to confirm
  * the egress reaches the internet. Stored only; not part of the xray
  * config (a single freedom outbound needs no observatory).
@@ -295,7 +302,7 @@ sub_key_set: boolean, };
  * allowlist, log level, etc.) may carry different validation than
  * the read response.
  */
-export type PanelSettingsUpdate = { panel_port: number, panel_base_path: string, sub_enabled: boolean, sub_host_override: string, sub_link_host: string, sub_update_interval_hours: number, sub_brand_name: string, sub_service_url: string, sub_port: number, xray_freedom_strategy: string, xray_routing_strategy: string, xray_test_url: string, xray_block_bittorrent: boolean, xray_blocked_ips: Array<string>, xray_blocked_domains: Array<string>, xray_direct_ips: Array<string>, xray_direct_domains: Array<string>, xray_ipv4_domains: Array<string>, xray_dns_enabled: boolean, xray_dns_servers: Array<DnsServer>, xray_dns_hosts: Array<DnsHost>, xray_dns_query_strategy: string, xray_dns_client_ip: string, xray_dns_tag: string, xray_dns_disable_cache: boolean, xray_dns_disable_fallback: boolean, xray_dns_disable_fallback_if_match: boolean, xray_dns_parallel_query: boolean, xray_dns_use_system_hosts: boolean, xray_dns_serve_stale: boolean, xray_dns_serve_expired_ttl: number, xray_custom_rules: Array<RoutingRule>, xray_rule_order: Array<string>, panel_tls_enabled: boolean, panel_tls_cert: string, 
+export type PanelSettingsUpdate = { panel_port: number, panel_base_path: string, sub_enabled: boolean, sub_host_override: string, sub_link_host: string, sub_update_interval_hours: number, sub_brand_name: string, sub_service_url: string, sub_port: number, xray_freedom_strategy: string, xray_routing_strategy: string, xray_freedom_allow_private: Array<string>, xray_test_url: string, xray_block_bittorrent: boolean, xray_blocked_ips: Array<string>, xray_blocked_domains: Array<string>, xray_direct_ips: Array<string>, xray_direct_domains: Array<string>, xray_ipv4_domains: Array<string>, xray_dns_enabled: boolean, xray_dns_servers: Array<DnsServer>, xray_dns_hosts: Array<DnsHost>, xray_dns_query_strategy: string, xray_dns_client_ip: string, xray_dns_tag: string, xray_dns_disable_cache: boolean, xray_dns_disable_fallback: boolean, xray_dns_disable_fallback_if_match: boolean, xray_dns_parallel_query: boolean, xray_dns_use_system_hosts: boolean, xray_dns_serve_stale: boolean, xray_dns_serve_expired_ttl: number, xray_custom_rules: Array<RoutingRule>, xray_rule_order: Array<string>, panel_tls_enabled: boolean, panel_tls_cert: string, 
 /**
  * New private key (PEM). Empty string ≡ keep the stored key — so saving any
  * other settings section doesn't wipe it and the key need only be pasted

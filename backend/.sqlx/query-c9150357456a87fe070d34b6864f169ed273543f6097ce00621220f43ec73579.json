@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT xray_freedom_strategy, xray_routing_strategy, xray_block_bittorrent,\n                xray_blocked_ips, xray_blocked_domains, xray_ipv4_domains,\n                xray_direct_ips, xray_direct_domains,\n                xray_dns_enabled, xray_dns_servers, xray_dns_hosts, xray_dns_query_strategy,\n                xray_dns_client_ip, xray_dns_tag, xray_dns_disable_cache,\n                xray_dns_disable_fallback, xray_dns_disable_fallback_if_match,\n                xray_dns_parallel_query, xray_dns_use_system_hosts,\n                xray_dns_serve_stale, xray_dns_serve_expired_ttl,\n                xray_custom_rules, xray_rule_order\n            FROM panel_settings WHERE id = 1",
+  "query": "SELECT xray_freedom_strategy, xray_routing_strategy, xray_block_bittorrent,\n                xray_freedom_allow_private,\n                xray_blocked_ips, xray_blocked_domains, xray_ipv4_domains,\n                xray_direct_ips, xray_direct_domains,\n                xray_dns_enabled, xray_dns_servers, xray_dns_hosts, xray_dns_query_strategy,\n                xray_dns_client_ip, xray_dns_tag, xray_dns_disable_cache,\n                xray_dns_disable_fallback, xray_dns_disable_fallback_if_match,\n                xray_dns_parallel_query, xray_dns_use_system_hosts,\n                xray_dns_serve_stale, xray_dns_serve_expired_ttl,\n                xray_custom_rules, xray_rule_order\n            FROM panel_settings WHERE id = 1",
   "describe": {
     "columns": [
       {
@@ -37,8 +37,19 @@
         }
       },
       {
-        "name": "xray_blocked_ips",
+        "name": "xray_freedom_allow_private",
         "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "panel_settings",
+            "name": "xray_freedom_allow_private"
+          }
+        }
+      },
+      {
+        "name": "xray_blocked_ips",
+        "ordinal": 4,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -49,7 +60,7 @@
       },
       {
         "name": "xray_blocked_domains",
-        "ordinal": 4,
+        "ordinal": 5,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -60,7 +71,7 @@
       },
       {
         "name": "xray_ipv4_domains",
-        "ordinal": 5,
+        "ordinal": 6,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -71,7 +82,7 @@
       },
       {
         "name": "xray_direct_ips",
-        "ordinal": 6,
+        "ordinal": 7,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -82,7 +93,7 @@
       },
       {
         "name": "xray_direct_domains",
-        "ordinal": 7,
+        "ordinal": 8,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -93,7 +104,7 @@
       },
       {
         "name": "xray_dns_enabled",
-        "ordinal": 8,
+        "ordinal": 9,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -104,7 +115,7 @@
       },
       {
         "name": "xray_dns_servers",
-        "ordinal": 9,
+        "ordinal": 10,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -115,7 +126,7 @@
       },
       {
         "name": "xray_dns_hosts",
-        "ordinal": 10,
+        "ordinal": 11,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -126,7 +137,7 @@
       },
       {
         "name": "xray_dns_query_strategy",
-        "ordinal": 11,
+        "ordinal": 12,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -137,7 +148,7 @@
       },
       {
         "name": "xray_dns_client_ip",
-        "ordinal": 12,
+        "ordinal": 13,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -148,7 +159,7 @@
       },
       {
         "name": "xray_dns_tag",
-        "ordinal": 13,
+        "ordinal": 14,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -159,7 +170,7 @@
       },
       {
         "name": "xray_dns_disable_cache",
-        "ordinal": 14,
+        "ordinal": 15,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -170,7 +181,7 @@
       },
       {
         "name": "xray_dns_disable_fallback",
-        "ordinal": 15,
+        "ordinal": 16,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -181,7 +192,7 @@
       },
       {
         "name": "xray_dns_disable_fallback_if_match",
-        "ordinal": 16,
+        "ordinal": 17,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -192,7 +203,7 @@
       },
       {
         "name": "xray_dns_parallel_query",
-        "ordinal": 17,
+        "ordinal": 18,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -203,7 +214,7 @@
       },
       {
         "name": "xray_dns_use_system_hosts",
-        "ordinal": 18,
+        "ordinal": 19,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -214,7 +225,7 @@
       },
       {
         "name": "xray_dns_serve_stale",
-        "ordinal": 19,
+        "ordinal": 20,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -225,7 +236,7 @@
       },
       {
         "name": "xray_dns_serve_expired_ttl",
-        "ordinal": 20,
+        "ordinal": 21,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -236,7 +247,7 @@
       },
       {
         "name": "xray_custom_rules",
-        "ordinal": 21,
+        "ordinal": 22,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -247,7 +258,7 @@
       },
       {
         "name": "xray_rule_order",
-        "ordinal": 22,
+        "ordinal": 23,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -283,8 +294,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "026a9029da87e9a7cd7249457eab897c6911a33f1645f05aa2a4fc007852f13b"
+  "hash": "c9150357456a87fe070d34b6864f169ed273543f6097ce00621220f43ec73579"
 }

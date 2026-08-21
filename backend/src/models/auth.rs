@@ -144,6 +144,11 @@ pub struct PanelSettings {
     /// `domainStrategy` of the routing block: `AsIs`, `IPIfNonMatch`,
     /// or `IPOnDemand`. Same restart-to-apply rule as above.
     pub xray_routing_strategy: String,
+    /// Private ranges the freedom outbound may reach despite the core's
+    /// built-in block on them. Empty (the default) leaves that block whole:
+    /// a connected client cannot touch the server's own network. Same
+    /// restart-to-apply rule as the two strategies above.
+    pub xray_freedom_allow_private: Vec<String>,
     /// URL the "test outbound" button fetches from the server to confirm
     /// the egress reaches the internet. Stored only; not part of the xray
     /// config (a single freedom outbound needs no observatory).
@@ -247,6 +252,8 @@ pub struct PanelSettingsUpdate {
     pub sub_port: i32,
     pub xray_freedom_strategy: String,
     pub xray_routing_strategy: String,
+    #[serde(default)]
+    pub xray_freedom_allow_private: Vec<String>,
     pub xray_test_url: String,
     pub xray_block_bittorrent: bool,
     pub xray_blocked_ips: Vec<String>,

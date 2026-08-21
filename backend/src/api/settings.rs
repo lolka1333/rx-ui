@@ -122,6 +122,7 @@ pub async fn load_panel_settings(db: &crate::db::DbPool) -> AppResult<PanelSetti
                 sub_update_interval_hours,
                 sub_brand_name, sub_service_url, sub_port,
                 xray_freedom_strategy, xray_routing_strategy, xray_test_url,
+                xray_freedom_allow_private,
                 xray_block_bittorrent, xray_blocked_ips, xray_blocked_domains,
                 xray_direct_ips, xray_direct_domains,
                 xray_dns_enabled, xray_dns_servers, xray_dns_hosts, xray_dns_query_strategy,
@@ -153,6 +154,7 @@ pub async fn load_panel_settings(db: &crate::db::DbPool) -> AppResult<PanelSetti
         sub_port: i32::try_from(row.sub_port).unwrap_or(0),
         xray_freedom_strategy: row.xray_freedom_strategy,
         xray_routing_strategy: row.xray_routing_strategy,
+        xray_freedom_allow_private: list(&row.xray_freedom_allow_private),
         xray_test_url: row.xray_test_url,
         xray_block_bittorrent: row.xray_block_bittorrent != 0,
         xray_blocked_ips: list(&row.xray_blocked_ips),
@@ -357,6 +359,7 @@ async fn write_panel_row(
                 sub_port = ?,
                 xray_freedom_strategy = ?,
                 xray_routing_strategy = ?,
+                xray_freedom_allow_private = ?,
                 xray_test_url = ?,
                 xray_block_bittorrent = ?,
                 xray_blocked_ips = ?,
@@ -396,9 +399,10 @@ async fn write_panel_row(
         panel.sub_brand,
         panel.sub_service_url,
         body.sub_port,
-        panel.xray_freedom_strategy,
-        panel.xray_routing_strategy,
-        panel.xray_test_url,
+        panel.engine.freedom_strategy,
+        panel.engine.routing_strategy,
+        panel.engine.allow_private,
+        panel.engine.test_url,
         xray_bittorrent_i,
         panel.routing.blocked_ips,
         panel.routing.blocked_domains,
@@ -606,9 +610,12 @@ struct NormalizedPanel {
     sub_link_host: String,
     sub_brand: String,
     sub_service_url: String,
-    xray_freedom_strategy: String,
-    xray_routing_strategy: String,
-    xray_test_url: String,
+    /// The engine settings that only reach xray through the config file:
+    /// both `domainStrategy` values, the test URL, and the private-range
+    /// allow-list. Grouped rather than left as four loose strings — they are
+    /// validated together and bound consecutively, and four positional
+    /// `String`s is a swap the compiler cannot catch.
+    engine: XrayEngine,
     /// The routing switch and its match lists, cleaned + serialised as JSON
     /// arrays. Kept as one field rather than six flat ones: they travel
     /// together into the UPDATE and into the change check, and six positional
@@ -727,8 +734,7 @@ fn validate_panel_update(body: &PanelSettingsUpdate) -> AppResult<NormalizedPane
         ));
     }
 
-    let (xray_freedom_strategy, xray_routing_strategy, xray_test_url) =
-        validate_xray_settings(body)?;
+    let engine = validate_xray_settings(body)?;
     let routing = validate_xray_routing(body)?;
     let dns = validate_xray_dns(body)?;
 
@@ -739,18 +745,27 @@ fn validate_panel_update(body: &PanelSettingsUpdate) -> AppResult<NormalizedPane
         sub_link_host,
         sub_brand,
         sub_service_url,
-        xray_freedom_strategy,
-        xray_routing_strategy,
-        xray_test_url,
+        engine,
         routing,
         dns,
     })
 }
 
-/// Validate the xray engine settings (Freedom/routing `domainStrategy` + test
-/// URL) and return the trimmed, validated trio. Split out of
-/// `validate_panel_update` to keep that function under the line cap.
-fn validate_xray_settings(body: &PanelSettingsUpdate) -> AppResult<(String, String, String)> {
+/// The engine half of the panel settings: the two `domainStrategy` values,
+/// the outbound test URL, and the freedom private-range allow-list, all
+/// trimmed and ready to bind. `allow_private` is already a JSON array string,
+/// like every other stored match list.
+struct XrayEngine {
+    freedom_strategy: String,
+    routing_strategy: String,
+    test_url: String,
+    allow_private: String,
+}
+
+/// Validate the xray engine settings (Freedom/routing `domainStrategy`, test
+/// URL, private allow-list). Split out of `validate_panel_update` to keep that
+/// function under the line cap.
+fn validate_xray_settings(body: &PanelSettingsUpdate) -> AppResult<XrayEngine> {
     // Freedom / routing domainStrategy: only values xray accepts, else the
     // next restart's config-validate fails and leaves the engine down.
     let freedom = body.xray_freedom_strategy.trim();
@@ -772,7 +787,22 @@ fn validate_xray_settings(body: &PanelSettingsUpdate) -> AppResult<(String, Stri
     // enforces on use). Scheme restriction blocks file:// and the like.
     let test_url = validate_optional_http_url(&body.xray_test_url, "xray_test_url")?;
 
-    Ok((freedom.to_owned(), routing.to_owned(), test_url))
+    // Same matcher syntax as every other IP list, so the same entry rules
+    // apply. What it MEANS is different: entries here reopen destinations the
+    // core blocks on purpose, so the operator is widening reach, not narrowing
+    // it. Nothing is special-cased — a list of one `/32` and a list containing
+    // `0.0.0.0/0` are both exactly what was asked for.
+    let allow_private = validate_match_list(
+        &body.xray_freedom_allow_private,
+        "xray_freedom_allow_private",
+    )?;
+
+    Ok(XrayEngine {
+        freedom_strategy: freedom.to_owned(),
+        routing_strategy: routing.to_owned(),
+        test_url,
+        allow_private,
+    })
 }
 
 /// Validate the routing block (the "basic connections" lists + bittorrent

@@ -64,6 +64,11 @@ pub struct BootstrapSettings {
     /// reverse tag). Bridges need `direct` to carry explicit `finalRules` —
     /// see `PRIVATE_IP_RANGES` and the emit site in `build_bootstrap_config`.
     pub has_reverse_bridge: bool,
+    /// Private ranges a client may reach through `direct` despite the core's
+    /// built-in block — see `build_direct_outbound`. Empty means the core's
+    /// default stands untouched, which is what every install ran on before
+    /// this setting existed.
+    pub freedom_allow_private: Vec<String>,
     /// Operator-defined rules, keyed by id; their order comes from `rule_order`.
     pub custom_rules: Vec<RoutingRule>,
     /// Full evaluation order: system tokens + custom rule ids, first-match-wins.
@@ -278,6 +283,24 @@ fn build_direct_outbound(s: &BootstrapSettings) -> Value {
         "protocol": "freedom",
         "settings": { "domainStrategy": s.freedom_strategy }
     });
+    let allow: Vec<&str> = s
+        .freedom_allow_private
+        .iter()
+        .map(|e| e.trim())
+        .filter(|e| !e.is_empty())
+        .collect();
+    if !s.has_reverse_bridge && allow.is_empty() {
+        return direct;
+    }
+    let mut rules: Vec<Value> = Vec::new();
+    if !allow.is_empty() {
+        // First, so it wins over the block below (and over the core's own
+        // default, which `matchFinalRule` only reaches once every rule here
+        // has missed). `network` is deliberately absent: an omitted network
+        // list builds as "every network" (`freedom.go`, `len(Networks) == 0`),
+        // and these ranges are as reachable over UDP as over TCP.
+        rules.push(json!({ "action": "allow", "ip": allow }));
+    }
     if s.has_reverse_bridge {
         // xray blackholes EVERY connection arriving from a reverse tunnel by
         // default: the VLESS outbound stamps `Inbound{Name: "vless-reverse"}`,
@@ -286,11 +309,18 @@ fn build_direct_outbound(s: &BootstrapSettings) -> Value {
         // Requests are swallowed and nothing is written back — indistinguishable
         // from a hung tunnel. Re-allow the traffic explicitly, keeping the
         // private-range block that ordinary inbounds get for free.
-        direct["settings"]["finalRules"] = json!([
-            { "action": "block", "ip": PRIVATE_IP_RANGES },
-            { "action": "allow", "network": "tcp,udp" },
-        ]);
+        //
+        // Only the bridge needs the block spelled out. Without one, an
+        // allow-list on its own is enough: unmatched destinations fall through
+        // to the core's default rule, which already blocks private ranges for
+        // every proxy inbound. Re-stating it here would ALSO apply it to
+        // traffic that has no default rule — the core's own resolver, whose
+        // session carries a tag but no inbound name — and would cut DNS to
+        // every private address the operator did not list.
+        rules.push(json!({ "action": "block", "ip": PRIVATE_IP_RANGES }));
+        rules.push(json!({ "action": "allow", "network": "tcp,udp" }));
     }
+    direct["settings"]["finalRules"] = Value::Array(rules);
     direct
 }
 
@@ -782,6 +812,7 @@ mod tests {
             dns: DnsSettings::default(),
             ipv4_domains: vec![],
             has_reverse_bridge: false,
+            freedom_allow_private: Vec::new(),
             custom_rules: vec![RoutingRule {
                 id: "r1".into(),
                 enabled: true,
@@ -864,6 +895,7 @@ mod tests {
             direct_ips: Vec::new(),
             direct_domains: Vec::new(),
             has_reverse_bridge: false,
+            freedom_allow_private: Vec::new(),
             dns: DnsSettings::default(),
             ipv4_domains: vec![],
             custom_rules,
@@ -990,6 +1022,62 @@ mod tests {
         assert_eq!(rules[1]["network"], "tcp,udp");
     }
 
+    /// The allow-list reopens exactly what it names and nothing else. In
+    /// particular it does NOT restate the private-range block: unmatched
+    /// destinations fall through to the core's own default rule, which already
+    /// blocks them for every proxy inbound. Restating it here would also hit
+    /// traffic that has no default rule — the core's resolver, whose session
+    /// carries a tag but no inbound name — and cut DNS to every private
+    /// address outside the list.
+    #[test]
+    fn freedom_allow_private_reopens_only_listed_ranges() {
+        let mut s = base(vec![], vec![]);
+        s.freedom_allow_private = vec!["192.168.1.0/24".into(), " ".into(), "10.8.0.0/24".into()];
+        let cfg = build_bootstrap_config(&s);
+        let rules = cfg["outbounds"][0]["settings"]["finalRules"]
+            .as_array()
+            .expect("allow-list present => finalRules emitted")
+            .clone();
+        assert_eq!(rules.len(), 1, "no bridge => the allow rule stands alone");
+        assert_eq!(rules[0]["action"], "allow");
+        // Blank entries dropped; no `network` key, which builds as every
+        // network rather than none.
+        assert_eq!(rules[0]["ip"], json!(["192.168.1.0/24", "10.8.0.0/24"]));
+        assert!(rules[0].get("network").is_none());
+    }
+
+    /// With both, the allow must come FIRST: the bridge's block covers every
+    /// private range, so an allow placed after it would never be reached.
+    #[test]
+    fn freedom_allow_private_precedes_the_bridge_block() {
+        let mut s = base(vec![], vec![]);
+        s.has_reverse_bridge = true;
+        s.freedom_allow_private = vec!["192.168.1.0/24".into()];
+        let cfg = build_bootstrap_config(&s);
+        let rules = cfg["outbounds"][0]["settings"]["finalRules"]
+            .as_array()
+            .expect("finalRules emitted")
+            .clone();
+        assert_eq!(rules.len(), 3);
+        assert_eq!(rules[0]["action"], "allow");
+        assert_eq!(rules[0]["ip"], json!(["192.168.1.0/24"]));
+        assert_eq!(rules[1]["action"], "block");
+        assert_eq!(rules[2]["action"], "allow");
+        assert_eq!(rules[2]["network"], "tcp,udp");
+    }
+
+    /// A list of nothing but blanks is not a list: it must leave the core's
+    /// default whole rather than emit an empty `finalRules` array, which
+    /// would still count as "the handler has rules" for
+    /// `shouldResolveDomainBeforeFinalRules`.
+    #[test]
+    fn freedom_allow_private_blank_only_emits_no_rules() {
+        let mut s = base(vec![], vec![]);
+        s.freedom_allow_private = vec![String::new(), "   ".into()];
+        let cfg = build_bootstrap_config(&s);
+        assert!(cfg["outbounds"][0]["settings"]["finalRules"].is_null());
+    }
+
     #[test]
     fn unknown_and_stale_tokens_are_reconciled() {
         // Order references a deleted custom id ("gone") and omits an active
@@ -1054,6 +1142,7 @@ mod tests {
             dns: DnsSettings::default(),
             ipv4_domains: vec!["geosite:netflix".into()],
             has_reverse_bridge: false,
+            freedom_allow_private: Vec::new(),
             custom_rules: vec![r1, r2, r3, rule("r4", false, "blocked")],
             rule_order: vec![],
         };

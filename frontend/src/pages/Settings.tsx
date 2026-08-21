@@ -1888,6 +1888,7 @@ function SubscriptionSection({
 interface XrayFormValues {
   xray_freedom_strategy: string;
   xray_routing_strategy: string;
+  xray_freedom_allow_private: string[];
   xray_test_url: string;
   xray_block_bittorrent: boolean;
   xray_blocked_ips: string[];
@@ -1915,6 +1916,17 @@ interface XrayFormValues {
 /** Freedom-outbound `domainStrategy` values; mirrors the backend allowlist
  *  in `api/settings.rs`. AsIs = no DNS forcing; the UseIP / ForceIP families
  *  pick the egress address family. */
+/// Suggested entries for the private-range allow-list: the three RFC1918
+/// blocks plus the CGNAT range a home router may hand out. Suggestions only —
+/// the field is free text, and a single host (`192.168.1.10/32`) is usually
+/// the better answer than a whole subnet.
+const PRIVATE_ALLOW_PRESETS = [
+  '192.168.0.0/16',
+  '10.0.0.0/8',
+  '172.16.0.0/12',
+  '100.64.0.0/10',
+].map((value) => ({ value, label: value }));
+
 const FREEDOM_STRATEGY_OPTIONS = [
   'AsIs',
   'UseIP',
@@ -2043,6 +2055,7 @@ function XraySection({
         mergePanelSettings(current, {
           xray_freedom_strategy: values.xray_freedom_strategy,
           xray_routing_strategy: values.xray_routing_strategy,
+          xray_freedom_allow_private: values.xray_freedom_allow_private,
           xray_test_url: values.xray_test_url,
           xray_block_bittorrent: values.xray_block_bittorrent,
           xray_blocked_ips: values.xray_blocked_ips,
@@ -2083,6 +2096,8 @@ function XraySection({
         old != null &&
         (values.xray_freedom_strategy !== old.xray_freedom_strategy ||
           values.xray_routing_strategy !== old.xray_routing_strategy ||
+          // Lives on the `direct` outbound, which only the bootstrap writes.
+          !sameList(values.xray_freedom_allow_private, old.xray_freedom_allow_private) ||
           // The core exposes no DNS service on its gRPC API, so every field of
           // the resolver lives in the config file only until the next load.
           values.xray_dns_enabled !== old.xray_dns_enabled ||
@@ -2210,6 +2225,7 @@ function XraySection({
     () => (data ? {
             xray_freedom_strategy: data.xray_freedom_strategy,
             xray_routing_strategy: data.xray_routing_strategy,
+            xray_freedom_allow_private: data.xray_freedom_allow_private ?? [],
             xray_test_url: data.xray_test_url,
             xray_block_bittorrent: data.xray_block_bittorrent,
             xray_blocked_ips: data.xray_blocked_ips,
@@ -2247,6 +2263,7 @@ function XraySection({
           key={JSON.stringify([
             data.xray_freedom_strategy,
             data.xray_routing_strategy,
+            data.xray_freedom_allow_private ?? [],
             data.xray_test_url,
             data.xray_block_bittorrent,
             data.xray_blocked_ips,
@@ -2302,6 +2319,29 @@ function XraySection({
                       }
                     >
                       <Select options={FREEDOM_STRATEGY_OPTIONS} />
+                    </Form.Item>
+                    {/* Sits with Freedom rather than among the routing lists
+                        because it is a property of that outbound and, like the
+                        strategy above it, only reaches xray on the next
+                        restart — the routing lists are pushed into the live
+                        router instead, and mixing the two rhythms in one group
+                        made "saved" mean two different things. */}
+                    <Form.Item
+                      name="xray_freedom_allow_private"
+                      label={
+                        <FieldLabel
+                          title={t('settings.xrayFreedomAllowPrivate')}
+                          desc={t('settings.xrayFreedomAllowPrivateHint')}
+                        />
+                      }
+                    >
+                      <Select
+                        mode="tags"
+                        options={PRIVATE_ALLOW_PRESETS}
+                        showSearch={{ optionFilterProp: 'label' }}
+                        tokenSeparators={[',', ' ']}
+                        placeholder={t('settings.xrayFreedomAllowPrivatePlaceholder')}
+                      />
                     </Form.Item>
                     <Form.Item
                       name="xray_routing_strategy"

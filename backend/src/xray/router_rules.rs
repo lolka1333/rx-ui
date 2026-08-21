@@ -197,6 +197,7 @@ mod tests {
             dns: crate::xray::config_gen::DnsSettings::default(),
             ipv4_domains: Vec::new(),
             has_reverse_bridge: false,
+            freedom_allow_private: Vec::new(),
             custom_rules: custom,
             rule_order: order.iter().map(|s| (*s).to_owned()).collect(),
         }
