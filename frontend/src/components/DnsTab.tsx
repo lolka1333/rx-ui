@@ -11,11 +11,12 @@
 //! Everything still binds through the parent `Form`, so the page dirty bar and
 //! the save-then-restart prompt keep working untouched.
 
-import { Form, Input, InputNumber, Select, Switch, Tooltip } from 'antd';
+import { Alert, Button, Form, Input, InputNumber, Select, Switch, Tooltip } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { DnsServersField } from '@/components/DnsServersField';
 import { DnsHostsField } from '@/components/DnsHostsField';
 import { DNS_QUERY_STRATEGIES } from '@/lib/dnsPresets';
+import type { DnsHost, DnsServer } from '@/api/types/settings';
 
 /** The section-wide switches, in the order an operator meets them: what to ask,
  *  what to do when it fails, then what to keep. */
@@ -36,6 +37,24 @@ export function DnsTab() {
   // opacity, hint and all, before dimming. The form knows the value already.
   const watched = Form.useWatch<boolean>('xray_dns_enabled', form);
   const on = (watched ?? form.getFieldValue('xray_dns_enabled')) !== false;
+
+  // Whether this whole tab is currently doing nothing.
+  //
+  // The core reaches its internal resolver only when something asks it for an
+  // IP: a Freedom `domainStrategy` of `UseIP*`/`ForceIP*`, or a routing
+  // strategy that has to resolve a domain to match an IP rule. With both left
+  // at `AsIs` the freedom outbound hands the domain to the Go dialer, which
+  // uses the host's own `/etc/resolv.conf` — every server configured here is
+  // skipped. Nothing errors, the config is valid and xray loads it happily, so
+  // the only signal an operator ever gets is that their resolver changed
+  // nothing. Say so instead.
+  const servers = Form.useWatch<DnsServer[]>('xray_dns_servers', form) ?? [];
+  const hosts = Form.useWatch<DnsHost[]>('xray_dns_hosts', form) ?? [];
+  const freedom = Form.useWatch<string>('xray_freedom_strategy', form);
+  const routing = Form.useWatch<string>('xray_routing_strategy', form);
+  const configured =
+    servers.some((v) => v?.address?.trim()) || hosts.some((v) => v?.domain?.trim());
+  const inert = on && configured && freedom === 'AsIs' && routing === 'AsIs';
 
   return (
     <div className="app-dns">
@@ -59,6 +78,23 @@ export function DnsTab() {
           applied while the resolver is switched off, so with DNS ON the
           sections had no gap at all and sat glued to each other. */}
       <div className={`app-dns-body${on ? '' : ' app-dns-off'}`} aria-disabled={!on}>
+      {inert && (
+        <Alert
+          type="warning"
+          showIcon
+          title={t('settings.dnsInertTitle')}
+          description={t('settings.dnsInertDesc')}
+          action={
+            <Button
+              size="small"
+              onClick={() => form.setFieldValue('xray_freedom_strategy', 'UseIP')}
+            >
+              {t('settings.dnsInertAction')}
+            </Button>
+          }
+        />
+      )}
+
       <Form.Item name="xray_dns_servers" noStyle>
         <DnsServersField />
       </Form.Item>
