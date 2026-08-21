@@ -1143,8 +1143,11 @@ fn validate_dns_server(raw: &str) -> AppResult<Option<String>> {
     // A bare host is queried over plain UDP on 53. Ports belong to the object
     // form of a name server, which this field does not carry, so `1.1.1.1:5353`
     // would be read as a hostname and fail at resolve time instead of here.
+    // The message names the field that DOES take a port: the old wording said
+    // only that this one does not, and read as "the panel has no way to set a
+    // port" to someone who had not opened the server editor.
     if entry.contains(':') {
-        return bad("a port needs the advanced server form; use a plain address here");
+        return bad("put the port in the Port field beside the address, not in the address");
     }
     if entry
         .chars()
