@@ -159,6 +159,7 @@ export const DEFAULTS: FormValues = {
   finalmask_kind: 'none',
   finalmask_sudoku_password: '',
   finalmask_sudoku_ascii: 'prefer_entropy',
+  finalmask_sudoku_custom_tables: [],
   finalmask_sudoku_padding_min: null,
   finalmask_sudoku_padding_max: null,
   // Fragment / noise sub-fields pre-filled with safe-default ranges

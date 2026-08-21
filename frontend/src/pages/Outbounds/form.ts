@@ -211,6 +211,7 @@ export const OUTBOUND_DEFAULTS: OutboundFormValues = {
   finalmask_kind: INB_DEFAULTS.finalmask_kind,
   finalmask_sudoku_password: INB_DEFAULTS.finalmask_sudoku_password,
   finalmask_sudoku_ascii: INB_DEFAULTS.finalmask_sudoku_ascii,
+  finalmask_sudoku_custom_tables: INB_DEFAULTS.finalmask_sudoku_custom_tables,
   finalmask_sudoku_padding_min: INB_DEFAULTS.finalmask_sudoku_padding_min,
   finalmask_sudoku_padding_max: INB_DEFAULTS.finalmask_sudoku_padding_max,
   finalmask_fragment_packets_mode: INB_DEFAULTS.finalmask_fragment_packets_mode,

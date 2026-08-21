@@ -376,6 +376,45 @@ function SudokuFields() {
       >
         <Select options={ASCII_OPTIONS} />
       </Form.Item>
+      {/* The byte layout itself. A list rather than the single `customTable`,
+          because the core folds the singular into the plural and then cycles
+          through the set once per encoded byte — one entry behaves exactly
+          like the old scalar did. Ignored outright in prefer_ascii mode, which
+          the hint says, since the core silently drops them there. */}
+      <Form.Item
+        name="finalmask_sudoku_custom_tables"
+        label={t('inbounds.finalmaskSudokuTables')}
+        tooltip={t('inbounds.finalmaskSudokuTablesTooltip')}
+        rules={[
+          {
+            validator: (_, rows: string[] | undefined) => {
+              const bad = (rows ?? [])
+                .map((r) => r.trim().toLowerCase().replace(/\s+/g, ''))
+                .filter((r) => r !== '')
+                .find(
+                  (r) =>
+                    r.length !== 8 ||
+                    /[^xpv]/.test(r) ||
+                    (r.match(/x/g) ?? []).length !== 2 ||
+                    (r.match(/p/g) ?? []).length !== 2 ||
+                    (r.match(/v/g) ?? []).length !== 4,
+                );
+              return bad === undefined
+                ? Promise.resolve()
+                : Promise.reject(new Error(t('inbounds.finalmaskSudokuTablesInvalid', { table: bad })));
+            },
+          },
+        ]}
+      >
+        <Select
+          mode="tags"
+          open={false}
+          tokenSeparators={[',', ' ']}
+          placeholder="xpvvvvpx"
+          style={{ fontFamily: 'var(--font-mono)' }}
+        />
+      </Form.Item>
+
       <SideBySide>
         <Form.Item
           name="finalmask_sudoku_padding_min"

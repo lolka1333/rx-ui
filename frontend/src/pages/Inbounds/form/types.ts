@@ -264,6 +264,7 @@ export interface FormValues {
   // sudoku
   finalmask_sudoku_password: string;
   finalmask_sudoku_ascii: SudokuAscii;
+  finalmask_sudoku_custom_tables: string[];
   finalmask_sudoku_padding_min: number | null;
   finalmask_sudoku_padding_max: number | null;
   // fragment

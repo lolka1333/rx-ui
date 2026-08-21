@@ -210,6 +210,7 @@ export type FinalMaskFormFields = Pick<
   | 'finalmask_kind'
   | 'finalmask_sudoku_password'
   | 'finalmask_sudoku_ascii'
+  | 'finalmask_sudoku_custom_tables'
   | 'finalmask_sudoku_padding_min'
   | 'finalmask_sudoku_padding_max'
   | 'finalmask_fragment_packets_mode'
@@ -239,6 +240,14 @@ export function hydrateFinalMask(target: FinalMaskFormFields, fm: FinalMask): vo
     // compat from a future xray release) collapse to `''`.
     target.finalmask_sudoku_ascii =
       fm.ascii === 'prefer_entropy' || fm.ascii === 'prefer_ascii' ? fm.ascii : '';
+    // The core folds the singular `customTable` into the plural list and
+    // ignores it whenever the list is non-empty, so the form carries one
+    // field and a row stored the old way arrives as a one-entry list.
+    target.finalmask_sudoku_custom_tables = fm.custom_tables.length
+      ? [...fm.custom_tables]
+      : fm.custom_table
+        ? [fm.custom_table]
+        : [];
     target.finalmask_sudoku_padding_min = fm.padding_min;
     target.finalmask_sudoku_padding_max = fm.padding_max;
   } else if (fm.kind === 'fragment') {
@@ -616,10 +625,15 @@ export function buildFinalMask(v: FormValues): FinalMask {
         kind: 'sudoku',
         password: v.finalmask_sudoku_password,
         ascii: v.finalmask_sudoku_ascii,
+        // Written to the list alone: it is what the core reads when both are
+        // set, so keeping the scalar filled too would leave two sources of
+        // truth that only agree until someone edits one of them.
         custom_table: '',
         padding_min: v.finalmask_sudoku_padding_min,
         padding_max: v.finalmask_sudoku_padding_max,
-        custom_tables: [],
+        custom_tables: v.finalmask_sudoku_custom_tables
+          .map((t) => t.trim().toLowerCase().replace(/\s+/g, ''))
+          .filter((t) => t !== ''),
       };
     case 'fragment': {
       // Mode → the (from,to) pair xray's conf parser understands:

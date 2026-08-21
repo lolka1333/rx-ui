@@ -312,6 +312,50 @@ fn validate_finalmask_security(security: &SecurityConfig, finalmask: &FinalMask)
         ));
     }
 
+    // A sudoku table is a byte layout, not free text: `normalizeCustomTable`
+    // (transport/internet/finalmask/sudoku/table.go) wants exactly eight
+    // characters over the byte's bits — two `x` (the marker bits), two `p`
+    // (the group's high bits) and four `v` (the value nibble). Anything else
+    // fails when the mask is built, which on this path means the inbound is
+    // already committed and `AddInbound` is the thing that says no.
+    if let FinalMask::Sudoku(p) = finalmask {
+        let tables = if p.custom_tables.is_empty() {
+            std::slice::from_ref(&p.custom_table)
+        } else {
+            p.custom_tables.as_slice()
+        };
+        for raw in tables {
+            let cleaned: String = raw
+                .trim()
+                .to_ascii_lowercase()
+                .chars()
+                .filter(|c| !c.is_whitespace())
+                .collect();
+            if cleaned.is_empty() {
+                continue;
+            }
+            let bad = |why: &str| {
+                Err(AppError::BadRequest(format!(
+                    concat!(
+                        "sudoku table '{}' {} — it must be 8 characters made of ",
+                        "exactly two 'x', two 'p' and four 'v', one per bit of the byte."
+                    ),
+                    raw, why,
+                )))
+            };
+            if cleaned.chars().count() != 8 {
+                return bad("is not 8 characters long");
+            }
+            if cleaned.chars().any(|c| !matches!(c, 'x' | 'p' | 'v')) {
+                return bad("has a character other than x, p or v");
+            }
+            let count = |want: char| cleaned.chars().filter(|c| *c == want).count();
+            if count('x') != 2 || count('p') != 2 || count('v') != 4 {
+                return bad("does not have exactly two 'x', two 'p' and four 'v'");
+            }
+        }
+    }
+
     // xray's FragmentMask.Build rejects a final `lengths` entry whose min is
     // 0 ("last lengths entry min can't be 0"). An active Fragment mask whose
     // last length range starts at 0 ships a config the client's xray refuses,
