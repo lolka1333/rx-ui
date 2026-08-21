@@ -30,6 +30,7 @@ import { SockoptTab } from './tabs/SockoptTab';
 import { TlsTab } from './tabs/TlsTab';
 import { WebSocketTab } from './tabs/WebSocketTab';
 import { XhttpTab } from './tabs/XhttpTab';
+import { revealField } from '@/lib/revealField';
 
 interface InboundFormProps {
   formKey: number;
@@ -214,9 +215,19 @@ export const InboundForm = memo(function InboundForm({
       layout="vertical"
       initialValues={initialValues}
       onFinish={onFinish}
+      // A rule that fails on a field the operator cannot see reads as "Save
+      // does nothing": antd refuses the submit, and its message is inside a
+      // collapsed section or on a tab that was never opened. Take them there.
+      onFinishFailed={({ errorFields }) => {
+        const first = errorFields[0]?.name;
+        if (first) revealField(first as ReadonlyArray<string | number>);
+      }}
       style={{ marginTop: 8 }}
     >
-      <Tabs items={tabItems} />
+      {/* Same reason as `Section`'s own `forceRender`: a tab nobody opened
+          leaves its fields unregistered, and unregistered fields are not
+          validated. Mount them all and let the failure handler navigate. */}
+      <Tabs items={tabItems.map((tab) => ({ ...tab, forceRender: true }))} />
     </Form>
   );
 });

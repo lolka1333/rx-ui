@@ -55,6 +55,16 @@ export function Section({ itemKey, labelKey, children }: SectionProps) {
             </Typography.Text>
           ),
           children,
+          // Mount the fields with the form, not with the first click. A
+          // `Form.Item` that has never been rendered is not registered, and an
+          // unregistered field is one `validateFields` does not check — so a
+          // rule sitting in a collapsed section silently did not exist. That
+          // cuts both ways: a required field nobody filled sailed through, and
+          // a field that WAS invalid failed the submit with its message hidden
+          // inside the collapsed panel, which reads as "Save does nothing".
+          // `revealField` below is the other half: it opens whatever hides the
+          // offending field.
+          forceRender: true,
         },
       ]}
     />
