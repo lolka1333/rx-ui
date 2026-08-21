@@ -268,6 +268,8 @@ export const ru = {
     ruleTargetRequired: 'Выбери выходной outbound',
     ruleDomain: 'Домены',
     ruleIp: 'IP / гео',
+    ruleDomainHint: 'Без префикса это ПОДСТРОКА в любом месте имени: .io поймает и iodine.net, и mail.iowa.gov. Точные формы: domain:io — сама зона и всё под ней; full:example.com — только это имя, без поддоменов; keyword:ads — та же подстрока, но явно; regexp:(io|dev)$ — регулярное выражение; geosite:netflix — список из geosite.dat, можно с атрибутом (geosite:google@ads).',
+    ruleIpHint: 'CIDR или один адрес (10.0.0.0/8, 1.2.3.4 = /32), либо список из geoip.dat (geoip:ru, geoip:private). Ведущий восклицательный знак инвертирует: !geoip:ru — всё, кроме России.',
     rulePort: 'Порт',
     ruleNetwork: 'Сеть',
     ruleProtocol: 'Протокол',

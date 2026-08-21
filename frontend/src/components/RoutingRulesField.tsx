@@ -1156,7 +1156,13 @@ function RuleModal({
         >
           <Select options={targetOptions} />
         </Form.Item>
-        <Form.Item name="domain" label={t('settings.ruleDomain')}>
+        {/* The placeholder shows the syntax only until the first chip lands,
+            so the spellings live in a tooltip that stays reachable. */}
+        <Form.Item
+          name="domain"
+          label={t('settings.ruleDomain')}
+          tooltip={t('settings.ruleDomainHint')}
+        >
           <Select
             mode="tags"
             options={GEOSITE_PRESETS}
@@ -1166,7 +1172,7 @@ function RuleModal({
             placeholder="geosite:netflix, full:example.com"
           />
         </Form.Item>
-        <Form.Item name="ip" label={t('settings.ruleIp')}>
+        <Form.Item name="ip" label={t('settings.ruleIp')} tooltip={t('settings.ruleIpHint')}>
           <Select
             mode="tags"
             options={GEOIP_PRESETS}

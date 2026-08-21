@@ -267,6 +267,8 @@ export const en: Dict = {
     ruleTargetRequired: 'Pick a target outbound',
     ruleDomain: 'Domains',
     ruleIp: 'IP / geo',
+    ruleDomainHint: 'With no prefix this is a SUBSTRING anywhere in the name: .io also catches iodine.net and mail.iowa.gov. The precise forms: domain:io — the zone itself and everything under it; full:example.com — that name only, no subdomains; keyword:ads — the same substring, said explicitly; regexp:(io|dev)$ — a regular expression; geosite:netflix — a list from geosite.dat, optionally with an attribute (geosite:google@ads).',
+    ruleIpHint: 'A CIDR or a single address (10.0.0.0/8, 1.2.3.4 = /32), or a list from geoip.dat (geoip:ru, geoip:private). A leading exclamation mark inverts it: !geoip:ru is everything except Russia.',
     rulePort: 'Port',
     ruleNetwork: 'Network',
     ruleProtocol: 'Protocol',
