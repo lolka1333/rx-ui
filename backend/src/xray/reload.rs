@@ -396,6 +396,22 @@ async fn apply_routing(state: &AppState) -> RoutingApply {
     // branch re-pushes the current rules after adopting one.
 }
 
+/// Cancellation guard around `rebuild_and_restart_inner`.
+///
+/// This runs on the settings-save path, which is reached over HTTP, and the
+/// restart inside it can cut the very connection carrying that save. Dropping
+/// the caller there would skip the re-push of the inbounds and leave the core
+/// serving nobody — see `crate::uncancellable`.
+async fn rebuild_and_restart(state: &AppState, reason: &str, rules_wiped: bool) -> RoutingApply {
+    let owned = state.clone();
+    let reason = reason.to_owned();
+    crate::uncancellable(
+        async move { rebuild_and_restart_inner(&owned, &reason, rules_wiped).await },
+    )
+    .await
+    .unwrap_or_else(|e| RoutingApply::permanent(format!("restart task did not finish: {e}")))
+}
+
 /// Regenerate the bootstrap config, restart xray, and re-push inbounds/outbounds.
 ///
 /// `reason` is logged so a restart is never unattributable — an operator seeing
@@ -408,7 +424,11 @@ async fn apply_routing(state: &AppState) -> RoutingApply {
 /// loses its control channel. If nothing was wiped, the live rules are still
 /// serving traffic and a restart onto a config we couldn't regenerate would be
 /// downtime that changes nothing, so we keep the process running instead.
-async fn rebuild_and_restart(state: &AppState, reason: &str, rules_wiped: bool) -> RoutingApply {
+async fn rebuild_and_restart_inner(
+    state: &AppState,
+    reason: &str,
+    rules_wiped: bool,
+) -> RoutingApply {
     let written = write_bootstrap_config(state).await;
     if let Err(e) = &written {
         if !rules_wiped {

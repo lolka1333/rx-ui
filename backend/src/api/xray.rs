@@ -212,21 +212,31 @@ async fn restart(
     _user: AuthUser,
     State(state): State<AppState>,
 ) -> AppResult<Json<serde_json::Value>> {
-    let _apply = state.xray_apply.lock().await;
-    // Regenerate the bootstrap config from current xray settings first, so a
-    // Freedom/routing strategy change saved via /api/settings applies on this
-    // restart (the live process reloads its config.json on start).
-    // A regen failure is almost always the operator's own config — a geosite
-    // code with a typo, a rule xray won't build — so it is a 400 with what
-    // xray actually said, not a 500.
-    let has_ipv4 = crate::xray::reload::write_bootstrap_config(&state)
-        .await
-        .map_err(|e| AppError::BadRequest(format!("{e:#}")))?;
-    state.xray.restart().await.map_err(AppError::Internal)?;
-    crate::xray::reload::note_live_ipv4(&state, has_ipv4);
-    crate::xray::reload::note_routing_in_sync(&state).await;
-    crate::resync_xray_state(&state).await;
-    clear_geo_apply_pending(&state).await;
+    // Detached, because this endpoint routinely kills its own caller: the
+    // operator who reaches the panel through one of these tunnels loses the
+    // connection the moment the core stops. Run inline, the cancelled handler
+    // would skip the re-sync below and leave xray up with no inbounds at all.
+    // See `crate::uncancellable`.
+    crate::uncancellable(async move {
+        let _apply = state.xray_apply.lock().await;
+        // Regenerate the bootstrap config from current xray settings first, so a
+        // Freedom/routing strategy change saved via /api/settings applies on this
+        // restart (the live process reloads its config.json on start).
+        // A regen failure is almost always the operator's own config — a geosite
+        // code with a typo, a rule xray won't build — so it is a 400 with what
+        // xray actually said, not a 500.
+        let has_ipv4 = crate::xray::reload::write_bootstrap_config(&state)
+            .await
+            .map_err(|e| AppError::BadRequest(format!("{e:#}")))?;
+        state.xray.restart().await.map_err(AppError::Internal)?;
+        crate::xray::reload::note_live_ipv4(&state, has_ipv4);
+        crate::xray::reload::note_routing_in_sync(&state).await;
+        crate::resync_xray_state(&state).await;
+        clear_geo_apply_pending(&state).await;
+        Ok::<(), AppError>(())
+    })
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!("restart task did not finish: {e}")))??;
     Ok(Json(serde_json::json!({ "restarted": true })))
 }
 
@@ -545,19 +555,34 @@ async fn run_geo_refresh(
         // every live connection, which is why the nightly path never takes it.
         let running = state.xray.status().await.running;
         if apply && running {
-            match state.xray.restart().await {
-                Ok(()) => {
-                    restarted = true;
-                    // The new process starts with EMPTY in-memory handlers: the
-                    // bootstrap config carries only the api inbound, and every
-                    // user inbound, client and custom outbound lives in xray's
-                    // HandlerService, pushed over gRPC. Skipping this took the
-                    // whole VPN down until someone restarted xray again by hand.
-                    // Mirrors `/xray/restart`.
-                    crate::xray::reload::note_routing_in_sync(state).await;
-                    crate::resync_xray_state(state).await;
+            // Detached for the same reason as `/xray/restart`: the restart can
+            // cut the operator's own connection, and a cancelled caller would
+            // stop between the restart and the re-sync — see
+            // `crate::uncancellable`.
+            let owned = state.clone();
+            let outcome = crate::uncancellable(async move {
+                match owned.xray.restart().await {
+                    Ok(()) => {
+                        // The new process starts with EMPTY in-memory handlers: the
+                        // bootstrap config carries only the api inbound, and every
+                        // user inbound, client and custom outbound lives in xray's
+                        // HandlerService, pushed over gRPC. Skipping this took the
+                        // whole VPN down until someone restarted xray again by hand.
+                        // Mirrors `/xray/restart`.
+                        crate::xray::reload::note_routing_in_sync(&owned).await;
+                        crate::resync_xray_state(&owned).await;
+                        Ok(())
+                    }
+                    Err(e) => Err(e),
                 }
-                Err(e) => tracing::warn!("geofiles updated but xray restart failed: {e:#}"),
+            })
+            .await;
+            match outcome {
+                Ok(Ok(())) => restarted = true,
+                Ok(Err(e)) => tracing::warn!("geofiles updated but xray restart failed: {e:#}"),
+                Err(e) => {
+                    tracing::warn!("geofiles updated but the restart task did not finish: {e}");
+                }
             }
         }
         // Owed a restart: the files are ahead of what the live process parsed.

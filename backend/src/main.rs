@@ -650,6 +650,34 @@ pub(crate) async fn resync_xray_state(state: &AppState) {
     }
 }
 
+/// Run a critical section on its own task, so a client that goes away cannot
+/// cancel it half-done.
+///
+/// axum drops a handler's future the moment its connection closes. That is
+/// right for ordinary requests and badly wrong for the xray apply sequence:
+/// restarting the core cuts every tunnel it serves, and an operator who
+/// reaches the panel THROUGH one of them has just severed the request that
+/// ordered the restart. The handler is then dropped wherever it had got to —
+/// in practice after the process came back but before `resync_xray_state`
+/// re-pushed the inbounds. Those exist only in xray's memory (the bootstrap
+/// config carries the api inbound and nothing else), so what is left running
+/// is a core serving nobody, and an operator locked out of the panel they
+/// would fix it from.
+///
+/// Spawning detaches the work from the request: awaiting the returned handle
+/// can be cancelled, the task itself still runs to completion.
+///
+/// Deliberately a plain `fn` and not an `async fn` — the spawn has to happen
+/// when the call is made, not when someone first polls it, or a caller dropped
+/// before its first poll would never start the work at all.
+pub(crate) fn uncancellable<F, T>(work: F) -> tokio::task::JoinHandle<T>
+where
+    F: std::future::Future<Output = T> + Send + 'static,
+    T: Send + 'static,
+{
+    tokio::spawn(work)
+}
+
 async fn bootstrap_admin(db: &DbPool) -> anyhow::Result<()> {
     let count = sqlx::query_scalar!("SELECT COUNT(*) FROM users")
         .fetch_one(db)
@@ -684,4 +712,33 @@ async fn bootstrap_admin(db: &DbPool) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+
+    /// The guarantee `uncancellable` exists for. Dropping the caller is exactly
+    /// what axum does to a handler whose client disappeared, and the restart
+    /// sequence disappears its own client by design. Pinned against the helper
+    /// rather than the handler because the real path needs a live xray.
+    #[tokio::test]
+    async fn uncancellable_work_outlives_a_dropped_caller() {
+        let done = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&done);
+        let handle = super::uncancellable(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            flag.store(true, Ordering::SeqCst);
+        });
+        // Already spawned at this point, so dropping the handle abandons the
+        // result — not the work.
+        drop(handle);
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(
+            done.load(Ordering::SeqCst),
+            "work must finish even though nothing awaited it"
+        );
+    }
 }
