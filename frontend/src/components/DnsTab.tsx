@@ -162,24 +162,27 @@ export function DnsTab({ onExternalChange }: Props) {
  *  server list had 88px. It shows under the row that was just changed, which
  *  is the moment it answers a question, and hovering the name gives the same
  *  sentence at any other moment. */
-function RuleRow({
+function RuleCell({
   name,
   hint,
   active,
+  wide,
   children,
 }: {
   name: string;
   hint: string;
-  /** This is the row whose value changed last. */
+  /** This is the setting whose value changed last. */
   active: boolean;
+  /** Takes the whole row: its control is wider than half the card. */
+  wide?: boolean;
   children: ReactNode;
 }) {
   return (
-    <div className="app-dns-rule">
+    <div className={`app-dns-cell${wide ? ' is-wide' : ''}`}>
       <Tooltip title={hint}>
-        <span className="app-dns-rule-name">{name}</span>
+        <span className="app-dns-cell-name">{name}</span>
       </Tooltip>
-      <div className="app-dns-rule-r">{children}</div>
+      <div className="app-dns-cell-ctl">{children}</div>
       {active && <span className="app-dns-hint">{hint}</span>}
     </div>
   );
@@ -260,42 +263,35 @@ function BehaviourSection() {
         <span className="app-dns-sub">{t('settings.dnsBehaviourSub')}</span>
       </div>
 
-      <div className="app-dns-table">
-        {/* One field, two named modes — the switch was called "Спрашивать все
-            сразу", so its OFF state ("по порядку") had no name at all. */}
-        <RuleRow
-          name={t('settings.dnsAskMode')}
-          hint={parallel ? t('settings.dnsAskAllHint') : t('settings.dnsAskOrderHint')}
-          active={touched === 'ask'}
-        >
-          <Form.Item name="xray_dns_parallel_query" noStyle>
-            <AskMode />
-          </Form.Item>
-        </RuleRow>
-
-        <RuleRow
-          name={t('settings.dnsFallbackMode')}
-          hint={fallbackHint}
-          active={touched === 'fallback'}
-        >
-          <Form.Item name="xray_dns_disable_fallback" noStyle>
-            <FallbackMode />
-          </Form.Item>
-          {/* The second half of this control, bound but not drawn. A field with
-              no mounted `Form.Item` is not registered, so antd leaves it out of
-              the values `onFinish` receives — and the backend takes it as
-              `#[serde(default)]`, which would turn every save into a silent
-              reset. Being registered also makes `useWatch` above see the write
-              the segmented does with `setFieldValue`. */}
-          <span className="app-dns-hidden">
-            <Form.Item name="xray_dns_disable_fallback_if_match" noStyle valuePropName="checked">
-              <Switch />
+      {/* Two settings to a row.
+       *
+       * One per row left the right half of the card empty at every width, and
+       * the fallback below is the only control too wide to share. The columns
+       * follow the CARD's width through a container query rather than the
+       * window's: with a sidebar and a browser zoom in play, a viewport
+       * breakpoint was guessing, and it guessed wrong — the block fell back to
+       * name-over-control on screens that had room for two columns.
+       *
+       * The cells always fill their rows (2 + 1 wide + 2, then 2 in the
+       * disclosure). An odd one out would leave a gap showing the grid's own
+       * background, which is what draws the hairlines. */}
+      <div className="app-dns-table app-dns-beh">
+        <div className="app-dns-grid">
+          <RuleCell
+            name={t('settings.dnsAskMode')}
+            hint={parallel ? t('settings.dnsAskAllHint') : t('settings.dnsAskOrderHint')}
+            active={touched === 'ask'}
+          >
+            <Form.Item name="xray_dns_parallel_query" noStyle>
+              <AskMode />
             </Form.Item>
-          </span>
-        </RuleRow>
+          </RuleCell>
 
-        <RuleRow name={t('settings.dnsCacheMode')} hint={cacheHint} active={touched === 'cache'}>
-          <div className="app-dns-rule-line">
+          <RuleCell
+            name={t('settings.dnsCacheMode')}
+            hint={cacheHint}
+            active={touched === 'cache'}
+          >
             <Form.Item name="xray_dns_disable_cache" noStyle>
               <CacheMode />
             </Form.Item>
@@ -310,39 +306,55 @@ function BehaviourSection() {
               </Form.Item>
             </span>
             {/* Bound but not drawn, for the same two reasons as the fallback
-                flag above: it has to reach `onFinish`, and `useWatch` only
+                flag below: it has to reach `onFinish`, and `useWatch` only
                 tracks a field something has registered. */}
             <span className="app-dns-hidden">
               <Form.Item name="xray_dns_serve_stale" noStyle valuePropName="checked">
                 <Switch />
               </Form.Item>
             </span>
-          </div>
-        </RuleRow>
+          </RuleCell>
 
-        <RuleRow
-          name={t('settings.xrayDnsQueryStrategy')}
-          hint={t('settings.xrayDnsQueryStrategyHint')}
-          active={touched === 'strategy'}
-        >
-          <Form.Item name="xray_dns_query_strategy" noStyle>
-            <Select
-              size="small"
-              popupMatchSelectWidth={false}
-              options={DNS_QUERY_STRATEGIES.map((v) => ({ value: v, label: v }))}
-            />
-          </Form.Item>
-        </RuleRow>
+          <RuleCell
+            wide
+            name={t('settings.dnsFallbackMode')}
+            hint={fallbackHint}
+            active={touched === 'fallback'}
+          >
+            <Form.Item name="xray_dns_disable_fallback" noStyle>
+              <FallbackMode />
+            </Form.Item>
+            <span className="app-dns-hidden">
+              <Form.Item name="xray_dns_disable_fallback_if_match" noStyle valuePropName="checked">
+                <Switch />
+              </Form.Item>
+            </span>
+          </RuleCell>
 
-        <RuleRow
-          name={t('settings.xrayDnsUseSystemHosts')}
-          hint={t('settings.xrayDnsUseSystemHostsHint')}
-          active={touched === 'hosts'}
-        >
-          <Form.Item name="xray_dns_use_system_hosts" noStyle valuePropName="checked">
-            <Switch size="small" />
-          </Form.Item>
-        </RuleRow>
+          <RuleCell
+            name={t('settings.xrayDnsQueryStrategy')}
+            hint={t('settings.xrayDnsQueryStrategyHint')}
+            active={touched === 'strategy'}
+          >
+            <Form.Item name="xray_dns_query_strategy" noStyle>
+              <Select
+                size="small"
+                popupMatchSelectWidth={false}
+                options={DNS_QUERY_STRATEGIES.map((v) => ({ value: v, label: v }))}
+              />
+            </Form.Item>
+          </RuleCell>
+
+          <RuleCell
+            name={t('settings.xrayDnsUseSystemHosts')}
+            hint={t('settings.xrayDnsUseSystemHostsHint')}
+            active={touched === 'hosts'}
+          >
+            <Form.Item name="xray_dns_use_system_hosts" noStyle valuePropName="checked">
+              <Switch size="small" />
+            </Form.Item>
+          </RuleCell>
+        </div>
 
         <button
           type="button"
@@ -355,8 +367,8 @@ function BehaviourSection() {
           <span className="app-dns-fold-sub">{extraSummary}</span>
         </button>
 
-        <div className={`app-dns-extra${extraOpen ? '' : ' app-dns-hidden'}`}>
-          <RuleRow
+        <div className={`app-dns-grid app-dns-extra${extraOpen ? '' : ' app-dns-hidden'}`}>
+          <RuleCell
             name={t('settings.xrayDnsClientIp')}
             hint={t('settings.xrayDnsClientIpHint')}
             active={false}
@@ -364,8 +376,8 @@ function BehaviourSection() {
             <Form.Item name="xray_dns_client_ip" noStyle>
               <Input size="small" spellCheck={false} placeholder={t('settings.dnsChipEmpty')} />
             </Form.Item>
-          </RuleRow>
-          <RuleRow
+          </RuleCell>
+          <RuleCell
             name={t('settings.xrayDnsTag')}
             hint={t('settings.xrayDnsTagHint')}
             active={false}
@@ -373,7 +385,7 @@ function BehaviourSection() {
             <Form.Item name="xray_dns_tag" noStyle>
               <Input size="small" spellCheck={false} placeholder={t('settings.dnsChipEmpty')} />
             </Form.Item>
-          </RuleRow>
+          </RuleCell>
         </div>
       </div>
     </section>

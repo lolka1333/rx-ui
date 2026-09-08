@@ -415,49 +415,63 @@
    whose options are named outcomes, and the sentence under it says what the
    chosen one does. That sentence is why the tab no longer needs "hover a name
    for an explanation". */
-/* One line per setting. The explanation used to sit under every control at
-   once: five permanent grey lines that turned a card of five settings into
-   405px, more than half the tab, while the server list — the thing the tab is
-   opened for — had 88px. The sentence now appears under the row that was just
-   changed, and hovering a name gives the same text at any time. */
-.app-dns-rule {
+/* Two settings to a row.
+ *
+ * One per row left the right half of the card empty at every width, and only
+ * the fallback's three options are too wide to share a row. The hairlines are
+ * the grid's own background showing through a 1px gap, which is what lets the
+ * wide cell span without any nth-child arithmetic — and what means the cells
+ * must always fill their rows, or the gap colour shows as a block.
+ *
+ * The column count follows the CARD, not the window. A viewport breakpoint was
+ * guessing at how much room the card actually had, with a 208px sidebar and
+ * the browser's zoom both in the way, and it guessed wrong: the block dropped
+ * to name-over-control on screens with room for two columns. */
+.app-dns-beh {
+  container-type: inline-size;
+}
+.app-dns-grid {
   display: grid;
-  grid-template-columns: 200px minmax(0, 1fr);
-  gap: 6px 18px;
-  align-items: center;
-  padding: 9px 15px;
-  min-height: 44px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1px;
+  background: var(--border);
 }
-.app-dns-rule + .app-dns-rule,
-.app-dns-rule + .app-dns-fold {
-  border-top: 1px solid var(--border);
+@container (min-width: 620px) {
+  .app-dns-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .app-dns-cell.is-wide {
+    grid-column: 1 / -1;
+  }
 }
-.app-dns-rule-name {
-  font-size: 13px;
-  color: var(--text, #f1f5f9);
-  /* The explanation is behind the name now, so say so the way the rest of the
-     panel does — a help cursor, not a text caret. */
+.app-dns-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
+  min-width: 0;
+  padding: 12px 15px;
+  background: var(--surface-2);
+}
+.app-dns-cell-name {
+  font-size: 12.5px;
+  color: var(--text-2, #94a3b8);
+  /* The sentence is behind the name, so say so the way the rest of the panel
+     does — a help cursor, not a text caret. */
   cursor: help;
 }
-.app-dns-rule-r {
+.app-dns-cell-ctl {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
-  min-width: 0;
+  max-width: 100%;
 }
-/* Second row of the grid, under the control rather than under the name. */
-.app-dns-rule > .app-dns-hint {
-  grid-column: 2;
+/* The disclosure's own row sits under a hairline of its own. */
+.app-dns-extra {
+  border-top: 1px solid var(--border);
 }
-/* The TTL sits with the mode it belongs to, on the same line as the control,
-   so "отдавать просроченное" and "сколько держать" read as one setting. */
-.app-dns-rule-line {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-}
+
 .app-dns-ttl {
   display: inline-flex;
   align-items: center;
@@ -512,9 +526,6 @@
   font-size: 11.5px;
   color: var(--text-3, #8a94a6);
 }
-.app-dns-extra {
-  border-top: 1px solid var(--border);
-}
 @media (prefers-reduced-motion: reduce) {
   .app-dns-fold-icon {
     transition: none;
@@ -522,20 +533,6 @@
 }
 
 /* ── Narrow ────────────────────────────────────────────────────────────── */
-
-/* The 200px name column and a three-option segmented stop fitting side by
-   side well before the tab is narrow: the sidebar takes 208px, so a 1200px
-   window leaves the settings card about 460px and "Никуда не идти" runs off
-   its right edge. The name goes above its control from here down. */
-@media (max-width: 1200px) {
-  .app-dns-rule {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 8px;
-  }
-  .app-dns-rule > .app-dns-hint {
-    grid-column: 1;
-  }
-}
 
 @media (max-width: 900px) {
   .app-dns-flow {
