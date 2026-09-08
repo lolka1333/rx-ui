@@ -167,6 +167,7 @@ function RuleCell({
   hint,
   active,
   wide,
+  inline,
   children,
 }: {
   name: string;
@@ -175,10 +176,14 @@ function RuleCell({
   active: boolean;
   /** Takes the whole row: its control is wider than half the card. */
   wide?: boolean;
+  /** Name and control on one line. For a control that cannot be stretched to
+   *  fill a cell — a lone switch left one two-thirds empty and twice as tall
+   *  as it needed to be. */
+  inline?: boolean;
   children: ReactNode;
 }) {
   return (
-    <div className={`app-dns-cell${wide ? ' is-wide' : ''}`}>
+    <div className={`app-dns-cell${wide ? ' is-wide' : ''}${inline ? ' is-inline' : ''}`}>
       <Tooltip title={hint}>
         <span className="app-dns-cell-name">{name}</span>
       </Tooltip>
@@ -340,12 +345,14 @@ function BehaviourSection() {
               <Select
                 size="small"
                 popupMatchSelectWidth={false}
+                style={{ width: '100%' }}
                 options={DNS_QUERY_STRATEGIES.map((v) => ({ value: v, label: v }))}
               />
             </Form.Item>
           </RuleCell>
 
           <RuleCell
+            inline
             name={t('settings.xrayDnsUseSystemHosts')}
             hint={t('settings.xrayDnsUseSystemHostsHint')}
             active={touched === 'hosts'}
@@ -401,6 +408,7 @@ function AskMode({ value, onChange }: { value?: boolean; onChange?: (v: boolean)
   const { t } = useTranslation();
   return (
     <Segmented
+      block
       size="small"
       value={value ? 'all' : 'order'}
       onChange={(next: string) => onChange?.(next === 'all')}
@@ -431,6 +439,7 @@ function FallbackMode({ value, onChange }: { value?: boolean; onChange?: (v: boo
 
   return (
     <Segmented
+      block
       size="small"
       value={mode}
       onChange={(next: string) => {
@@ -459,6 +468,7 @@ function CacheMode({ value, onChange }: { value?: boolean; onChange?: (v: boolea
 
   return (
     <Segmented
+      block
       size="small"
       value={mode}
       onChange={(next: string) => {

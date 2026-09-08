@@ -465,7 +465,30 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
-  max-width: 100%;
+  /* Full width, and the control inside it takes that width. Left at their
+     natural size the controls sat against the left edge of a half-card cell
+     and the rest of it was empty: a two-option segmented used 190px of 450,
+     the strategy select 80. */
+  width: 100%;
+}
+.app-dns-cell-ctl > .ant-form-item,
+.app-dns-cell-ctl .ant-segmented {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* A lone switch cannot be stretched, so the cell becomes a row instead: name
+   at the left, switch at the right edge, one line rather than two. */
+.app-dns-cell.is-inline {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 44px;
+}
+.app-dns-cell.is-inline .app-dns-cell-ctl {
+  width: auto;
+  flex: none;
 }
 /* The disclosure's own row sits under a hairline of its own. */
 .app-dns-extra {
