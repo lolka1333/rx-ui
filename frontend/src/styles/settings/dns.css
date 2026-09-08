@@ -674,31 +674,26 @@
 /* A switch and its name on one line, with the explanation under the name —
    antd's vertical layout put the label above and the switch below, which cost
    two rows and read as two separate things. */
-.app-dns-form-switch {
+/* The two per-server flags, side by side. Content-sized so they sit next to
+   each other rather than each owning a row with a switch stranded at the far
+   edge; they wrap only when the sheet is too narrow to hold both. */
+.app-dns-form-flags {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 9px 0;
+  gap: 10px 28px;
+  padding: 2px 0;
 }
-/* The description must not run under the switch, and it must not stretch to
-   a line so long that the eye loses the row it belongs to. */
-.app-dns-form-switch > span:first-child {
-  max-width: 62ch;
+.app-dns-form-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
 }
-.app-dns-form-switch + .app-dns-form-switch {
-  border-top: 1px solid var(--border);
-}
-.app-dns-form-switch-name {
-  display: block;
-  font-size: 13.5px;
-}
-.app-dns-form-switch-desc {
-  display: block;
-  margin-top: 2px;
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--text-3, #8a94a6);
+.app-dns-form-flag-name {
+  font-size: 13px;
+  color: var(--text-2, #94a3b8);
+  cursor: help;
 }
 
 @media (max-width: 560px) {

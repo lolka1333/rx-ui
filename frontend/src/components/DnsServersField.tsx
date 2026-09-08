@@ -36,6 +36,7 @@ import {
   Select,
   Switch,
   Tag,
+  Tooltip,
 } from 'antd';
 import type { FormInstance, MenuProps } from 'antd';
 import {
@@ -621,35 +622,34 @@ function ServerForm({
       </div>
 
       <div className="app-dns-form-group">
-        {/* No heading: "Не подхватывать чужие домены" and "Ответ окончателен"
-            already say what "Место в списке" was introducing, and the line it
-            took was 26px in a sheet that had too many of them.
+        {/* Two flags on one line, explanation behind the name.
          *
-         * Switch rows, not "label above, switch below": the label and the thing
-            it controls belong on one line. */}
-        <div className="app-dns-form-switch">
-          <span>
-            <span className="app-dns-form-switch-name">
-              {t('settings.dnsServerSkipFallback')}
-            </span>
-            <span className="app-dns-form-switch-desc">
-              {t('settings.dnsServerSkipFallbackHint')}
-            </span>
-          </span>
-          <Form.Item name="skip_fallback" noStyle valuePropName="checked">
-            <Switch size="small" />
-          </Form.Item>
-        </div>
-        <div className="app-dns-form-switch">
-          <span>
-            <span className="app-dns-form-switch-name">{t('settings.dnsServerFinalQuery')}</span>
-            <span className="app-dns-form-switch-desc">
-              {t('settings.dnsServerFinalQueryHint')}
-            </span>
-          </span>
-          <Form.Item name="final_query" noStyle valuePropName="checked">
-            <Switch size="small" />
-          </Form.Item>
+         * They were two rows of name-over-description with the switch pushed
+         * to the far edge: 160px, the largest block left in a sheet that ran
+         * 799px with everything open. Each is one boolean and its name says
+         * which; the sentence that qualifies it is a hover away, which is the
+         * same bargain the behaviour card on the tab itself makes. */}
+        <div className="app-dns-form-flags">
+          <label className="app-dns-form-flag">
+            <Form.Item name="skip_fallback" noStyle valuePropName="checked">
+              <Switch size="small" />
+            </Form.Item>
+            <Tooltip title={t('settings.dnsServerSkipFallbackHint')}>
+              <span className="app-dns-form-flag-name">
+                {t('settings.dnsServerSkipFallback')}
+              </span>
+            </Tooltip>
+          </label>
+          <label className="app-dns-form-flag">
+            <Form.Item name="final_query" noStyle valuePropName="checked">
+              <Switch size="small" />
+            </Form.Item>
+            <Tooltip title={t('settings.dnsServerFinalQueryHint')}>
+              <span className="app-dns-form-flag-name">
+                {t('settings.dnsServerFinalQuery')}
+              </span>
+            </Tooltip>
+          </label>
         </div>
       </div>
 
