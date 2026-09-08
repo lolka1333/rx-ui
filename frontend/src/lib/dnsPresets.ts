@@ -32,6 +32,21 @@ export const DNS_PRESETS: DnsPreset[] = [
 
 export const DNS_PRESET_BY_VALUE = new Map(DNS_PRESETS.map((p) => [p.value, p]));
 
+/** The three starts offered on an empty list and in the add-button menu.
+ *
+ *  A subset of `DNS_PRESETS`, deliberately: the full list is a reference an
+ *  operator scrolls once they know what they want, and a first-run choice of
+ *  ten spellings of four providers is not a choice. These are the three
+ *  answers to "I just need a resolver" — encrypted and off-tunnel, plain and
+ *  familiar, or the machine's own — and the labels are translated, unlike the
+ *  provider names in `DNS_PRESETS`, because they describe a decision rather
+ *  than name a company. */
+export const DNS_RECIPES: { address: string; labelKey: string }[] = [
+  { address: 'https+local://1.1.1.1/dns-query', labelKey: 'dnsRecipeDohLocal' },
+  { address: '8.8.8.8', labelKey: 'dnsRecipeGoogle' },
+  { address: 'localhost', labelKey: 'dnsRecipeSystem' },
+];
+
 /** `dns.queryStrategy`: which address families the resolver may answer with.
  *  Mirrors `resolveQueryStrategy` in the core; `UseIP` is its default. */
 export const DNS_QUERY_STRATEGIES = ['UseIP', 'UseIPv4', 'UseIPv6', 'UseSystem'] as const;

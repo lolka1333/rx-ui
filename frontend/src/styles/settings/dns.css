@@ -1,15 +1,124 @@
-/* DNS tab: the server table, the static-answers rows and the behaviour strip.
+/* DNS tab: the status line, the three numbered stages, the resolver list and
+ * the behaviour card.
  *
  * The tab is deliberately NOT built from the page's two-column field rows. A
  * row with a paragraph beside every control is right for four settings and
  * wrong for fourteen — the resolver's six switches ran six paragraphs deep and
  * pushed the server list, the only thing an operator opens this tab for, below
- * the fold. Here the prose lives in tooltips and the geometry is a table. */
+ * the fold.
+ *
+ * What the geometry says, and why it is a flow and not three cards in a row:
+ * xray answers a query in a fixed order — the static entries first, then the
+ * servers top-down, under the rules that govern the whole list. The tab is laid
+ * out in that order, numbered, on one rail. Before, the entries sat UNDER the
+ * servers and only a subtitle said they are answered first.
+ */
 
 .app-dns {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 20px;
+}
+
+/* ── The status line ───────────────────────────────────────────────────── */
+
+/* One line, not a card. It replaces two things: the master-switch plaque that
+   took ~90px of the top of the tab to say on/off, and the warning banner that
+   appeared above the content whenever the resolver was configured but never
+   asked. Both were about the same question — is this setup in effect right now
+   — so both are answered in one sentence, with the dot carrying the state. */
+.app-dns-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 2px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.app-dns-status-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  cursor: pointer;
+}
+.app-dns-status-txt {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.app-dns-status-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 500;
+}
+.app-dns-status-sub {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-2, #94a3b8);
+}
+.app-dns-status-act {
+  margin-left: auto;
+  align-self: center;
+  flex: none;
+}
+.app-dns-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--text-3, #64748b);
+}
+.app-dns-dot.is-ok {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.15);
+}
+.app-dns-dot.is-warn {
+  background: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
+}
+
+/* ── The flow: three numbered stages on one rail ───────────────────────── */
+
+.app-dns-flow {
+  position: relative;
+  padding-left: 34px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+/* The rail runs behind the numbers; each number's own fill covers it, so the
+   line reads as connecting them rather than crossing them. The fill has to be
+   the settings container's colour, which is what sits behind this tab. */
+.app-dns-flow::before {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 12px;
+  bottom: 12px;
+  width: 1px;
+  background: var(--border);
+}
+.app-dns-stage {
+  position: relative;
+}
+.app-dns-stage-n {
+  position: absolute;
+  left: -34px;
+  top: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 23px;
+  height: 23px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface, #131c2e);
+  font-size: 11px;
+  color: var(--text-3, #8a94a6);
+  font-variant-numeric: tabular-nums;
 }
 
 .app-dns-section {
@@ -53,52 +162,63 @@
   font-size: 12px;
   color: var(--text-3, #8a94a6);
 }
-/* Inside a cell the same line has a column to fit into, so it clips like the
-   address above it rather than wrapping the row taller than its neighbours. */
-.app-dns-cell .app-dns-sub {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
 
+/* ── Empty states ──────────────────────────────────────────────────────── */
+
+/* An empty list is where an operator is most stuck, so it is the one place
+   that offers to do the work: the presets that were reachable only as
+   autocomplete inside the add dialog are buttons here. */
 .app-dns-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 15px;
   font-size: 12.5px;
-  opacity: 0.5;
-  padding: 2px 0 4px;
+  color: var(--text-3, #8a94a6);
 }
-
-/* ── The table ─────────────────────────────────────────────────────────── */
-
-/* The card, the row rhythm, the header, the number cell and the drag states
-   are shared with the routing table — see settings/table.css. What follows is
-   what only the resolver list needs.
-
-   Every data column is proportional with a floor. Fixed widths plus one `1fr`
-   looked right and wasn't: at panel width the fixed ones ate the row and the
-   flexible column — the domains, the whole point of the table — collapsed to
-   zero, so its chips spilled over its neighbours. */
-.app-dns-tr {
-  grid-template-columns:
-    26px minmax(140px, 1.5fr) minmax(120px, 1.7fr)
-    minmax(92px, 1.05fr) minmax(74px, 0.75fr) 32px;
-}
-/* The address row: the transport is secondary, so it is the part that gives up
-   width when the column is tight. */
-.app-dns-cell-addr {
-  flex-direction: row;
-  align-items: baseline;
+.app-dns-recipes {
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
-.app-dns-cell-addr .app-dns-addr {
-  flex: 0 1 auto;
+
+/* ── The server list ───────────────────────────────────────────────────── */
+
+/* The card, the row rhythm, the number cell and the drag states are shared
+   with the routing table — see settings/table.css.
+ *
+ * There are no data columns any more. A five-column table has to size itself
+ * for the server that carries rules, so the ordinary server — an address and
+ * nothing else — paid for that with three columns of "—". Now the row is the
+ * address and its role, and a second line appears only under a server that has
+ * something on it. A plain list stays one line per server; a configured one
+ * shows every value it carries, instead of hiding nine of them behind the row
+ * menu. */
+.app-dns-tr {
+  grid-template-columns: 26px minmax(0, 1fr) 30px;
 }
-.app-dns-cell-addr .app-dns-sub {
-  flex: 0 1 auto;
+.app-dns-srv {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
   min-width: 0;
 }
+.app-dns-srv-l1 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+.app-dns-srv-l2 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
 /* One line, clipped: a DoH URL wrapped mid-token turned the row into three
-   lines of broken text for no gain — the tail is the least informative part,
-   the whole value is on hover and in the edit sheet. */
+   lines of broken text for no gain — the whole value is on hover and in the
+   edit sheet. */
 .app-dns-addr {
   font-family: var(--font-mono);
   font-size: 12.5px;
@@ -106,21 +226,138 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.app-dns-port,
-.app-dns-muted {
+.app-dns-port {
   color: var(--text-3, #8a94a6);
 }
-.app-dns-dash {
+/* How the query travels. The badge is the transport; the words beside it are
+   the part that actually costs something — a plain `https://` resolver sends
+   its queries back through routing, so on a relay the lookup goes down the
+   same tunnel as the traffic it is resolving for. */
+.app-dns-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.6em;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   color: var(--text-3, #8a94a6);
-  opacity: 0.6;
+  flex: none;
 }
+[data-theme='light'] .app-dns-badge {
+  background: rgba(15, 23, 42, 0.05);
+}
+.app-dns-wire {
+  font-size: 11.5px;
+  color: var(--text-3, #8a94a6);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The role: what this server is FOR, in the list it is actually in. Two
+   servers with no domain list are not peers — the first answers everything,
+   the rest are only reached when it fails — and the old table showed both as
+   "всё остальное", which is what made a fallback look like a second opinion. */
+.app-dns-role {
+  display: inline-flex;
+  align-items: center;
+  height: 21px;
+  padding: 0 8px;
+  margin-left: auto;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 11.5px;
+  color: var(--text-2, #94a3b8);
+  white-space: nowrap;
+  flex: none;
+}
+.app-dns-role.is-own {
+  color: #8b88f5;
+  border-color: rgba(99, 102, 241, 0.4);
+  background: rgba(99, 102, 241, 0.1);
+}
+.app-dns-role.is-rest {
+  color: var(--text, #f1f5f9);
+  border-color: var(--border-strong, #2a3a5c);
+}
+/* Dashed, because a fallback is conditional: it answers only if the one above
+   it did not. */
+.app-dns-role.is-back {
+  color: var(--text-3, #8a94a6);
+  border-style: dashed;
+}
+/* A server the current switches have made unreachable. Amber rather than red:
+   nothing is broken, it just will not be asked. */
+.app-dns-role.is-dead {
+  color: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.4);
+  background: rgba(245, 158, 11, 0.08);
+}
+.app-dns-tr.is-dead .app-dns-addr {
+  opacity: 0.55;
+}
+
+/* The generated line under a row: who it stands in for, or why it will never
+   be reached. This is the whole point of computing the role — the switches at
+   the bottom of the tab change what the list means, and until now they changed
+   nothing on screen. */
+.app-dns-hint {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-3, #8a94a6);
+}
+.app-dns-hint.is-warn {
+  color: #f59e0b;
+}
+
+/* Answer filters read as words, not icons: "только geoip:ru" says what the
+   list does, where a green tick beside it did not. */
+.app-dns-tags .ant-tag.app-dns-t-ok {
+  color: #4ade80;
+  border-color: rgba(34, 197, 94, 0.35);
+  background: rgba(34, 197, 94, 0.08);
+}
+.app-dns-tags .ant-tag.app-dns-t-no {
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.08);
+}
+/* A flag is a phrase, not a matcher, so it keeps the UI face. */
+.app-dns-tags .ant-tag.app-dns-t-word {
+  font-family: inherit;
+}
+
 .app-dns-tr .ant-dropdown-trigger {
   justify-self: end;
 }
 
-/* Static answers ride the same card, two ordinary fields per row: a bordered
-   control is the only thing that says "type here", and the panel draws every
-   other input that way. */
+/* A whole strip above the list, for the one switch that invalidates it: with
+   "все сразу" the order is not a fallback chain any more. */
+.app-dns-strip {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 13px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2, #94a3b8);
+}
+[data-theme='light'] .app-dns-strip {
+  background: rgba(15, 23, 42, 0.04);
+}
+
+/* ── Static answers ────────────────────────────────────────────────────── */
+
+/* Two ordinary fields per row: a bordered control is the only thing that says
+   "type here", and the panel draws every other input that way. */
 .app-dns-hr-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1.2fr) 32px;
@@ -149,197 +386,240 @@
   font-family: var(--font-mono);
   font-size: 12.5px;
 }
-
-
-/* ── Behaviour: one card, not six rows ─────────────────────────────────── */
-
-.app-dns-behaviour {
-  background: var(--surface-2);
-  border-radius: 12px;
-  padding: 13px 15px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+/* The key is a matcher, and which KIND of matcher changes what it does — a
+   `geosite:` key covers a whole category, a bare name covers one host. The
+   prefix already says so; the badge just stops it being read as part of the
+   name. */
+.app-dns-host-key .ant-input-prefix {
+  margin-inline-end: 8px;
 }
-
-
-.app-dns-chips {
+/* Answering a name into the void is what the block is mostly used for
+   (ad blocking), so the row says that rather than leaving the operator to
+   recognise 127.0.0.1. The tag shares the cell with the values control, which
+   takes whatever the tag leaves. */
+.app-dns-host-val {
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-/* A chip is a labelled value that happens to be editable: the name stays
-   muted, the control carries no frame of its own, and the chip's own border is
-   the only edge. */
-.app-dns-chip {
-  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 10px;
-  min-height: 32px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-}
-/* The two free-text chips take the row's leftover width instead of leaving
-   half of it blank on a wide screen — and an address or a tag is exactly the
-   kind of value that benefits from room to type.
-   The LAST of them carries no cap, so the row always ends flush with the card
-   instead of stopping a hand's width short of it. */
-.app-dns-chip-grow {
-  flex: 1 1 220px;
-  max-width: 460px;
-}
-.app-dns-chips > *:last-child.app-dns-chip-grow,
-.app-dns-chips > *:last-child .app-dns-chip-grow {
-  max-width: none;
-}
-.app-dns-chip-grow .ant-input {
+  gap: 7px;
   min-width: 0;
 }
-.app-dns-chip:focus-within {
-  border-color: var(--border-strong, #2a3a5c);
+.app-dns-host-val .ant-select {
+  flex: 1 1 auto;
+  min-width: 0;
 }
-.app-dns-chip-name {
-  font-size: 12px;
-  color: var(--text-3, #8a94a6);
-  white-space: nowrap;
-  /* The tooltip lives on the name, so say so the way the rest of the panel
-     does — a help cursor, not a text caret. */
-  cursor: help;
-}
-.app-dns-chip .ant-select,
-.app-dns-chip .ant-input-number {
-  min-width: 74px;
-}
-.app-dns-chip .ant-input {
-  min-width: 132px;
-}
-.app-dns-chip .ant-input,
-.app-dns-chip .ant-input-number-input,
-.app-dns-chip .ant-select-selection-item {
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-}
-.app-dns-chip .ant-select-selection-item {
-  font-family: inherit;
+.app-dns-void {
+  margin: 0;
+  flex: none;
 }
 
+/* ── Behaviour: three named modes, not six negatives ───────────────────── */
+
+/* The six switches were three different subjects — how the servers are asked,
+   what happens when one fails, what is kept — laid out as one undifferentiated
+   grid, and every one of them was phrased as a negation ("Без запасных", "Не
+   кэшировать"), so OFF meant "yes, do it". Here each subject is one control
+   whose options are named outcomes, and the sentence under it says what the
+   chosen one does. That sentence is why the tab no longer needs "hover a name
+   for an explanation". */
 .app-dns-rule {
-  height: 1px;
-  background: var(--border);
-}
-
-/* Plain rows: a switch and its name, nothing drawn around them. Columns are as
-   wide as their content and sit at a fixed gap, so the switches stay next to
-   their labels and line up between rows. The row ends where its last name ends
-   — filling the card to the edge needs something that stretches, and that is
-   exactly what was taken back out. */
-.app-dns-switches {
   display: grid;
-  grid-template-columns: repeat(3, max-content);
-  justify-content: start;
-  gap: 10px 22px;
+  grid-template-columns: 196px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+  padding: 12px 15px;
 }
-@media (min-width: 1560px) {
-  .app-dns-switches {
-    grid-template-columns: repeat(6, max-content);
-  }
+.app-dns-rule + .app-dns-rule,
+.app-dns-rule + .app-dns-fold {
+  border-top: 1px solid var(--border);
 }
-@media (max-width: 760px) {
-  .app-dns-switches {
-    grid-template-columns: repeat(2, max-content);
-  }
+.app-dns-rule-name {
+  font-size: 13px;
+  color: var(--text, #f1f5f9);
+  padding-top: 5px;
 }
-@media (max-width: 460px) {
-  .app-dns-switches {
-    grid-template-columns: max-content;
-  }
+.app-dns-rule-r {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
 }
-.app-dns-switch {
+/* The TTL sits with the mode it belongs to, on the same line as the control,
+   so "отдавать просроченное" and "сколько держать" read as one setting. */
+.app-dns-rule-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.app-dns-ttl {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
-  min-height: 24px;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text-3, #8a94a6);
 }
-.app-dns-switch-name {
-  font-size: 13px;
+.app-dns-ttl .ant-input-number {
+  width: 92px;
+}
+/* Hidden, not unmounted. A `Form.Item` that leaves the tree drops out of the
+   values antd hands to `onFinish` — and every one of these fields carries
+   `#[serde(default)]` on the backend, so a save would quietly reset it to zero
+   or an empty string. That is what used to happen to the expired-entry TTL
+   every time the resolver was saved with stale answers switched off.
+
+   `!important` because this is a utility: the elements it lands on
+   (`app-dns-ttl`, `app-dns-form-trio`) declare a display of their own, and one
+   of them is written further down the file. */
+.app-dns-hidden {
+  display: none !important;
+}
+
+/* The two fields almost nobody sets. Behind a disclosure rather than in the
+   strip at the top, where they sat at the same weight as the query strategy
+   and spent their life reading "не задан". */
+.app-dns-fold {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 12px 15px;
+  border: 0;
+  background: transparent;
   color: var(--text-2, #94a3b8);
-  cursor: help;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.app-dns-fold:hover {
+  color: var(--text, #f1f5f9);
+}
+.app-dns-fold-icon {
+  transition: transform 0.15s ease;
+  color: var(--text-3, #8a94a6);
+}
+.app-dns-fold[aria-expanded='true'] .app-dns-fold-icon {
+  transform: rotate(90deg);
+}
+.app-dns-fold-sub {
+  font-size: 11.5px;
+  color: var(--text-3, #8a94a6);
+}
+.app-dns-extra {
+  border-top: 1px solid var(--border);
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-dns-fold-icon {
+    transition: none;
+  }
 }
 
 /* ── Narrow ────────────────────────────────────────────────────────────── */
 
-@media (max-width: 1000px) {
-  /* No columns to keep, so the row stops being a grid: everything runs on one
-     line and wraps only when it has to. Stacking the cells instead gave a
-     plain server four lines — address, transport, "everything else", and a
-     blank one where its absent filter used to be. */
-  /* Written with both classes: the header IS a row, so a bare `.app-dns-th`
-     loses to the `.app-dns-tr` rule below it and the strip stayed on screen
-     labelling columns that no longer exist. */
-  .app-dns-tr.app-dns-th {
+@media (max-width: 900px) {
+  /* No rail: at this width the 34px indent is a third of a chip's room, and
+     the three numbers move inline with their titles instead. */
+  .app-dns-flow {
+    padding-left: 0;
+    gap: 18px;
+  }
+  .app-dns-flow::before {
     display: none;
   }
-  .app-dns-tr {
-    display: flex;
-    flex-wrap: wrap;
+  .app-dns-stage-n {
+    position: static;
+    width: 19px;
+    height: 19px;
+    font-size: 10.5px;
+  }
+  .app-dns-head {
     align-items: center;
-    column-gap: 9px;
-    row-gap: 5px;
-    padding: 9px 12px;
   }
-  .app-dns-cell {
-    flex: 0 1 auto;
-    flex-direction: row;
-    align-items: baseline;
-    gap: 7px;
-    max-width: 100%;
+  .app-dns-rule {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
   }
-  /* Without its column a dash says nothing — it only added an empty line per
-     value the operator never set. */
-  .app-dns-cell:has(> .app-dns-dash) {
-    display: none;
-  }
-  /* The transport line joins the address instead of sitting under it. */
-  .app-dns-cell .app-dns-sub::before,
-  .app-dns-muted::before {
-    content: '·';
-    margin-right: 7px;
-    opacity: 0.5;
-  }
-  .app-dns-tr .ant-dropdown-trigger {
-    margin-left: auto;
+  .app-dns-rule-name {
+    padding-top: 0;
   }
 }
 @media (max-width: 620px) {
+  .app-dns-tr {
+    grid-template-columns: 20px minmax(0, 1fr) 26px;
+    gap: 10px;
+    padding: 10px 12px;
+  }
+  /* The role leaves the address line and joins the chips: on one line with a
+     long DoH address it left the address about forty pixels to live in. */
+  .app-dns-role {
+    margin-left: 0;
+  }
   .app-dns-hr-row {
     grid-template-columns: minmax(0, 1fr) 32px;
+    row-gap: 7px;
   }
   .app-dns-arrow {
     display: none;
   }
-  .app-dns-hr-row .app-dns-host-values {
+  .app-dns-hr-row .app-dns-host-val {
     grid-column: 1 / 2;
+  }
+  .app-dns-status {
+    flex-wrap: wrap;
+  }
+  .app-dns-status-act {
+    margin-left: 0;
+    flex-basis: 100%;
   }
 }
 
 /* ── The server dialog ─────────────────────────────────────────────────── */
 
-/* Tabs inside the dialog, the way the inbound dialog does it: ten fields in one
-   column made this 888px tall — taller than most screens, and always
-   scrolling. */
-.app-dns-form-tabs .ant-tabs-nav {
-  margin-bottom: 14px;
+/* One column with hairline-separated groups, not two tabs. Tabs were the fix
+   for a 888px-tall single column; grouping plus a disclosure for the three
+   rarely-touched fields is the same fix without the cost of a tab, which is
+   that a value set on the hidden one is a value the operator cannot see. */
+.app-dns-form-group {
+  padding: 16px 0;
+  border-top: 1px solid var(--border);
+}
+.app-dns-form-group:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+.app-dns-form-label {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin-bottom: 9px;
+}
+.app-dns-form-name {
+  font-size: 13px;
+}
+.app-dns-form-sub {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-3, #8a94a6);
+}
+/* What the address will actually do, under the address. The scheme is the one
+   part of a resolver an operator gets wrong silently. */
+.app-dns-read {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 9px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2, #94a3b8);
 }
 
 /* One quick-pick resolver in the address dropdown: transport badge, provider,
    and the address the option actually inserts.
    The three used to sit in a bare <span> with nothing between them, so the
-   list read "Cloudflare1.1.1.1" and "Cloudflarehttps://1.1.1.1/dns-query" —
-   the name and the value fused into one word. The address is what makes two
-   entries of the same provider different, so it gets its own column at the far
-   end rather than a space after the name. */
+   list read "Cloudflare1.1.1.1" — the name and the value fused into one word.
+   The address is what makes two entries of the same provider different, so it
+   gets its own column at the far end rather than a space after the name. */
 .app-dns-opt {
   display: flex;
   align-items: baseline;
@@ -366,12 +646,17 @@
 /* Fields that describe one thing share a row. */
 .app-dns-form-pair {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 116px;
+  grid-template-columns: minmax(0, 1fr) 132px;
   gap: 12px;
 }
 .app-dns-form-duo {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.app-dns-form-trio {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -383,7 +668,9 @@
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  padding: 10px 0;
+  padding: 11px 0;
+}
+.app-dns-form-switch + .app-dns-form-switch {
   border-top: 1px solid var(--border);
 }
 .app-dns-form-switch-name {
@@ -398,72 +685,26 @@
   color: var(--text-3, #8a94a6);
 }
 
-/* How many fields the hidden tab carries. A tab's whole cost is that its
-   values are invisible; this is what pays it back. */
-.app-dns-tab-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-}
-.app-dns-tab-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 17px;
-  height: 17px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: var(--accent, #6366f1);
-  color: #fff;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-}
-
 @media (max-width: 560px) {
   .app-dns-form-pair,
-  .app-dns-form-duo {
+  .app-dns-form-duo,
+  .app-dns-form-trio {
     grid-template-columns: minmax(0, 1fr);
   }
 }
 
-/* ── The master switch ─────────────────────────────────────────────────── */
-
-.app-dns-master {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 13px 15px;
-  background: var(--surface-2);
-  border-radius: 12px;
-  cursor: pointer;
-}
-.app-dns-master-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.app-dns-master-name {
-  font-size: 14px;
-  font-weight: 500;
-}
-.app-dns-master-desc {
-  font-size: 12.5px;
-  line-height: 1.45;
-  color: var(--text-2, #94a3b8);
-}
+/* ── Switched off ──────────────────────────────────────────────────────── */
 
 /* The sections and the space between them — always, whatever the switch says. */
 .app-dns-body {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 20px;
 }
-/* Switched off: everything stays where it is, visibly out of play. Hiding it
-   would read as "your servers are gone". */
+/* Visibly out of play, and still usable. It used to drop to 0.45 and take
+   `pointer-events: none` with it, which read as broken rather than idle and,
+   worse, made the one obvious workflow impossible: build the resolver with the
+   switch off, check it over, then turn it on. */
 .app-dns-off {
-  opacity: 0.45;
-  pointer-events: none;
-  /* Keyboard users would otherwise tab into controls that do nothing. */
-  user-select: none;
+  opacity: 0.62;
 }
