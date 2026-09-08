@@ -415,80 +415,93 @@
    whose options are named outcomes, and the sentence under it says what the
    chosen one does. That sentence is why the tab no longer needs "hover a name
    for an explanation". */
-/* Two settings to a row.
+/* One setting to a row: name at the left, the sentence it earns in the middle,
+ * the control at the right edge. That is the shape the rest of the card
+ * already has — the "own resolver" row above, and every server row — so the
+ * block stops being a grid of boxes sitting inside a list of rows.
  *
- * One per row left the right half of the card empty at every width, and only
- * the fallback's three options are too wide to share a row. The hairlines are
- * the grid's own background showing through a 1px gap, which is what lets the
- * wide cell span without any nth-child arithmetic — and what means the cells
- * must always fill their rows, or the gap colour shows as a block.
+ * The two layouts before this both failed on the same axis. Boxed cells left
+ * the control in the top-left corner of a half-card cell with the rest of it
+ * empty; stretching the control to fill that cell turned a two-option
+ * segmented into two 480px buttons with a 12px word centred in each. A row
+ * has no cell to fill: the control is its natural width and the row ends
+ * where the card does.
  *
- * The column count follows the CARD, not the window. A viewport breakpoint was
- * guessing at how much room the card actually had, with a 208px sidebar and
- * the browser's zoom both in the way, and it guessed wrong: the block dropped
- * to name-over-control on screens with room for two columns. */
+ * The column count is gone, so the block no longer re-flows with the card —
+ * five rows at every width, 165px, and only the narrow breakpoint below moves
+ * anything. */
 .app-dns-beh {
   container-type: inline-size;
 }
-.app-dns-grid {
+.app-dns-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 1px;
-  background: var(--border);
+  grid-template-columns: 190px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 14px;
+  padding: 3px 15px;
+  min-height: 32px;
 }
-@container (min-width: 620px) {
-  .app-dns-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .app-dns-cell.is-wide {
-    grid-column: 1 / -1;
-  }
+.app-dns-row + .app-dns-row {
+  border-top: 1px solid var(--border);
 }
-.app-dns-cell {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 7px;
+.app-dns-row-name {
+  grid-area: 1 / 1;
   min-width: 0;
-  padding: 12px 15px;
-  background: var(--surface-2);
-}
-.app-dns-cell-name {
-  font-size: 12.5px;
-  color: var(--text-2, #94a3b8);
+  font-size: 13px;
+  line-height: 18px;
   /* The sentence is behind the name, so say so the way the rest of the panel
      does — a help cursor, not a text caret. */
   cursor: help;
 }
-.app-dns-cell-ctl {
+/* The middle column is empty until a setting is changed, and then it holds
+   that setting's sentence. Empty it must not exist: at the narrow width below
+   it owns a row of its own, and an empty one would add a gap to all five. */
+.app-dns-why {
+  grid-area: 1 / 2;
+  min-width: 0;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-3, #8a94a6);
+}
+.app-dns-why:empty {
+  display: none;
+}
+.app-dns-row-ctl {
+  grid-area: 1 / 3;
+  justify-self: end;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  /* Full width, and the control inside it takes that width. Left at their
-     natural size the controls sat against the left edge of a half-card cell
-     and the rest of it was empty: a two-option segmented used 190px of 450,
-     the strategy select 80. */
-  width: 100%;
-}
-.app-dns-cell-ctl > .ant-form-item,
-.app-dns-cell-ctl .ant-segmented {
-  flex: 1 1 auto;
+  justify-content: flex-end;
+  gap: 6px 10px;
   min-width: 0;
+  /* Nothing here is stretched, but nothing may run away either: the widest
+     control in the block is the fallback's three options at ~440px. */
+  max-width: 560px;
 }
 
-/* A lone switch cannot be stretched, so the cell becomes a row instead: name
-   at the left, switch at the right edge, one line rather than two. */
-.app-dns-cell.is-inline {
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  min-height: 44px;
-}
-.app-dns-cell.is-inline .app-dns-cell-ctl {
-  width: auto;
-  flex: none;
+/* Narrow card: the fixed name column goes, and the row becomes a flex line so
+   that a control with nowhere left to sit wraps under its name instead of
+   squeezing it. Grid could not do that — it would have kept the fallback's
+   three options beside a name broken over two lines. */
+@container (max-width: 700px) {
+  .app-dns-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 3px 12px;
+  }
+  .app-dns-row-name {
+    flex: 0 1 auto;
+    white-space: nowrap;
+  }
+  .app-dns-row-ctl {
+    margin-left: auto;
+  }
+  .app-dns-why {
+    flex: 1 1 100%;
+    order: 3;
+  }
 }
 /* The disclosure's own row sits under a hairline of its own. */
 .app-dns-extra {
