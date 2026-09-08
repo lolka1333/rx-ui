@@ -96,23 +96,24 @@ export function DnsTab({ onExternalChange }: Props) {
           that disappears reads as deleted, and the whole point of the switch is
           that nothing is lost.
 
-          The switch stands beside the name it belongs to. It used to be pushed
-          to the far end of the row, which on a wide card put 1800px of nothing
-          between a control and the words saying what it controls — the same
-          fault the settings below had, and the row is the first thing on the
-          tab, so it set the tone for all of it. */}
+          Name, switch, sentence — the same three columns every setting in the
+          behaviour card stands in, so the control that governs the tab shares a
+          column with the controls it governs. It has been at both ends of this
+          row before: at the far right, 1800px from the words saying what it
+          does, and then hard against the title, which used the width no better.
+          Neither lined up with anything. */}
       <div className="app-dns-status">
-        <div className="app-dns-status-head">
-          {/* `htmlFor` rather than wrapping: a label around the switch would
-              take the click twice. `button` is labelable, so this forwards. */}
-          <label className="app-dns-status-name" htmlFor="xray_dns_enabled">
-            {/* Only for the one state worth a colour. A dot beside a switch
-                that already reads on/off was two indicators arguing about the
-                same thing; the amber one earns its place because nothing else
-                on the line says "configured but never asked". */}
-            {inert && <span className="app-dns-dot is-warn" aria-hidden="true" />}
-            {t('settings.dnsEnabled')}
-          </label>
+        {/* `htmlFor` rather than wrapping: a label around the switch would
+            take the click twice. `button` is labelable, so this forwards. */}
+        <label className="app-dns-status-name" htmlFor="xray_dns_enabled">
+          {/* Only for the one state worth a colour. A dot beside a switch that
+              already reads on/off was two indicators arguing about the same
+              thing; the amber one earns its place because nothing else on the
+              line says "configured but never asked". */}
+          {inert && <span className="app-dns-dot is-warn" aria-hidden="true" />}
+          {t('settings.dnsEnabled')}
+        </label>
+        <div className="app-dns-status-ctl">
           <Form.Item name="xray_dns_enabled" noStyle valuePropName="checked">
             <Switch id="xray_dns_enabled" />
           </Form.Item>

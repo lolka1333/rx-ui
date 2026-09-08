@@ -18,6 +18,16 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
+  /* One set of columns for the whole tab. The status line at the top and every
+     setting in the behaviour card share them, so the master switch stands in
+     the same column as the controls it presides over and the sentence about it
+     starts where all the other sentences do. Declared here, used in both
+     places; the behaviour card is its own container, so its queries still key
+     off the card. */
+  container-type: inline-size;
+  --dns-name-col: 196px;
+  --dns-ctl-col: minmax(490px, max-content);
+  --dns-col-gap: 24px;
 }
 
 /* ── The status line ───────────────────────────────────────────────────── */
@@ -28,28 +38,21 @@
    asked. Both were about the same question — is this setup in effect right now
    — so both are answered in one sentence.
  *
- * The switch sits at the FAR END, not in front of the text. Leading with the
- * control pushed the sentence 56px to the right, onto a vertical nothing else
- * on the tab shared — the one line at the top of the page was the one line
- * that lined up with nothing. */
-/* Name, switch and the sentence about them, in that order and all of it on
-   the tab's left edge. The switch used to sit at the far end of the row, which
-   on a 1250px card left 1800px between it and the words it answers to. */
+ * It is also the first row of the tab's grid, not a line of its own: the name,
+ * the switch and the sentence stand in the same three columns the settings
+ * below stand in. The switch was at the far end of the row before, 1800px from
+ * the words it answers to, and then hard against the title, which used the
+ * width no better — it lined up with nothing either way. Now the one control
+ * that governs the tab shares a column with every control on it. */
 .app-dns-status {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 5px;
+  display: grid;
+  grid-template-columns: var(--dns-name-col) var(--dns-ctl-col) minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--dns-col-gap);
   /* The same 15px the cards below put between their edge and their content,
      so the heading, the card contents and this sentence share one edge. */
   padding: 0 15px 14px;
   border-bottom: 1px solid var(--border);
-}
-.app-dns-status-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
 }
 .app-dns-status-name {
   display: flex;
@@ -59,9 +62,13 @@
   font-weight: 500;
   cursor: pointer;
 }
+.app-dns-status-ctl {
+  display: flex;
+  align-items: center;
+}
 /* The sentence and, in the one state that has one, the button that fixes it.
-   The button sits where the sentence ends rather than at the row's far edge,
-   for the same reason the switch does. */
+   The button follows the sentence it answers rather than standing at the far
+   edge of the row. */
 .app-dns-status-sub {
   display: flex;
   flex-wrap: wrap;
@@ -71,6 +78,33 @@
   line-height: 1.45;
   color: var(--text-2, #94a3b8);
 }
+
+/* Narrow tab: the third column can no longer hold a sentence, and this
+   sentence — unlike the ones on the settings below — may never be dropped,
+   since it is the whole state of the tab. It takes a line of its own, and the
+   switch closes up against the name. */
+@container (max-width: 1099px) {
+  .app-dns-status {
+    /* The name column stays, because the settings below keep it too: the
+       switch has to hold the same column as the controls it presides over at
+       this width as well. */
+    grid-template-columns: var(--dns-name-col) minmax(0, max-content);
+    row-gap: 5px;
+  }
+  .app-dns-status-sub {
+    grid-column: 1 / -1;
+  }
+}
+/* Below 700px the settings send their controls under their own names, and a
+   name column that wide would strand the master switch in the middle of the
+   line. It closes up against the name instead. */
+@container (max-width: 699px) {
+  .app-dns-status {
+    grid-template-columns: max-content max-content;
+    column-gap: 12px;
+  }
+}
+
 .app-dns-dot {
   width: 7px;
   height: 7px;
@@ -465,9 +499,9 @@
      fallback's three options, 486px in antd's small size — so the sentence
      column starts at the same x on every row. `max-content` keeps that true
      if a translation grows. */
-  grid-template-columns: 196px minmax(490px, max-content) minmax(0, 1fr);
+  grid-template-columns: var(--dns-name-col) var(--dns-ctl-col) minmax(0, 1fr);
   align-items: center;
-  column-gap: 24px;
+  column-gap: var(--dns-col-gap);
   padding: 0 15px;
   min-height: 42px;
 }
@@ -504,8 +538,7 @@
    other two columns do not move. */
 @container (max-width: 1099px) {
   .app-dns-row {
-    grid-template-columns: 196px minmax(0, max-content);
-    column-gap: 20px;
+    grid-template-columns: var(--dns-name-col) minmax(0, max-content);
   }
   .app-dns-why {
     display: none;
