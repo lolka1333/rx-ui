@@ -415,92 +415,111 @@
    whose options are named outcomes, and the sentence under it says what the
    chosen one does. That sentence is why the tab no longer needs "hover a name
    for an explanation". */
-/* One setting to a row: name at the left, the sentence it earns in the middle,
- * the control at the right edge. That is the shape the rest of the card
- * already has — the "own resolver" row above, and every server row — so the
- * block stops being a grid of boxes sitting inside a list of rows.
+/* Three columns that hold across every row: the name, the control, and the
+ * sentence the current choice earns. Each keeps its own left edge, and there
+ * are only three of those edges in the whole block.
  *
- * The two layouts before this both failed on the same axis. Boxed cells left
- * the control in the top-left corner of a half-card cell with the rest of it
- * empty; stretching the control to fill that cell turned a two-option
- * segmented into two 480px buttons with a 12px word centred in each. A row
- * has no cell to fill: the control is its natural width and the row ends
- * where the card does.
+ * The layout before this pinned controls to the RIGHT edge of the row, so
+ * their left edges landed wherever each control's width put them — on a
+ * 1250px card they staggered across 730px of empty middle. A ragged right
+ * edge reads as the end of content; a ragged left edge reads as a mistake,
+ * and that is what it was called.
  *
- * The column count is gone, so the block no longer re-flows with the card —
- * five rows at every width, 165px, and only the narrow breakpoint below moves
- * anything. */
+ * There is no hairline between rows. One line separates the two groups and
+ * that is the only one in the block: a rule under every row is what makes a
+ * settings list look like a default form, and the alignment does the work
+ * those rules were doing. */
 .app-dns-beh {
   container-type: inline-size;
 }
-.app-dns-row {
-  display: grid;
-  grid-template-columns: 190px minmax(0, 1fr) auto;
-  align-items: center;
-  column-gap: 14px;
-  padding: 3px 15px;
-  min-height: 32px;
+/* A group of settings about one subject. The second is the minor one and is
+   set smaller and tighter, so the block reads as three decisions and two
+   details rather than five equal lines. */
+.app-dns-set {
+  padding: 11px 0 13px;
 }
-.app-dns-row + .app-dns-row {
+.app-dns-set + .app-dns-set {
   border-top: 1px solid var(--border);
 }
-.app-dns-row-name {
-  grid-area: 1 / 1;
-  min-width: 0;
-  font-size: 13px;
-  line-height: 18px;
-  /* The sentence is behind the name, so say so the way the rest of the panel
-     does — a help cursor, not a text caret. */
-  cursor: help;
-}
-/* The middle column is empty until a setting is changed, and then it holds
-   that setting's sentence. Empty it must not exist: at the narrow width below
-   it owns a row of its own, and an empty one would add a gap to all five. */
-.app-dns-why {
-  grid-area: 1 / 2;
-  min-width: 0;
-  font-size: 11.5px;
-  line-height: 1.4;
+.app-dns-set-cap {
+  padding: 0 15px 3px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
   color: var(--text-3, #8a94a6);
 }
-.app-dns-why:empty {
-  display: none;
+.app-dns-set.is-minor {
+  padding: 9px 0 10px;
+}
+
+.app-dns-row {
+  display: grid;
+  /* The control column is as wide as the widest control in the block — the
+     fallback's three options, 486px in antd's small size — so the sentence
+     column starts at the same x on every row. `max-content` keeps that true
+     if a translation grows. */
+  grid-template-columns: 196px minmax(490px, max-content) minmax(0, 1fr);
+  align-items: center;
+  column-gap: 24px;
+  padding: 0 15px;
+  min-height: 42px;
+}
+.app-dns-set.is-minor .app-dns-row {
+  min-height: 34px;
+}
+.app-dns-row-name {
+  font-size: 13px;
+  line-height: 18px;
+  /* The sentence is behind the name wherever the third column is not drawn,
+     so say so the way the rest of the panel does. */
+  cursor: help;
+}
+.app-dns-set.is-minor .app-dns-row-name {
+  font-size: 12.5px;
+  color: var(--text-2, #94a3b8);
 }
 .app-dns-row-ctl {
-  grid-area: 1 / 3;
-  justify-self: end;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
   gap: 6px 10px;
   min-width: 0;
-  /* Nothing here is stretched, but nothing may run away either: the widest
-     control in the block is the fallback's three options at ~440px. */
-  max-width: 560px;
+}
+.app-dns-why {
+  min-width: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-3, #8a94a6);
 }
 
-/* Narrow card: the fixed name column goes, and the row becomes a flex line so
-   that a control with nowhere left to sit wraps under its name instead of
-   squeezing it. Grid could not do that — it would have kept the fallback's
-   three options beside a name broken over two lines. */
+/* Under 1100px the third column is too narrow to hold a sentence rather than
+   a stack of two-word lines, so it goes and the name carries it on hover. The
+   other two columns do not move. */
+@container (max-width: 1099px) {
+  .app-dns-row {
+    grid-template-columns: 196px minmax(0, max-content);
+    column-gap: 20px;
+  }
+  .app-dns-why {
+    display: none;
+  }
+}
+/* Under 700px the name and the widest control cannot share a line at all.
+   Every control drops under its name — every one, not only the control that
+   ran out of room, because a column that holds for three rows out of five is
+   worse than no column. */
 @container (max-width: 700px) {
   .app-dns-row {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 3px 12px;
-  }
-  .app-dns-row-name {
-    flex: 0 1 auto;
-    white-space: nowrap;
+    gap: 4px 16px;
+    padding: 7px 15px;
+    min-height: 38px;
   }
   .app-dns-row-ctl {
-    margin-left: auto;
-  }
-  .app-dns-why {
-    flex: 1 1 100%;
-    order: 3;
+    flex: 1 0 100%;
   }
 }
 /* The disclosure's own row sits under a hairline of its own. */

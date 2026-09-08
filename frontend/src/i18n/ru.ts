@@ -142,6 +142,8 @@ export const ru = {
     // — Блок 3: поведение ——————————————————————————————————————————
     xrayGroupDnsBehaviour: 'Поведение резолвера',
     dnsBehaviourSub: 'действует на весь список выше',
+    dnsGroupHow: 'Как ядро спрашивает',
+    dnsGroupWhat: 'Что спрашивать',
     dnsAskMode: 'Опрос серверов',
     dnsAskOrder: 'По порядку',
     dnsAskAll: 'Все сразу',

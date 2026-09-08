@@ -142,6 +142,8 @@ export const en: Dict = {
     // — Stage 3: behaviour —————————————————————————————————————————
     xrayGroupDnsBehaviour: 'Resolver behaviour',
     dnsBehaviourSub: 'applies to the whole list above',
+    dnsGroupHow: 'How the core asks',
+    dnsGroupWhat: 'What to ask for',
     dnsAskMode: 'Asking the servers',
     dnsAskOrder: 'In order',
     dnsAskAll: 'All at once',

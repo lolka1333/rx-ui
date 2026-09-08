@@ -18,14 +18,15 @@
 //! Second, NAMED OUTCOMES: the six section switches were three separate
 //! subjects written as negations, so "off" meant "yes, do it". They are three
 //! controls now, each listing what will actually happen, with the consequence
-//! shown under the row whose value just moved and behind every name on hover.
+//! standing beside it in a column of its own — and behind the name on hover
+//! where the card is too narrow to carry that column.
 //!
 //! Everything still binds through the parent `Form`, so the page dirty bar and
 //! the save-then-restart prompt keep working untouched.
 
 import { Button, Form, Input, InputNumber, Segmented, Select, Switch, Tooltip } from 'antd';
 import { RightOutlined } from '@ant-design/icons';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { DnsServersField } from '@/components/DnsServersField';
 import { DnsHostsField } from '@/components/DnsHostsField';
@@ -154,30 +155,28 @@ export function DnsTab({ onExternalChange }: Props) {
   );
 }
 
-/** One row of the behaviour card: the setting's name, the consequence of the
- *  choice standing in it, and the control at the right edge.
+/** One row of the behaviour card: the setting's name, its control, and the
+ *  consequence of the choice standing in it — three columns, in that order.
  *
- *  That consequence used to sit under every control at once — five permanent
- *  grey lines that made this card 405px, more than half the tab, while the
- *  server list had 88px. It shows on the row that was just changed, which is
- *  the moment it answers a question, and hovering the name gives the same
- *  sentence at any other moment.
+ *  Every one of the three keeps its own left edge across all five rows. The
+ *  layout before this pinned the controls to the RIGHT edge instead, and their
+ *  left edges then landed wherever each control's width put them: on a 1250px
+ *  card they staggered across 730px of empty middle. A ragged right edge reads
+ *  as the end of content; a ragged left edge reads as a mistake.
  *
- *  It also earns the middle of the row. The previous two layouts were a fight
- *  between the same two complaints — a boxed cell left most of itself empty,
- *  and a control stretched to fill that cell became a pair of 480px buttons —
- *  and a row settles it: the control takes the width it needs at the right
- *  edge, and what fills the gap is a sentence rather than a button. */
+ *  The consequence is always on screen rather than appearing on the row that
+ *  moved last. It is what fills the space to the right of the controls, so the
+ *  block has no empty middle to explain away — and changing a mode rewrites
+ *  the sentence in place, which says more than lighting the row up did. Below
+ *  1100px the third column is too narrow to hold a sentence, and the CSS drops
+ *  it; the name still carries it on hover at every width. */
 function SettingRow({
   name,
   hint,
-  active,
   children,
 }: {
   name: string;
   hint: string;
-  /** This is the setting whose value changed last. */
-  active: boolean;
   children: ReactNode;
 }) {
   return (
@@ -185,10 +184,8 @@ function SettingRow({
       <Tooltip title={hint}>
         <span className="app-dns-row-name">{name}</span>
       </Tooltip>
-      {/* Always rendered, so the three columns line up across rows whether or
-          not this one is the one explaining itself; `:empty` takes it out. */}
-      <span className="app-dns-why">{active ? hint : null}</span>
       <div className="app-dns-row-ctl">{children}</div>
+      <span className="app-dns-why">{hint}</span>
     </div>
   );
 }
@@ -199,11 +196,9 @@ function BehaviourSection() {
   const [extraOpen, setExtraOpen] = useState(false);
 
   // `useWatch` has nothing on the first render — it subscribes in an effect —
-  // so every one of these falls back to the value the form already holds. It
-  // is not cosmetic here: the "changed last" check below compares renders, and
-  // a field that reads empty once and then its real value looks exactly like
-  // the operator having just set it. That is what made the strategy row
-  // explain itself on load, before anyone touched anything.
+  // so every one of these falls back to the value the form already holds. The
+  // sentences below are picked by these values, and a field that reads empty
+  // for one frame would put the wrong sentence on screen and then swap it.
   const w = <T,>(name: string, watched: T | undefined, fallback: T): T =>
     watched ?? (form.getFieldValue(name) as T | undefined) ?? fallback;
   const parallel = w('xray_dns_parallel_query', Form.useWatch<boolean>('xray_dns_parallel_query', form), false);
@@ -211,37 +206,8 @@ function BehaviourSection() {
   const ifMatch = w('xray_dns_disable_fallback_if_match', Form.useWatch<boolean>('xray_dns_disable_fallback_if_match', form), false);
   const noCache = w('xray_dns_disable_cache', Form.useWatch<boolean>('xray_dns_disable_cache', form), false);
   const stale = w('xray_dns_serve_stale', Form.useWatch<boolean>('xray_dns_serve_stale', form), false);
-  const strategy = w('xray_dns_query_strategy', Form.useWatch<string>('xray_dns_query_strategy', form), '');
-  const sysHosts = w('xray_dns_use_system_hosts', Form.useWatch<boolean>('xray_dns_use_system_hosts', form), false);
   const clientIp = (Form.useWatch<string>('xray_dns_client_ip', form) ?? '').trim();
   const tag = (Form.useWatch<string>('xray_dns_tag', form) ?? '').trim();
-
-  // Which row explains itself right now: the one whose value moved last.
-  //
-  // Watching the values rather than wiring a callback through every control
-  // keeps the three segmented components unaware of this, and it catches the
-  // paired flags too — the fallback and cache modes each write a second field
-  // with `setFieldValue`, which no `onChange` of theirs would report.
-  const [touched, setTouched] = useState<string | null>(null);
-  const seen = useRef<Record<string, unknown> | null>(null);
-  const values: Record<string, unknown> = {
-    ask: parallel,
-    fallback: `${noFallback}/${ifMatch}`,
-    cache: `${noCache}/${stale}`,
-    strategy,
-    hosts: sysHosts,
-  };
-  useEffect(() => {
-    const before = seen.current;
-    seen.current = values;
-    // First run only records: the values arriving from the server are not a
-    // change the operator made, and a hint on load would explain nothing.
-    if (!before) return;
-    const moved = Object.keys(values).find((k) => values[k] !== before[k]);
-    if (moved) setTouched(moved);
-    // `values` is rebuilt every render; the watched fields are the real deps.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [parallel, noFallback, ifMatch, noCache, stale, strategy, sysHosts]);
 
   const fallbackHint = noFallback
     ? t('settings.dnsFallbackNoneHint')
@@ -268,80 +234,86 @@ function BehaviourSection() {
         <span className="app-dns-sub">{t('settings.dnsBehaviourSub')}</span>
       </div>
 
+      {/* Two groups, because the five are not one subject: three of them say
+          how the core asks, and two say what it asks for. They are told apart
+          by a quiet caption, by one hairline in the whole block, and by the
+          second group being set smaller and tighter than the first — five rows
+          of identical weight read as a list of five equal things, which these
+          are not. */}
       <div className="app-dns-table app-dns-beh">
-        <SettingRow
-          name={t('settings.dnsAskMode')}
-          hint={parallel ? t('settings.dnsAskAllHint') : t('settings.dnsAskOrderHint')}
-          active={touched === 'ask'}
-        >
-          <Form.Item name="xray_dns_parallel_query" noStyle>
-            <AskMode />
-          </Form.Item>
-        </SettingRow>
+        <div className="app-dns-set">
+          <div className="app-dns-set-cap">{t('settings.dnsGroupHow')}</div>
 
-        <SettingRow name={t('settings.dnsCacheMode')} hint={cacheHint} active={touched === 'cache'}>
-          <Form.Item name="xray_dns_disable_cache" noStyle>
-            <CacheMode />
-          </Form.Item>
-          {/* Hidden rather than unmounted: an unmounted Form.Item drops out of
-              the values antd hands to `onFinish`, and the backend takes the
-              field as `#[serde(default)]` — so saving with stale answers off
-              silently reset this to zero. */}
-          <span className={`app-dns-ttl${stale ? '' : ' app-dns-hidden'}`}>
-            {t('settings.dnsCacheTtl')}
-            <Form.Item name="xray_dns_serve_expired_ttl" noStyle>
-              <InputNumber size="small" min={0} max={86400} step={60} controls={false} />
+          <SettingRow
+            name={t('settings.dnsAskMode')}
+            hint={parallel ? t('settings.dnsAskAllHint') : t('settings.dnsAskOrderHint')}
+          >
+            <Form.Item name="xray_dns_parallel_query" noStyle>
+              <AskMode />
             </Form.Item>
-          </span>
-          {/* Bound but not drawn, for the same two reasons as the fallback flag
-              below: it has to reach `onFinish`, and `useWatch` only tracks a
-              field something has registered. */}
-          <span className="app-dns-hidden">
-            <Form.Item name="xray_dns_serve_stale" noStyle valuePropName="checked">
-              <Switch />
+          </SettingRow>
+
+          {/* The order is the order of a lookup: ask, then what happens when
+              nobody answers, then what is kept from the answer. */}
+          <SettingRow name={t('settings.dnsFallbackMode')} hint={fallbackHint}>
+            <Form.Item name="xray_dns_disable_fallback" noStyle>
+              <FallbackMode />
             </Form.Item>
-          </span>
-        </SettingRow>
+            {/* Bound but not drawn: an unmounted Form.Item drops out of the
+                values antd hands to `onFinish`, and every field here carries
+                `#[serde(default)]` on the backend — so a save would quietly
+                reset it. `useWatch` also only tracks a registered field. */}
+            <span className="app-dns-hidden">
+              <Form.Item name="xray_dns_disable_fallback_if_match" noStyle valuePropName="checked">
+                <Switch />
+              </Form.Item>
+            </span>
+          </SettingRow>
 
-        <SettingRow
-          name={t('settings.dnsFallbackMode')}
-          hint={fallbackHint}
-          active={touched === 'fallback'}
-        >
-          <Form.Item name="xray_dns_disable_fallback" noStyle>
-            <FallbackMode />
-          </Form.Item>
-          <span className="app-dns-hidden">
-            <Form.Item name="xray_dns_disable_fallback_if_match" noStyle valuePropName="checked">
-              <Switch />
+          <SettingRow name={t('settings.dnsCacheMode')} hint={cacheHint}>
+            <Form.Item name="xray_dns_disable_cache" noStyle>
+              <CacheMode />
             </Form.Item>
-          </span>
-        </SettingRow>
+            <span className={`app-dns-ttl${stale ? '' : ' app-dns-hidden'}`}>
+              {t('settings.dnsCacheTtl')}
+              <Form.Item name="xray_dns_serve_expired_ttl" noStyle>
+                <InputNumber size="small" min={0} max={86400} step={60} controls={false} />
+              </Form.Item>
+            </span>
+            <span className="app-dns-hidden">
+              <Form.Item name="xray_dns_serve_stale" noStyle valuePropName="checked">
+                <Switch />
+              </Form.Item>
+            </span>
+          </SettingRow>
+        </div>
 
-        <SettingRow
-          name={t('settings.xrayDnsQueryStrategy')}
-          hint={t('settings.xrayDnsQueryStrategyHint')}
-          active={touched === 'strategy'}
-        >
-          <Form.Item name="xray_dns_query_strategy" noStyle>
-            <Select
-              size="small"
-              popupMatchSelectWidth={false}
-              style={{ width: 136 }}
-              options={DNS_QUERY_STRATEGIES.map((v) => ({ value: v, label: v }))}
-            />
-          </Form.Item>
-        </SettingRow>
+        <div className="app-dns-set is-minor">
+          <div className="app-dns-set-cap">{t('settings.dnsGroupWhat')}</div>
 
-        <SettingRow
-          name={t('settings.xrayDnsUseSystemHosts')}
-          hint={t('settings.xrayDnsUseSystemHostsHint')}
-          active={touched === 'hosts'}
-        >
-          <Form.Item name="xray_dns_use_system_hosts" noStyle valuePropName="checked">
-            <Switch size="small" />
-          </Form.Item>
-        </SettingRow>
+          <SettingRow
+            name={t('settings.xrayDnsQueryStrategy')}
+            hint={t('settings.xrayDnsQueryStrategyHint')}
+          >
+            <Form.Item name="xray_dns_query_strategy" noStyle>
+              <Select
+                size="small"
+                popupMatchSelectWidth={false}
+                style={{ width: 136 }}
+                options={DNS_QUERY_STRATEGIES.map((v) => ({ value: v, label: v }))}
+              />
+            </Form.Item>
+          </SettingRow>
+
+          <SettingRow
+            name={t('settings.xrayDnsUseSystemHosts')}
+            hint={t('settings.xrayDnsUseSystemHostsHint')}
+          >
+            <Form.Item name="xray_dns_use_system_hosts" noStyle valuePropName="checked">
+              <Switch size="small" />
+            </Form.Item>
+          </SettingRow>
+        </div>
 
         <button
           type="button"
@@ -354,12 +326,8 @@ function BehaviourSection() {
           <span className="app-dns-fold-sub">{extraSummary}</span>
         </button>
 
-        <div className={`app-dns-extra${extraOpen ? '' : ' app-dns-hidden'}`}>
-          <SettingRow
-            name={t('settings.xrayDnsClientIp')}
-            hint={t('settings.xrayDnsClientIpHint')}
-            active={false}
-          >
+        <div className={`app-dns-set is-minor${extraOpen ? '' : ' app-dns-hidden'}`}>
+          <SettingRow name={t('settings.xrayDnsClientIp')} hint={t('settings.xrayDnsClientIpHint')}>
             <Form.Item name="xray_dns_client_ip" noStyle>
               <Input
                 size="small"
@@ -369,11 +337,7 @@ function BehaviourSection() {
               />
             </Form.Item>
           </SettingRow>
-          <SettingRow
-            name={t('settings.xrayDnsTag')}
-            hint={t('settings.xrayDnsTagHint')}
-            active={false}
-          >
+          <SettingRow name={t('settings.xrayDnsTag')} hint={t('settings.xrayDnsTagHint')}>
             <Form.Item name="xray_dns_tag" noStyle>
               <Input
                 size="small"
