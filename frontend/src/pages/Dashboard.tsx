@@ -1,4 +1,4 @@
-import { App, Card, Col, Row, Progress, Tag, Grid, Button, theme } from 'antd';
+import { Alert, App, Card, Col, Row, Progress, Tag, Grid, Button, theme } from 'antd';
 import {
   PoweroffOutlined,
   ReloadOutlined,
@@ -150,6 +150,24 @@ export function Dashboard() {
       {/* "Had data, refetch failed" — the numbers below are the last ones that
           arrived, and without this they would sit there looking live. */}
       <LoadStale state={page} />
+      {/* The panel pushes inbounds to the core as protobuf, and that channel
+          has no version handshake: an older core reads the same bytes under an
+          older field numbering and quietly builds something else. Nothing
+          errors, so this banner is the only place it surfaces. */}
+      {data?.xray.proto_too_old && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          title={t('dashboard.coreTooOldTitle', { version: data.xray.version })}
+          description={t('dashboard.coreTooOldDesc')}
+          action={
+            <Button size="small" onClick={() => setUpdatesOpen(true)}>
+              {t('dashboard.coreTooOldAction')}
+            </Button>
+          }
+        />
+      )}
       <ServerInfoCard
         ipv4={data?.system.ipv4 ?? null}
         ipv6={data?.system.ipv6 ?? null}

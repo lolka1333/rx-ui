@@ -126,6 +126,7 @@ interface RuleFormValues {
   // Advanced matchers.
   source_ip?: string[];
   source_port?: string;
+  local_os?: string[];
   inbound_tag?: string[];
   user?: string[];
 }
@@ -139,6 +140,7 @@ const EMPTY_RULE: RoutingRule = {
   source_ip: [],
   port: '',
   source_port: '',
+  local_os: [],
   network: [],
   protocol: [],
   inbound_tag: [],
@@ -160,6 +162,7 @@ function toXrayRule(v: RuleFormValues): Record<string, unknown> {
   if (v.source_port?.trim()) rule.sourcePort = v.source_port.trim();
   if (nonEmpty(v.inbound_tag)) rule.inboundTag = v.inbound_tag;
   if (nonEmpty(v.user)) rule.user = v.user;
+  if (nonEmpty(v.local_os)) rule.localOS = v.local_os;
   rule.outboundTag = v.outbound_tag || '';
   return rule;
 }
@@ -174,7 +177,12 @@ const hasCondition = (v: RuleFormValues): boolean =>
       v.source_ip?.length ||
       v.source_port?.trim() ||
       v.inbound_tag?.length ||
-      v.user?.length,
+      v.user?.length ||
+      // A rule matching only on the core's OS is still a rule with a
+      // condition. Leaving it out here would let one be saved as if it had
+      // none, and xray refuses a condition-less rule outright ("no effective
+      // fields") — taking the whole restart down with it.
+      v.local_os?.length,
   );
 
 /** One kind of matcher plus its values, for the row summary. */
@@ -205,6 +213,7 @@ function summarizeGroups(rule: RoutingRule): CondGroup[] {
     { key: 'settings.ruleProtocol', items: rule.protocol },
     { key: 'settings.ruleInboundTag', items: rule.inbound_tag },
     { key: 'settings.ruleUser', items: rule.user },
+    { key: 'settings.ruleLocalOs', items: rule.local_os ?? [] },
   ];
   return groups.filter((g) => g.items.length > 0);
 }
@@ -1097,6 +1106,7 @@ function RuleModal({
       protocol: v.protocol ?? [],
       inbound_tag: v.inbound_tag ?? [],
       user: v.user ?? [],
+      local_os: v.local_os ?? [],
       outbound_tag: v.outbound_tag,
     });
   };
@@ -1134,6 +1144,7 @@ function RuleModal({
             source_port: initial?.source_port ?? '',
             inbound_tag: initial?.inbound_tag ?? [],
             user: initial?.user ?? [],
+            local_os: initial?.local_os ?? [],
           });
         }
       }}
@@ -1221,12 +1232,32 @@ function RuleModal({
               showSearch={{ optionFilterProp: 'value' }}
             />
           </Form.Item>
-          <Form.Item name="user" label={t('settings.ruleUser')} style={{ marginBottom: 0 }}>
+          <Form.Item name="user" label={t('settings.ruleUser')}>
             <Select
               mode="tags"
               tokenSeparators={[',', ' ']}
               placeholder="user@email"
               options={userEmailOptions}
+              showSearch={{ optionFilterProp: 'value' }}
+            />
+          </Form.Item>
+          {/* Matches the OS the core itself runs on. One panel drives one core
+              on one machine, so this either always matches or never does — it
+              is here for a rule set carried between hosts. */}
+          <Form.Item
+            name="local_os"
+            label={t('settings.ruleLocalOs')}
+            tooltip={t('settings.ruleLocalOsHint')}
+            style={{ marginBottom: 0 }}
+          >
+            <Select
+              mode="tags"
+              tokenSeparators={[',', ' ']}
+              placeholder="linux"
+              options={['linux', 'windows', 'darwin', 'freebsd', 'android'].map((v) => ({
+                value: v,
+                label: v,
+              }))}
               showSearch={{ optionFilterProp: 'value' }}
             />
           </Form.Item>

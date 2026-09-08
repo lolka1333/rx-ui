@@ -134,6 +134,7 @@ export interface OutboundFormValues extends FinalMaskFormFields {
   // resolve a peer named by domain. Both empty ≡ the core's own behaviour.
   wg_pre_shared_key: string;
   wg_domain_strategy: string;
+  wg_remote_dns: string[];
   wg_warp: boolean;
 }
 
@@ -206,6 +207,7 @@ export const OUTBOUND_DEFAULTS: OutboundFormValues = {
   wg_keep_alive: null,
   wg_pre_shared_key: '',
   wg_domain_strategy: '',
+  wg_remote_dns: [],
   wg_warp: false,
   // FinalMask defaults reused verbatim from the inbound form.
   finalmask_kind: INB_DEFAULTS.finalmask_kind,
@@ -326,6 +328,10 @@ function buildSecurity(v: OutboundFormValues): SecurityConfig {
       public_key: v.reality_public_key.trim(),
       short_ids: [v.reality_short_id.trim()],
       fingerprint: v.reality_fingerprint.trim() || 'chrome',
+      // Server-side gates on an inbound; an outbound relay is the client here,
+      // so it has no version window of its own to declare.
+      min_client_ver: '',
+      max_client_ver: '',
       xver: 0,
       spider_x: v.reality_spider_x.trim() || '/',
     };
@@ -400,6 +406,7 @@ export function formToOutbound(
             keep_alive: v.wg_keep_alive ?? 0,
             pre_shared_key: v.wg_pre_shared_key.trim(),
             domain_strategy: v.wg_domain_strategy.trim(),
+            remote_dns: v.wg_remote_dns.map((s) => s.trim()).filter(Boolean),
             // Carried, not edited: a registered tunnel stays a registered one.
             warp: v.wg_warp,
           }
@@ -508,6 +515,7 @@ export function outboundToForm(ob: CustomOutbound): OutboundFormValues {
     d.wg_keep_alive = p.keep_alive || null;
     d.wg_pre_shared_key = p.pre_shared_key;
     d.wg_domain_strategy = p.domain_strategy;
+    d.wg_remote_dns = p.remote_dns ?? [];
     d.wg_warp = p.warp;
   }
 

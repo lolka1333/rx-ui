@@ -69,6 +69,9 @@ pub struct BootstrapSettings {
     /// default stands untouched, which is what every install ran on before
     /// this setting existed.
     pub freedom_allow_private: Vec<String>,
+    /// How long the block rule below waits before it drops the connection, as
+    /// xray's own range spelling. Empty leaves the core's 30~90 seconds alone.
+    pub freedom_block_delay: String,
     /// Operator-defined rules, keyed by id; their order comes from `rule_order`.
     pub custom_rules: Vec<RoutingRule>,
     /// Full evaluation order: system tokens + custom rule ids, first-match-wins.
@@ -209,6 +212,9 @@ fn custom_rule(r: &RoutingRule) -> Value {
     if !r.user.is_empty() {
         m.insert("user".into(), arr(&r.user));
     }
+    if !r.local_os.is_empty() {
+        m.insert("localOS".into(), arr(&r.local_os));
+    }
     m.insert("outboundTag".into(), Value::String(r.outbound_tag.clone()));
     Value::Object(m)
 }
@@ -317,7 +323,13 @@ fn build_direct_outbound(s: &BootstrapSettings) -> Value {
         // traffic that has no default rule — the core's own resolver, whose
         // session carries a tag but no inbound name — and would cut DNS to
         // every private address the operator did not list.
-        rules.push(json!({ "action": "block", "ip": PRIVATE_IP_RANGES }));
+        let mut block = json!({ "action": "block", "ip": PRIVATE_IP_RANGES });
+        // Only on the block rule: the two allow rules have nothing to delay.
+        let delay = s.freedom_block_delay.trim();
+        if !delay.is_empty() {
+            block["blockDelay"] = Value::String(delay.to_owned());
+        }
+        rules.push(block);
         rules.push(json!({ "action": "allow", "network": "tcp,udp" }));
     }
     direct["settings"]["finalRules"] = Value::Array(rules);
@@ -813,6 +825,7 @@ mod tests {
             ipv4_domains: vec![],
             has_reverse_bridge: false,
             freedom_allow_private: Vec::new(),
+            freedom_block_delay: String::new(),
             custom_rules: vec![RoutingRule {
                 id: "r1".into(),
                 enabled: true,
@@ -826,6 +839,7 @@ mod tests {
                 protocol: vec![],
                 inbound_tag: vec![],
                 user: vec![],
+                local_os: vec![],
                 outbound_tag: TAG_DIRECT.into(),
             }],
             // Operator (or a hand-edited DB) dragged a custom rule above the pin.
@@ -881,6 +895,7 @@ mod tests {
             protocol: vec![],
             inbound_tag: vec![],
             user: vec![],
+            local_os: vec![],
             outbound_tag: target.to_owned(),
         }
     }
@@ -896,6 +911,7 @@ mod tests {
             direct_domains: Vec::new(),
             has_reverse_bridge: false,
             freedom_allow_private: Vec::new(),
+            freedom_block_delay: String::new(),
             dns: DnsSettings::default(),
             ipv4_domains: vec![],
             custom_rules,
@@ -1022,6 +1038,41 @@ mod tests {
         assert_eq!(rules[1]["network"], "tcp,udp");
     }
 
+    /// The delay rides on the block rule and nowhere else: the two allow rules
+    /// have nothing to delay, and putting a `blockDelay` on one would be a key
+    /// the core reads for a rule that never blocks.
+    #[test]
+    fn a_block_delay_lands_on_the_block_rule_only() {
+        let mut s = base(vec![], vec![]);
+        s.has_reverse_bridge = true;
+        s.freedom_allow_private = vec!["192.168.1.10/32".into()];
+        s.freedom_block_delay = "30-90".into();
+        let cfg = build_bootstrap_config(&s);
+        let rules = cfg["outbounds"][0]["settings"]["finalRules"]
+            .as_array()
+            .expect("finalRules emitted")
+            .clone();
+        for r in &rules {
+            if r["action"] == "block" {
+                assert_eq!(r["blockDelay"], "30-90");
+            } else {
+                assert!(r["blockDelay"].is_null(), "allow rule carries a delay: {r}");
+            }
+        }
+    }
+
+    /// Unset means the key is absent, which is what leaves the core on its own
+    /// 30~90 seconds. An emitted "0-0" would mean "block instantly" instead.
+    #[test]
+    fn no_block_delay_emits_no_key() {
+        let mut s = base(vec![], vec![]);
+        s.has_reverse_bridge = true;
+        let cfg = build_bootstrap_config(&s);
+        let block = cfg["outbounds"][0]["settings"]["finalRules"][0].clone();
+        assert_eq!(block["action"], "block");
+        assert!(block["blockDelay"].is_null());
+    }
+
     /// The allow-list reopens exactly what it names and nothing else. In
     /// particular it does NOT restate the private-range block: unmatched
     /// destinations fall through to the core's own default rule, which already
@@ -1130,6 +1181,9 @@ mod tests {
         r3.source_ip = vec!["geoip:private".into()];
         r3.port = "443,8080-8090".into();
         r3.user = vec!["user@example.com".into()];
+        // Added in xray v26.9.8. An older core parses the key and ignores it,
+        // so this assertion only bites on a core new enough to have it.
+        r3.local_os = vec!["linux".into(), "windows".into()];
 
         let s = BootstrapSettings {
             freedom_strategy: "AsIs".into(),
@@ -1141,8 +1195,12 @@ mod tests {
             direct_domains: Vec::new(),
             dns: DnsSettings::default(),
             ipv4_domains: vec!["geosite:netflix".into()],
-            has_reverse_bridge: false,
-            freedom_allow_private: Vec::new(),
+            // Both on, so the `direct` outbound emits the full finalRules set:
+            // an allow for the listed private range, then the block rule that
+            // carries `blockDelay`, then the tunnelled-traffic allow.
+            has_reverse_bridge: true,
+            freedom_allow_private: vec!["192.168.1.10/32".into()],
+            freedom_block_delay: "30-90".into(),
             custom_rules: vec![r1, r2, r3, rule("r4", false, "blocked")],
             rule_order: vec![],
         };

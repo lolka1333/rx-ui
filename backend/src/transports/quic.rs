@@ -113,6 +113,17 @@ impl QuicParams {
             bbr_profile: self.bbr_profile.clone().unwrap_or_default(),
             brutal_up: self.brutal_up_mbps.unwrap_or(0),
             brutal_down: self.brutal_down_mbps.unwrap_or(0),
+            // Four switches xray v26.9.8 added to this message. The panel does
+            // not model them yet, and `false` is the core's own default for
+            // every one of them, so the emitted config is unchanged — they are
+            // named rather than left to `..default()` because this struct is
+            // exhaustively initialised on purpose: the compiler is what caught
+            // the v26.9.8 renumbering, and it can only do that while every
+            // field is spelled out.
+            brutal_disable_loss_compensation: false,
+            disable_chrome_parrot: false,
+            disable_gso: false,
+            disable_stateless_reset: false,
             udp_hop: self.udp_hop.as_ref().map(|h| XrayUdpHop {
                 ports: h.ports.clone(),
                 interval_min: h.interval_min,

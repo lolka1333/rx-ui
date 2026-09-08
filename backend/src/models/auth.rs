@@ -78,6 +78,13 @@ pub struct RoutingRule {
     pub protocol: Vec<String>,
     pub inbound_tag: Vec<String>,
     pub user: Vec<String>,
+    /// Matches the OS xray itself is running on (`runtime.GOOS`: "linux",
+    /// "windows", "darwin", ...). One panel drives one core on one machine, so
+    /// a rule keyed on this either always matches or never does — it earns its
+    /// place only in a config shared between hosts, which is why it is offered
+    /// among the advanced matchers rather than beside the everyday ones.
+    #[serde(default)]
+    pub local_os: Vec<String>,
     pub outbound_tag: String,
 }
 
@@ -149,6 +156,12 @@ pub struct PanelSettings {
     /// a connected client cannot touch the server's own network. Same
     /// restart-to-apply rule as the two strategies above.
     pub xray_freedom_allow_private: Vec<String>,
+    /// How long `direct` stalls before dropping a connection it is going to
+    /// block, as xray writes a range: `"30-90"`, or a single `"45"`. An instant
+    /// refusal tells a prober that something decided; a stall looks like an
+    /// unreachable host. Empty ≡ the core's own 30~90 seconds. Restart to
+    /// apply, like the strategies above.
+    pub xray_freedom_block_delay: String,
     /// URL the "test outbound" button fetches from the server to confirm
     /// the egress reaches the internet. Stored only; not part of the xray
     /// config (a single freedom outbound needs no observatory).
@@ -254,6 +267,8 @@ pub struct PanelSettingsUpdate {
     pub xray_routing_strategy: String,
     #[serde(default)]
     pub xray_freedom_allow_private: Vec<String>,
+    #[serde(default)]
+    pub xray_freedom_block_delay: String,
     pub xray_test_url: String,
     pub xray_block_bittorrent: bool,
     pub xray_blocked_ips: Vec<String>,

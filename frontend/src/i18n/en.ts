@@ -230,6 +230,10 @@ export const en: Dict = {
     xrayFreedomAllowPrivate: 'LAN access',
     xrayFreedomAllowPrivateHint: "Private ranges a client may reach through direct. The core blocks all of them by default so a tunnel cannot become a way into the server's network. Empty keeps that block whole. Applies after an xray restart.",
     xrayFreedomAllowPrivatePlaceholder: '192.168.1.10/32',
+    xrayFreedomBlockDelay: 'Delay before blocking',
+    xrayFreedomBlockDelayHint:
+      'How long the core holds a connection before dropping it on a block rule. An instant refusal is itself a signal: it says something decided, quickly. A stall looks like an unreachable host. Seconds, or a range like 30-90, up to 600. Empty leaves the core on its own 30~90 seconds. Applies after an xray restart.',
+    xrayFreedomBlockDelayPlaceholder: '30-90',
     xrayRoutingStrategy: 'Routing strategy',
     xrayRoutingStrategyHint: 'domainStrategy: AsIs matches by domain only; IPIfNonMatch/IPOnDemand resolve to IP for geoip.',
     xrayTestUrl: 'Outbound test URL',
@@ -324,6 +328,9 @@ export const en: Dict = {
     ruleSourcePort: 'Source port',
     ruleInboundTag: 'Inbound',
     ruleUser: 'User (email)',
+    ruleLocalOs: 'The core’s own OS',
+    ruleLocalOsHint:
+      'Matches the system xray itself runs on. One panel drives one core on one machine, so a rule keyed on this either always matches or never does — it earns its place only in a rule set carried between hosts.',
     rulePreview: 'Rule preview (xray)',
     // Account section — field groups
     groupInfo: 'Account information',
@@ -456,6 +463,10 @@ export const en: Dict = {
     xrayStop: 'Stop',
     xrayRestart: 'Restart',
     xrayNotInstalled: 'not installed',
+    coreTooOldTitle: 'Core {{version}} is older than this panel expects',
+    coreTooOldDesc:
+      'v26.9.8 renumbered fields in the protocol. The panel pushes inbounds to the core over gRPC, and an older core reads the same bytes under its own numbering — QUIC and Hysteria inbounds will either fail to start or silently pick up the wrong settings. Update the core to v26.9.8 or newer.',
+    coreTooOldAction: 'Update the core',
     xrayStartedToast: 'Xray started',
     xrayStoppedToast: 'Xray stopped',
     xrayRestartedToast: 'Xray restarted',
@@ -486,6 +497,10 @@ export const en: Dict = {
     wgPreSharedKey: 'Peer pre-shared key',
     wgPreSharedKeyHint: 'An extra shared secret (wg genpsk). Leave empty unless the peer uses one — where it does, a missing or wrong value means the handshake never completes.',
     wgDomainStrategy: 'Peer domain resolution',
+    wgRemoteDns: 'DNS through the tunnel',
+    wgRemoteDnsHint:
+      'Resolvers the core reaches over this tunnel when it resolves names on its behalf. Empty means it resolves them the way it resolves everything else, which is around the tunnel: the provider handed out its own resolvers and the lookups still leave by the front door.',
+    wgRemoteDnsPlaceholder: 'address + Enter',
     wgDomainStrategyHint: 'Only bites when the peer is named by domain. By default the core picks at random among every A and AAAA, which on a half-broken IPv6 path is a tunnel that comes up every other time.',
     wgDomainStrategyDefault: 'Default (any address)',
     wgReserved: 'reserved',
@@ -788,6 +803,14 @@ export const en: Dict = {
     fingerprint: 'Fingerprint',
     tlsFingerprintTooltip: 'uTLS ClientHello profile the client emulates; rides in the share-link as fp=. Match it to what your client app actually negotiates so a fleet of identical handshakes doesn\'t stand out.',
     realitySpiderX: 'SpiderX (spx)',
+    realityMinClientVer: 'Minimum client version',
+    realityMinClientVerTooltip:
+      'Clients older than this are refused the handshake. Empty is not “any client”: since 26.7.11 the core fills in 26.3.27 itself, and this field is the only way to let older ones back in. Up to three dot-separated numbers, each 0 to 255.',
+    realityMaxClientVer: 'Maximum client version',
+    realityMaxClientVerTooltip:
+      'Upper bound on the client version. Empty means no bound, which is the default and almost always what you want.',
+    realityClientVerPlaceholder: '26.3.27',
+    realityClientVerNone: 'no bound',
     realitySpiderXTooltip: 'Crawl path the client walks on the real destination after an unverified handshake — anti-active-probing camouflage. Sent to clients as spx=. Default "/".',
     xver: 'PROXY ver.',
     xverTooltip: 'PROXY-protocol version for forwarding the client\'s original IP: 0 disables it, 1 or 2 selects the wire format.',

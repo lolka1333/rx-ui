@@ -153,6 +153,26 @@ export function RealityTab({ editing, onRotate, rotating }: RealityTabProps) {
         <Input placeholder="/" />
       </Form.Item>
 
+      {/* Empty is not "any client": since xray v26.7.11 the core fills in
+          26.3.27 by itself, so an old client is refused and this pair is the
+          only way to say otherwise. */}
+      <SideBySide>
+        <Form.Item
+          name="reality_min_client_ver"
+          label={t('inbounds.realityMinClientVer')}
+          tooltip={t('inbounds.realityMinClientVerTooltip')}
+        >
+          <Input placeholder={t('inbounds.realityClientVerPlaceholder')} />
+        </Form.Item>
+        <Form.Item
+          name="reality_max_client_ver"
+          label={t('inbounds.realityMaxClientVer')}
+          tooltip={t('inbounds.realityMaxClientVerTooltip')}
+        >
+          <Input placeholder={t('inbounds.realityClientVerNone')} />
+        </Form.Item>
+      </SideBySide>
+
       {/* Hidden round-trip fields: the keypair travels in the form so a
           create carries it to the server (which re-derives the public). */}
       <Form.Item name="reality_private_key" noStyle hidden>

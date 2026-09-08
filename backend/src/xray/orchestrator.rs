@@ -28,7 +28,7 @@ use crate::xray::proto::xray::proxy::vless::{Account as VlessAccount, Reverse as
 use crate::xray::proto::xray::proxy::wireguard::{
     DeviceConfig as WireguardDeviceConfig, PeerConfig as WireguardPeerConfig,
 };
-use crate::xray::proto::xray::transport::internet::{ProxyConfig, StreamConfig};
+use crate::xray::proto::xray::transport::internet::{SocketConfig, StreamConfig};
 
 const TYPE_RECEIVER_CONFIG: &str = "xray.app.proxyman.ReceiverConfig";
 const TYPE_SENDER_CONFIG: &str = "xray.app.proxyman.SenderConfig";
@@ -234,6 +234,12 @@ fn outbound_proxy_settings(protocol: &OutboundProtocolConfig) -> anyhow::Result<
                 mtu: w.mtu,
                 reserved: w.reserved.clone(),
                 domain_strategy: wireguard_domain_strategy(&w.domain_strategy)?,
+                dns: w
+                    .remote_dns
+                    .iter()
+                    .map(|s| s.trim().to_owned())
+                    .filter(|s| !s.is_empty())
+                    .collect(),
                 is_client: true,
                 // Userspace only. With a kernel TUN the core would create a
                 // real interface on the host and needs the privileges to do
@@ -266,8 +272,21 @@ pub fn outbound_to_handler_config(ob: &CustomOutbound) -> anyhow::Result<Outboun
     // its OWN ClientHello (the asymmetric half the inbound deliberately omits).
     let (tcpmasks, udpmasks) = ob.finalmask.masks(true);
 
+    // Chain this outbound through another one.
+    //
+    // This used to be `SenderConfig.proxy_settings.tag`. xray v26.9.8 reserved
+    // that field number and left `sockopt.dialerProxy` as the single way to say
+    // it — the two had done the same job for a while, and the sockopt one is
+    // what the core's own JSON config has documented since. Same tag, same
+    // behaviour, different place on the wire.
+    let socket_settings = (!ob.proxy_tag.trim().is_empty()).then(|| SocketConfig {
+        dialer_proxy: ob.proxy_tag.trim().to_owned(),
+        ..SocketConfig::default()
+    });
+
     // Same StreamConfig as inbounds, but the client-side security variant.
     let stream_settings = StreamConfig {
+        socket_settings,
         protocol_name: transport.xray_protocol_name().to_owned(),
         transport_settings: ob.transport.build_xray_transport_settings()?,
         security_type: security.xray_type_url().to_owned(),
@@ -295,12 +314,6 @@ pub fn outbound_to_handler_config(ob: &CustomOutbound) -> anyhow::Result<Outboun
         ..MultiplexingConfig::default()
     });
 
-    // proxySettings.tag — chain through another outbound.
-    let proxy_settings = (!ob.proxy_tag.trim().is_empty()).then(|| ProxyConfig {
-        tag: ob.proxy_tag.trim().to_owned(),
-        ..ProxyConfig::default()
-    });
-
     // sendThrough: an IP literal binds `via`; anything else (CIDR / origin /
     // srcip) rides in `via_cidr`.
     let (via, via_cidr) = parse_send_through(&ob.send_through);
@@ -309,7 +322,6 @@ pub fn outbound_to_handler_config(ob: &CustomOutbound) -> anyhow::Result<Outboun
         via,
         via_cidr,
         stream_settings: Some(stream_settings),
-        proxy_settings,
         multiplex_settings,
         // Outbound domainStrategy is not modeled — always AsIs (0).
         target_strategy: 0,
@@ -816,6 +828,152 @@ mod tests {
         }
     }
 
+    /// The gRPC path against a real core, end to end.
+    ///
+    /// Builds a Hysteria inbound that fills in exactly the two messages xray
+    /// v26.9.8 renumbered — `QuicParams` and the hysteria string masquerade —
+    /// and pushes it into a running xray with `AddInbound`.
+    ///
+    /// This is the test the renumbering needed and did not have. Nothing on
+    /// the wire announces a numbering mismatch: the core either fails to decode
+    /// the message or reads the same bytes as a different setting, and only the
+    /// core can tell us which. Building the proto locally cannot — both sides
+    /// of that comparison come from the same generated code.
+    ///
+    /// Gated like `xray_accepts_generated_config`, plus a certificate, because
+    /// hysteria refuses to build without TLS and xray parses the PEM at push
+    /// time. Self-skips when the vars are unset.
+    ///
+    /// Stop the panel before running it. The core it spawns wants the same API
+    /// port 62789 the panel's own core is already holding, so with the panel up
+    /// this test's xray dies at startup and the push lands on the RUNNING core
+    /// instead — which, if that one is older, fails with the very wire-format
+    /// error this test exists to detect. Confusing in exactly the wrong
+    /// direction: it reads as the bug being back.
+    #[tokio::test]
+    async fn xray_accepts_a_pushed_hysteria_inbound() {
+        let (Ok(bin), Ok(cert_path), Ok(key_path)) = (
+            std::env::var("XRAY_TEST_BIN"),
+            std::env::var("XRAY_TEST_CERT"),
+            std::env::var("XRAY_TEST_KEY"),
+        ) else {
+            eprintln!(
+                "skipping xray_accepts_a_pushed_hysteria_inbound: \
+                 set XRAY_TEST_BIN, XRAY_TEST_CERT and XRAY_TEST_KEY to run"
+            );
+            return;
+        };
+        let cert = std::fs::read_to_string(&cert_path).expect("read cert");
+        let key = std::fs::read_to_string(&key_path).expect("read key");
+
+        // The same bootstrap the panel writes at boot: all this test needs from
+        // it is the dokodemo-door that exposes HandlerService.
+        let boot = crate::xray::config_gen::build_bootstrap_config(
+            &crate::xray::config_gen::BootstrapSettings {
+                freedom_strategy: "AsIs".into(),
+                routing_strategy: "AsIs".into(),
+                block_bittorrent: false,
+                blocked_ips: Vec::new(),
+                blocked_domains: Vec::new(),
+                direct_ips: Vec::new(),
+                direct_domains: Vec::new(),
+                ipv4_domains: Vec::new(),
+                dns: crate::xray::config_gen::DnsSettings::default(),
+                has_reverse_bridge: false,
+                freedom_allow_private: Vec::new(),
+                freedom_block_delay: String::new(),
+                custom_rules: Vec::new(),
+                rule_order: Vec::new(),
+            },
+        );
+        let cfg_path = std::env::temp_dir().join("rxui_push_test_bootstrap.json");
+        std::fs::write(&cfg_path, serde_json::to_vec_pretty(&boot).unwrap()).unwrap();
+
+        let mut child = std::process::Command::new(&bin)
+            .args(["run", "-format", "json", "-config"])
+            .arg(&cfg_path)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn xray");
+
+        // The API listener comes up a moment after the process does; the panel
+        // has the same race at boot and solves it by retrying the first call.
+        let client = crate::xray::grpc::XrayClient::new(crate::xray::grpc::DEFAULT_ENDPOINT);
+        let inbound = inbound_to_handler_config(&hysteria_push_fixture(cert, key), &[])
+            .expect("the fixture must build");
+        let mut last = None;
+        for _ in 0..40 {
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            match client.add_inbound(inbound.clone()).await {
+                Ok(()) => {
+                    last = None;
+                    break;
+                }
+                Err(e) => last = Some(e),
+            }
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+
+        // A core older than v26.9.8 fails here with "cannot parse invalid
+        // wire-format data": it reads `udp_hop` at the number that now holds a
+        // bool. That is the whole point of the test — the message names the
+        // binary so the reason is obvious when it is simply the wrong core.
+        assert!(
+            last.is_none(),
+            "{bin} refused the pushed hysteria inbound: {}",
+            last.map(|e| e.to_string()).unwrap_or_default()
+        );
+    }
+
+    /// A hysteria inbound carrying every field the v26.9.8 renumbering touched:
+    /// the QUIC params from `udp_hop` onwards, and a string masquerade with its
+    /// headers and status code.
+    #[cfg(test)]
+    fn hysteria_push_fixture(cert: String, key: String) -> Inbound {
+        use crate::transports::quic::{QuicParams, UdpHop};
+        let mut inb = hysteria2_tls_inbound(vec![TlsCertificate {
+            source: TlsCertSource::Inline,
+            cert,
+            key,
+            usage: TlsCertUsage::Encipherment,
+            ocsp_stapling: 0,
+            build_chain: false,
+            one_time_loading: false,
+        }]);
+        inb.tag = "hy-push-test".into();
+        inb.transport = TransportConfig::Hysteria(HysteriaTransport {
+            auth: Some("secret".into()),
+            udp_idle_timeout: Some(30),
+            masquerade: crate::transports::hysteria::HysteriaMasquerade::String {
+                content: "hello".into(),
+                headers: std::iter::once(("X-Test".to_owned(), "1".to_owned())).collect(),
+                status_code: 404,
+            },
+            quic_params: Some(QuicParams {
+                congestion: None,
+                bbr_profile: None,
+                brutal_up_mbps: None,
+                brutal_down_mbps: None,
+                udp_hop: Some(UdpHop {
+                    ports: vec![20000, 20001],
+                    interval_min: 30,
+                    interval_max: 60,
+                }),
+                init_stream_receive_window: Some(1 << 20),
+                max_stream_receive_window: Some(1 << 22),
+                init_conn_receive_window: Some(1 << 20),
+                max_conn_receive_window: Some(1 << 22),
+                max_idle_timeout_secs: Some(30),
+                keep_alive_period_secs: Some(10),
+                disable_path_mtu_discovery: true,
+                max_incoming_streams: Some(64),
+            }),
+        });
+        inb
+    }
+
     fn inline_cert() -> TlsCertificate {
         TlsCertificate {
             source: TlsCertSource::Inline,
@@ -851,6 +1009,44 @@ mod tests {
             "TLS with one certificate should build"
         );
     }
+    /// Chaining rides in `sockopt.dialerProxy`, and nowhere else.
+    ///
+    /// It used to be `SenderConfig.proxy_settings.tag`; xray v26.9.8 reserved
+    /// that field number. Nothing failed loudly when the field went away —
+    /// the tag simply stopped being sent — so the destination is pinned here.
+    #[test]
+    fn a_proxy_tag_reaches_the_core_as_dialer_proxy() {
+        let mut ob = hysteria_outbound();
+        ob.proxy_tag = "  upstream  ".into();
+        let cfg = outbound_to_handler_config(&ob).unwrap();
+        let sender: SenderConfig =
+            prost::Message::decode(cfg.sender_settings.unwrap().value.as_slice()).unwrap();
+        let sock = sender
+            .stream_settings
+            .expect("stream settings")
+            .socket_settings
+            .expect("a chained outbound must carry sockopt");
+        assert_eq!(sock.dialer_proxy, "upstream", "tag must be trimmed");
+    }
+
+    /// The other half: no tag, no sockopt. An empty `dialerProxy` is not the
+    /// same as an absent one — the core reads it as "chain through the
+    /// outbound tagged with the empty string" and finds nothing.
+    #[test]
+    fn an_unchained_outbound_carries_no_sockopt() {
+        let cfg = outbound_to_handler_config(&hysteria_outbound()).unwrap();
+        let sender: SenderConfig =
+            prost::Message::decode(cfg.sender_settings.unwrap().value.as_slice()).unwrap();
+        assert!(
+            sender
+                .stream_settings
+                .expect("stream settings")
+                .socket_settings
+                .is_none(),
+            "an outbound with no proxy tag must not emit sockopt"
+        );
+    }
+
     /// Mux is a stream the far end has to speak, and a `WireGuard` peer speaks
     /// `WireGuard`. A value carried over from another protocol must not reach
     /// the handler: the tunnel would dial and then carry nothing.
@@ -870,6 +1066,7 @@ mod tests {
                 reserved: Vec::new(),
                 mtu: 1420,
                 keep_alive: 0,
+                remote_dns: Vec::new(),
                 warp: false,
             }),
             transport: TransportConfig::Tcp(crate::transports::tcp::TcpTransport {}),

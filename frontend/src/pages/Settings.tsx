@@ -1889,6 +1889,7 @@ interface XrayFormValues {
   xray_freedom_strategy: string;
   xray_routing_strategy: string;
   xray_freedom_allow_private: string[];
+  xray_freedom_block_delay: string;
   xray_test_url: string;
   xray_block_bittorrent: boolean;
   xray_blocked_ips: string[];
@@ -2056,6 +2057,7 @@ function XraySection({
           xray_freedom_strategy: values.xray_freedom_strategy,
           xray_routing_strategy: values.xray_routing_strategy,
           xray_freedom_allow_private: values.xray_freedom_allow_private,
+          xray_freedom_block_delay: values.xray_freedom_block_delay,
           xray_test_url: values.xray_test_url,
           xray_block_bittorrent: values.xray_block_bittorrent,
           xray_blocked_ips: values.xray_blocked_ips,
@@ -2098,6 +2100,7 @@ function XraySection({
           values.xray_routing_strategy !== old.xray_routing_strategy ||
           // Lives on the `direct` outbound, which only the bootstrap writes.
           !sameList(values.xray_freedom_allow_private, old.xray_freedom_allow_private) ||
+          values.xray_freedom_block_delay !== old.xray_freedom_block_delay ||
           // The core exposes no DNS service on its gRPC API, so every field of
           // the resolver lives in the config file only until the next load.
           values.xray_dns_enabled !== old.xray_dns_enabled ||
@@ -2226,6 +2229,7 @@ function XraySection({
             xray_freedom_strategy: data.xray_freedom_strategy,
             xray_routing_strategy: data.xray_routing_strategy,
             xray_freedom_allow_private: data.xray_freedom_allow_private ?? [],
+            xray_freedom_block_delay: data.xray_freedom_block_delay ?? '',
             xray_test_url: data.xray_test_url,
             xray_block_bittorrent: data.xray_block_bittorrent,
             xray_blocked_ips: data.xray_blocked_ips,
@@ -2264,6 +2268,7 @@ function XraySection({
             data.xray_freedom_strategy,
             data.xray_routing_strategy,
             data.xray_freedom_allow_private ?? [],
+            data.xray_freedom_block_delay ?? '',
             data.xray_test_url,
             data.xray_block_bittorrent,
             data.xray_blocked_ips,
@@ -2341,6 +2346,22 @@ function XraySection({
                         showSearch={{ optionFilterProp: 'label' }}
                         tokenSeparators={[',', ' ']}
                         placeholder={t('settings.xrayFreedomAllowPrivatePlaceholder')}
+                      />
+                    </Form.Item>
+                    {/* Same outbound, same restart-to-apply rhythm, so it sits
+                        with the two above rather than near the routing lists. */}
+                    <Form.Item
+                      name="xray_freedom_block_delay"
+                      label={
+                        <FieldLabel
+                          title={t('settings.xrayFreedomBlockDelay')}
+                          desc={t('settings.xrayFreedomBlockDelayHint')}
+                        />
+                      }
+                    >
+                      <Input
+                        placeholder={t('settings.xrayFreedomBlockDelayPlaceholder')}
+                        spellCheck={false}
                       />
                     </Form.Item>
                     <Form.Item
@@ -2597,7 +2618,17 @@ function XraySection({
                 forceRender: true,
                 label: t('settings.xrayTabDns'),
                 icon: <GlobalOutlined />,
-                children: <DnsTab />,
+                // The DNS tab's "поставить UseIP" button writes a field this
+                // tab owns, and `setFieldValue` updates antd's store without
+                // firing `onValuesChange` — so the fix landed and the save bar
+                // never appeared. Same recompute, reached directly.
+                children: (
+                  <DnsTab
+                    onExternalChange={() =>
+                      setDirty(differsFromSaved(form.getFieldsValue(true), xrayBaseline))
+                    }
+                  />
+                ),
               },
             ]}
           />

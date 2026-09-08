@@ -15,8 +15,9 @@ use std::collections::BTreeMap;
 use ts_rs::TS;
 
 const TYPE_HYSTERIA_CONFIG: &str = "xray.transport.internet.hysteria.Config";
-// `version` field selects hysteria 1 vs 2; the panel only exposes 2.
-const HYSTERIA_VERSION_2: i32 = 2;
+// Field 1 used to be `version`, selecting hysteria 1 vs 2; the panel only ever
+// sent 2. xray v26.9.8 reserved the number and dropped hysteria 1 with it, so
+// there is nothing left to select.
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "lowercase")]
@@ -119,7 +120,6 @@ impl Transport for HysteriaTransport {
     }
     fn build_settings(&self) -> anyhow::Result<TypedMessage> {
         let mut cfg = XrayHysteriaConfig {
-            version: HYSTERIA_VERSION_2,
             auth: self.auth.clone().unwrap_or_default(),
             udp_idle_timeout: self.udp_idle_timeout.unwrap_or(0),
             ..XrayHysteriaConfig::default()

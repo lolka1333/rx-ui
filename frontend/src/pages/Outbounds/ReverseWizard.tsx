@@ -146,6 +146,7 @@ export function ReverseWizard({
           network: tunnelMode === 'all' ? ['tcp', 'udp'] : [],
           protocol: [],
           inbound_tag: [],
+          local_os: [],
           user: [],
           outbound_tag: tag,
         };

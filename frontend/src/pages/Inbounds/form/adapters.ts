@@ -151,6 +151,8 @@ export function inboundToForm(inb: Inbound): FormValues {
     v.reality_short_ids = r.short_ids;
     v.reality_fingerprint = r.fingerprint;
     v.reality_spider_x = r.spider_x || '/';
+    v.reality_min_client_ver = r.min_client_ver ?? '';
+    v.reality_max_client_ver = r.max_client_ver ?? '';
     v.reality_xver = r.xver;
     v.reality_private_key = r.private_key;
     v.reality_public_key = r.public_key;
@@ -545,6 +547,8 @@ function buildSecurity(v: FormValues): SecurityConfig {
         short_ids: v.reality_short_ids,
         fingerprint: v.reality_fingerprint || 'chrome',
         spider_x: v.reality_spider_x || '/',
+        min_client_ver: v.reality_min_client_ver.trim(),
+        max_client_ver: v.reality_max_client_ver.trim(),
         xver: v.reality_xver,
       };
     case 'tls': {

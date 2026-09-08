@@ -27,6 +27,7 @@ const SUBSCRIPTION_DEFAULTS = {
 const XRAY_DEFAULTS = {
   xray_freedom_strategy: 'AsIs',
   xray_freedom_allow_private: [] as string[],
+  xray_freedom_block_delay: '',
   xray_routing_strategy: 'AsIs',
   xray_test_url: '',
   xray_block_bittorrent: false,
@@ -86,6 +87,8 @@ export function mergePanelSettings(
     xray_freedom_strategy: current?.xray_freedom_strategy ?? XRAY_DEFAULTS.xray_freedom_strategy,
     xray_freedom_allow_private:
       current?.xray_freedom_allow_private ?? XRAY_DEFAULTS.xray_freedom_allow_private,
+    xray_freedom_block_delay:
+      current?.xray_freedom_block_delay ?? XRAY_DEFAULTS.xray_freedom_block_delay,
     xray_routing_strategy: current?.xray_routing_strategy ?? XRAY_DEFAULTS.xray_routing_strategy,
     xray_test_url: current?.xray_test_url ?? XRAY_DEFAULTS.xray_test_url,
     xray_block_bittorrent: current?.xray_block_bittorrent ?? XRAY_DEFAULTS.xray_block_bittorrent,

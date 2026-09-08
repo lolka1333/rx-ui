@@ -122,7 +122,7 @@ pub async fn load_panel_settings(db: &crate::db::DbPool) -> AppResult<PanelSetti
                 sub_update_interval_hours,
                 sub_brand_name, sub_service_url, sub_port,
                 xray_freedom_strategy, xray_routing_strategy, xray_test_url,
-                xray_freedom_allow_private,
+                xray_freedom_allow_private, xray_freedom_block_delay,
                 xray_block_bittorrent, xray_blocked_ips, xray_blocked_domains,
                 xray_direct_ips, xray_direct_domains,
                 xray_dns_enabled, xray_dns_servers, xray_dns_hosts, xray_dns_query_strategy,
@@ -155,6 +155,7 @@ pub async fn load_panel_settings(db: &crate::db::DbPool) -> AppResult<PanelSetti
         xray_freedom_strategy: row.xray_freedom_strategy,
         xray_routing_strategy: row.xray_routing_strategy,
         xray_freedom_allow_private: list(&row.xray_freedom_allow_private),
+        xray_freedom_block_delay: row.xray_freedom_block_delay,
         xray_test_url: row.xray_test_url,
         xray_block_bittorrent: row.xray_block_bittorrent != 0,
         xray_blocked_ips: list(&row.xray_blocked_ips),
@@ -360,6 +361,7 @@ async fn write_panel_row(
                 xray_freedom_strategy = ?,
                 xray_routing_strategy = ?,
                 xray_freedom_allow_private = ?,
+                xray_freedom_block_delay = ?,
                 xray_test_url = ?,
                 xray_block_bittorrent = ?,
                 xray_blocked_ips = ?,
@@ -402,6 +404,7 @@ async fn write_panel_row(
         panel.engine.freedom_strategy,
         panel.engine.routing_strategy,
         panel.engine.allow_private,
+        panel.engine.block_delay,
         panel.engine.test_url,
         xray_bittorrent_i,
         panel.routing.blocked_ips,
@@ -760,6 +763,7 @@ struct XrayEngine {
     routing_strategy: String,
     test_url: String,
     allow_private: String,
+    block_delay: String,
 }
 
 /// Validate the xray engine settings (Freedom/routing `domainStrategy`, test
@@ -802,7 +806,50 @@ fn validate_xray_settings(body: &PanelSettingsUpdate) -> AppResult<XrayEngine> {
         routing_strategy: routing.to_owned(),
         test_url,
         allow_private,
+        block_delay: validate_block_delay(&body.xray_freedom_block_delay)?,
     })
+}
+
+/// Longest stall the panel will ask the core to hold a doomed connection for.
+/// Not an xray limit: a block delay is a socket kept open on purpose, and one
+/// measured in hours is a resource leak wearing a censorship-resistance hat.
+const MAX_BLOCK_DELAY_SECS: u32 = 600;
+
+/// `blockDelay` as xray's `Int32Range` spells it: a number of seconds, or
+/// `"min-max"`. Returned canonicalised to `"min-max"` so the emitted JSON is
+/// unambiguous whichever form the operator typed.
+///
+/// Empty stays empty, and the emitter then omits the key entirely — which is
+/// what leaves the core on its own 30~90 seconds. Writing `"0-0"` instead would
+/// mean "block instantly", the opposite of the default.
+fn validate_block_delay(value: &str) -> AppResult<String> {
+    let v = value.trim();
+    if v.is_empty() {
+        return Ok(String::new());
+    }
+    let bad = || {
+        AppError::BadRequest(format!(
+            "xray_freedom_block_delay must be seconds or a range like 30-90, got '{v}'"
+        ))
+    };
+    let secs = |s: &str| s.trim().parse::<u32>().map_err(|_| bad());
+    let (from, to) = if let Some((a, b)) = v.split_once('-') {
+        (secs(a)?, secs(b)?)
+    } else {
+        let n = secs(v)?;
+        (n, n)
+    };
+    if from > to {
+        return Err(AppError::BadRequest(format!(
+            "xray_freedom_block_delay range runs backwards: '{v}'"
+        )));
+    }
+    if to > MAX_BLOCK_DELAY_SECS {
+        return Err(AppError::BadRequest(format!(
+            "xray_freedom_block_delay must be at most {MAX_BLOCK_DELAY_SECS} seconds"
+        )));
+    }
+    Ok(format!("{from}-{to}"))
 }
 
 /// Validate the routing block (the "basic connections" lists + bittorrent
@@ -1577,6 +1624,7 @@ fn validate_and_clean_rule(
         protocol: clean_entries(&r.protocol),
         inbound_tag: clean_entries(&r.inbound_tag),
         user: clean_entries(&r.user),
+        local_os: clean_entries(&r.local_os),
         outbound_tag: r.outbound_tag.clone(),
     };
     // Only tcp/udp may reach the router. Anything else means the OPPOSITE
@@ -2377,6 +2425,7 @@ mod tests {
             protocol: vec![],
             inbound_tag: vec![],
             user: vec![],
+            local_os: vec![],
             outbound_tag: "direct".to_string(),
         }
     }

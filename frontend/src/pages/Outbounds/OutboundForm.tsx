@@ -272,6 +272,23 @@ export const OutboundForm = memo(function OutboundForm({
           />
         </Form.Item>
 
+        {/* Resolvers reached through the tunnel. Without them the core
+            resolves the tunnel's names the way it resolves everything else,
+            which is what sends the lookups around the tunnel instead of
+            through it. */}
+        <Form.Item
+          name="wg_remote_dns"
+          label={t('outbounds.wgRemoteDns')}
+          tooltip={t('outbounds.wgRemoteDnsHint')}
+        >
+          <Select
+            mode="tags"
+            tokenSeparators={[',', ' ']}
+            placeholder={t('outbounds.wgRemoteDnsPlaceholder')}
+            open={false}
+          />
+        </Form.Item>
+
         <SwitchField name="enabled" labelKey="outbounds.enabled" last />
       </Form>
     );

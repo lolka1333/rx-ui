@@ -11,6 +11,38 @@ use tokio::{
     sync::RwLock,
 };
 
+/// The oldest xray whose protobuf layout matches the definitions vendored under
+/// `backend/proto/`.
+///
+/// v26.9.8 renumbered two messages the panel fills in on every inbound push:
+/// `QuicParams` (a field inserted at 5 shifted everything after it) and
+/// hysteria's `Config` (one inserted at 8 shifted the masquerade fields). The
+/// panel talks to the core in protobuf over gRPC, and that channel carries no
+/// version handshake — an older core decodes the panel's bytes with its own
+/// numbering and either refuses the message or, where the wire types happen to
+/// line up, builds a different setting entirely. Neither end says a word, so
+/// the panel says it instead.
+pub const MIN_XRAY_VERSION: (u32, u32, u32) = (26, 9, 8);
+
+/// `"v26.9.8"` → `(26, 9, 8)`. `None` for anything that is not three numbers,
+/// which covers a custom build with its own version string.
+fn parse_xray_version(tag: &str) -> Option<(u32, u32, u32)> {
+    let mut parts = tag.trim().trim_start_matches('v').split('.');
+    let major = parts.next()?.trim().parse().ok()?;
+    let minor = parts.next()?.trim().parse().ok()?;
+    let patch = parts.next()?.trim().parse().ok()?;
+    Some((major, minor, patch))
+}
+
+/// Whether this core predates the vendored protobuf layout.
+///
+/// An unrecognisable version is NOT reported as too old: a hand-built core is
+/// the operator's business, and a false alarm on every dashboard poll is worse
+/// than staying quiet.
+pub fn version_too_old(tag: &str) -> bool {
+    parse_xray_version(tag).is_some_and(|v| v < MIN_XRAY_VERSION)
+}
+
 #[derive(Clone)]
 pub struct XrayController {
     pub binary: PathBuf,
@@ -192,10 +224,12 @@ impl XrayController {
         // alive so the dashboard doesn't lie if xray crashed out from under us.
         let running = pid.is_some_and(Self::pid_alive);
 
+        let version = self.version().await;
         XrayStatus {
             running,
             pid: if running { pid } else { None },
-            version: self.version().await,
+            proto_too_old: version.as_deref().is_some_and(version_too_old),
+            version,
             started_at: started_at.map(|d| d.to_rfc3339()),
         }
     }
@@ -424,7 +458,28 @@ fn strip_xray_timestamp(line: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_xray_line, strip_xray_timestamp};
+    use super::{parse_xray_line, strip_xray_timestamp, version_too_old};
+
+    /// The comparison is on numbers, not on the string: "26.10.1" is newer than
+    /// "26.9.8" and sorts before it alphabetically.
+    #[test]
+    fn a_core_older_than_the_vendored_protos_is_flagged() {
+        for old in ["v26.7.11", "v26.7.28", "v26.3.27", "v25.12.31", "26.9.7"] {
+            assert!(version_too_old(old), "{old} should be flagged");
+        }
+        for ok in ["v26.9.8", "v26.9.9", "v26.10.1", "v27.0.0", "  v26.9.8  "] {
+            assert!(!version_too_old(ok), "{ok} should pass");
+        }
+    }
+
+    /// A core that does not report three numbers is left alone rather than
+    /// warned about on every dashboard poll.
+    #[test]
+    fn an_unrecognisable_version_is_not_flagged() {
+        for odd in ["", "v", "custom", "v26", "v26.9", "vX.Y.Z", "26.9.8-dev"] {
+            assert!(!version_too_old(odd), "{odd} should not be flagged");
+        }
+    }
 
     #[test]
     fn strips_access_line_timestamp_and_keeps_routing_tag() {

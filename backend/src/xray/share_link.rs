@@ -599,6 +599,8 @@ mod tests {
                 fingerprint: "chrome".into(),
                 xver: 0,
                 spider_x: String::new(),
+                min_client_ver: String::new(),
+                max_client_ver: String::new(),
             }),
         );
         inb.protocol = vless(VlessFlow::XtlsRprxVision);

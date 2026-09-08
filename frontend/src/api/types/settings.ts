@@ -170,6 +170,14 @@ xray_routing_strategy: string,
  */
 xray_freedom_allow_private: Array<string>, 
 /**
+ * How long `direct` stalls before dropping a connection it is going to
+ * block, as xray writes a range: `"30-90"`, or a single `"45"`. An instant
+ * refusal tells a prober that something decided; a stall looks like an
+ * unreachable host. Empty ≡ the core's own 30~90 seconds. Restart to
+ * apply, like the strategies above.
+ */
+xray_freedom_block_delay: string, 
+/**
  * URL the "test outbound" button fetches from the server to confirm
  * the egress reaches the internet. Stored only; not part of the xray
  * config (a single freedom outbound needs no observatory).
@@ -302,7 +310,7 @@ sub_key_set: boolean, };
  * allowlist, log level, etc.) may carry different validation than
  * the read response.
  */
-export type PanelSettingsUpdate = { panel_port: number, panel_base_path: string, sub_enabled: boolean, sub_host_override: string, sub_link_host: string, sub_update_interval_hours: number, sub_brand_name: string, sub_service_url: string, sub_port: number, xray_freedom_strategy: string, xray_routing_strategy: string, xray_freedom_allow_private: Array<string>, xray_test_url: string, xray_block_bittorrent: boolean, xray_blocked_ips: Array<string>, xray_blocked_domains: Array<string>, xray_direct_ips: Array<string>, xray_direct_domains: Array<string>, xray_ipv4_domains: Array<string>, xray_dns_enabled: boolean, xray_dns_servers: Array<DnsServer>, xray_dns_hosts: Array<DnsHost>, xray_dns_query_strategy: string, xray_dns_client_ip: string, xray_dns_tag: string, xray_dns_disable_cache: boolean, xray_dns_disable_fallback: boolean, xray_dns_disable_fallback_if_match: boolean, xray_dns_parallel_query: boolean, xray_dns_use_system_hosts: boolean, xray_dns_serve_stale: boolean, xray_dns_serve_expired_ttl: number, xray_custom_rules: Array<RoutingRule>, xray_rule_order: Array<string>, panel_tls_enabled: boolean, panel_tls_cert: string, 
+export type PanelSettingsUpdate = { panel_port: number, panel_base_path: string, sub_enabled: boolean, sub_host_override: string, sub_link_host: string, sub_update_interval_hours: number, sub_brand_name: string, sub_service_url: string, sub_port: number, xray_freedom_strategy: string, xray_routing_strategy: string, xray_freedom_allow_private: Array<string>, xray_freedom_block_delay: string, xray_test_url: string, xray_block_bittorrent: boolean, xray_blocked_ips: Array<string>, xray_blocked_domains: Array<string>, xray_direct_ips: Array<string>, xray_direct_domains: Array<string>, xray_ipv4_domains: Array<string>, xray_dns_enabled: boolean, xray_dns_servers: Array<DnsServer>, xray_dns_hosts: Array<DnsHost>, xray_dns_query_strategy: string, xray_dns_client_ip: string, xray_dns_tag: string, xray_dns_disable_cache: boolean, xray_dns_disable_fallback: boolean, xray_dns_disable_fallback_if_match: boolean, xray_dns_parallel_query: boolean, xray_dns_use_system_hosts: boolean, xray_dns_serve_stale: boolean, xray_dns_serve_expired_ttl: number, xray_custom_rules: Array<RoutingRule>, xray_rule_order: Array<string>, panel_tls_enabled: boolean, panel_tls_cert: string, 
 /**
  * New private key (PEM). Empty string ≡ keep the stored key — so saving any
  * other settings section doesn't wipe it and the key need only be pasted
@@ -329,7 +337,15 @@ export type RoutingRule = { id: string, enabled: boolean,
 /**
  * Panel-only label; not emitted to xray.
  */
-name: string, domain: Array<string>, ip: Array<string>, source_ip: Array<string>, port: string, source_port: string, network: Array<string>, protocol: Array<string>, inbound_tag: Array<string>, user: Array<string>, outbound_tag: string, };
+name: string, domain: Array<string>, ip: Array<string>, source_ip: Array<string>, port: string, source_port: string, network: Array<string>, protocol: Array<string>, inbound_tag: Array<string>, user: Array<string>, 
+/**
+ * Matches the OS xray itself is running on (`runtime.GOOS`: "linux",
+ * "windows", "darwin", ...). One panel drives one core on one machine, so
+ * a rule keyed on this either always matches or never does — it earns its
+ * place only in a config shared between hosts, which is why it is offered
+ * among the advanced matchers rather than beside the everyday ones.
+ */
+local_os: Array<string>, outbound_tag: string, };
 
 /**
  * A rule the panel emits by itself, as opposed to one the operator wrote.

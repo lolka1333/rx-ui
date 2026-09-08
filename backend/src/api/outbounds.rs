@@ -550,6 +550,7 @@ mod tests {
             reserved: Vec::new(),
             mtu: 0,
             keep_alive: 25,
+            remote_dns: Vec::new(),
             warp: false,
         }
     }

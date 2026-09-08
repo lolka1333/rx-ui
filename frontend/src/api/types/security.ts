@@ -85,7 +85,20 @@ xver: number,
  * share-link-only. Empty defaults to "/". `#[serde(default)]` keeps
  * inbound rows whose stored JSON predates this field deserializing.
  */
-spider_x: string, };
+spider_x: string, 
+/**
+ * Oldest client this server will complete a handshake with, written the
+ * way xray writes it: up to three dot-separated numbers, each 0-255
+ * ("26.3.27"). Empty is NOT "any client" — since v26.7.11 the core fills
+ * in 26.3.27 of its own accord, so anything built before that is refused
+ * and this field is the only way to let it back in.
+ */
+min_client_ver: string, 
+/**
+ * Newest client this server will talk to, same spelling. Empty ≡ no upper
+ * bound, which is the core's default and almost always what you want.
+ */
+max_client_ver: string, };
 
 export type SecurityConfig = { "kind": "none" } & NoneSecurity | { "kind": "tls" } & TlsSecurity | { "kind": "reality" } & RealitySecurity;
 

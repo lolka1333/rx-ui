@@ -124,7 +124,7 @@ pub async fn load_bootstrap_settings(
 ) -> anyhow::Result<config_gen::BootstrapSettings> {
     let row = sqlx::query!(
         "SELECT xray_freedom_strategy, xray_routing_strategy, xray_block_bittorrent,
-                xray_freedom_allow_private,
+                xray_freedom_allow_private, xray_freedom_block_delay,
                 xray_blocked_ips, xray_blocked_domains, xray_ipv4_domains,
                 xray_direct_ips, xray_direct_domains,
                 xray_dns_enabled, xray_dns_servers, xray_dns_hosts, xray_dns_query_strategy,
@@ -183,6 +183,7 @@ pub async fn load_bootstrap_settings(
         },
         has_reverse_bridge,
         freedom_allow_private: parse(&row.xray_freedom_allow_private),
+        freedom_block_delay: row.xray_freedom_block_delay,
         custom_rules,
         rule_order: parse(&row.xray_rule_order),
     })

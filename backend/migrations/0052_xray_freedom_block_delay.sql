@@ -1,0 +1,19 @@
+-- How long the `direct` outbound stalls before it blocks a connection.
+--
+-- xray v26.5.2 added `blockDelay` to a freedom `finalRule` (#6060): instead of
+-- refusing a blocked destination straight away, the core holds the connection
+-- open for a while and only then drops it. An instant refusal is a signal — it
+-- tells whoever is probing that something decided, quickly, not to let them
+-- through. A stall looks like an unreachable host, which is what an
+-- unreachable host looks like.
+--
+-- The core already applies 30~90 seconds of its own to every block rule, so
+-- this column only exists to override that. It is spelled the way xray spells
+-- a range, `"30-90"` or a single `"45"`, and stored as text for the same
+-- reason the port specs are: the JSON config takes that string verbatim, and
+-- parsing it into a pair here would mean two places that have to agree about
+-- what an empty half means.
+--
+-- Empty by default: no key is emitted, and the core keeps the behaviour every
+-- existing install already has.
+ALTER TABLE panel_settings ADD COLUMN xray_freedom_block_delay TEXT NOT NULL DEFAULT '';

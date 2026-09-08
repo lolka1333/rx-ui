@@ -62,6 +62,10 @@ impl WarpRegistration {
             // domain for a strategy to resolve.
             pre_shared_key: String::new(),
             domain_strategy: String::new(),
+            // The edge hands out its own resolvers with the registration, but
+            // nothing here reads them, and inventing a pair would route the
+            // operator's lookups somewhere they did not choose.
+            remote_dns: Vec::new(),
             reserved: self.reserved,
             mtu: WARP_MTU,
             // WARP's edge does not need one, and a keepalive on an idle tunnel

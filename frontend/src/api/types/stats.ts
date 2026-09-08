@@ -76,4 +76,12 @@ export type XrayRelease = { tag: string, published_at: string, prerelease: boole
  */
 asset_url: string | null, asset_size: number | null, };
 
-export type XrayStatus = { running: boolean, pid: number | null, version: string | null, started_at: string | null, };
+export type XrayStatus = { running: boolean, pid: number | null, version: string | null, 
+/**
+ * This core is older than the protobuf layout the panel speaks — see
+ * `xray::control::MIN_XRAY_VERSION`. Inbounds are pushed as protobuf over
+ * gRPC, and that channel carries no version negotiation, so a mismatch is
+ * invisible from both ends: the core decodes the panel's bytes with the
+ * numbering it knows and quietly builds something else.
+ */
+proto_too_old: boolean, started_at: string | null, };

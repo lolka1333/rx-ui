@@ -115,6 +115,7 @@ fn custom_rule_proto(r: &RoutingRule) -> anyhow::Result<PbRule> {
         protocol: r.protocol.clone(),
         inbound_tag: r.inbound_tag.clone(),
         user_email: r.user.clone(),
+        local_os: r.local_os.clone(),
         target_tag: Some(tag(&r.outbound_tag)),
         ..PbRule::default()
     })
@@ -198,6 +199,7 @@ mod tests {
             ipv4_domains: Vec::new(),
             has_reverse_bridge: false,
             freedom_allow_private: Vec::new(),
+            freedom_block_delay: String::new(),
             custom_rules: custom,
             rule_order: order.iter().map(|s| (*s).to_owned()).collect(),
         }
@@ -217,6 +219,7 @@ mod tests {
             protocol: Vec::new(),
             inbound_tag: Vec::new(),
             user: Vec::new(),
+            local_os: Vec::new(),
             outbound_tag: target.to_owned(),
         }
     }

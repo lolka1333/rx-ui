@@ -45,6 +45,43 @@ pub struct RealitySecurity {
     /// inbound rows whose stored JSON predates this field deserializing.
     #[serde(default)]
     pub spider_x: String,
+    /// Oldest client this server will complete a handshake with, written the
+    /// way xray writes it: up to three dot-separated numbers, each 0-255
+    /// ("26.3.27"). Empty is NOT "any client" — since v26.7.11 the core fills
+    /// in 26.3.27 of its own accord, so anything built before that is refused
+    /// and this field is the only way to let it back in.
+    #[serde(default)]
+    pub min_client_ver: String,
+    /// Newest client this server will talk to, same spelling. Empty ≡ no upper
+    /// bound, which is the core's default and almost always what you want.
+    #[serde(default)]
+    pub max_client_ver: String,
+}
+
+/// Read a `minClientVer` / `maxClientVer` the way xray does
+/// (`infra/conf/transport_security.go`): up to three dot-separated numbers,
+/// each fitting in a byte, into a fixed three-byte field. Empty stays empty,
+/// which leaves the core on its own default.
+///
+/// Refused here rather than at core start: REALITY settings ride into xray
+/// inside an inbound push, and a bad value there takes the whole handler down
+/// with a message the operator never sees.
+fn parse_client_ver(field: &str, value: &str) -> anyhow::Result<Vec<u8>> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut out = vec![0u8; 3];
+    for (i, part) in value.split('.').enumerate() {
+        let slot = out
+            .get_mut(i)
+            .ok_or_else(|| anyhow::anyhow!("{field}: at most three parts, got '{value}'"))?;
+        *slot = part
+            .trim()
+            .parse::<u8>()
+            .map_err(|_| anyhow::anyhow!("{field}: '{part}' is not a number between 0 and 255"))?;
+    }
+    Ok(out)
 }
 
 impl RealitySecurity {
@@ -109,6 +146,8 @@ impl Security for RealitySecurity {
             server_names: self.server_names.clone(),
             private_key,
             short_ids,
+            min_client_ver: parse_client_ver("min_client_ver", &self.min_client_ver)?,
+            max_client_ver: parse_client_ver("max_client_ver", &self.max_client_ver)?,
             // `fingerprint` proto field is NOT set here — xray validates
             // it against a whitelist and rejects unknowns. The operator-
             // chosen fingerprint travels via the share-link only (uTLS
@@ -149,5 +188,44 @@ impl Security for RealitySecurity {
             r#type: TYPE_REALITY_CONFIG.to_owned(),
             value: cfg.encode_to_vec(),
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_client_ver;
+
+    /// The three bytes xray compares against, zero-padded — "26" means 26.0.0,
+    /// not "26 and anything after it".
+    #[test]
+    fn a_version_becomes_three_bytes() {
+        assert_eq!(parse_client_ver("f", "26.3.27").unwrap(), vec![26, 3, 27]);
+        assert_eq!(parse_client_ver("f", "26.9").unwrap(), vec![26, 9, 0]);
+        assert_eq!(parse_client_ver("f", "26").unwrap(), vec![26, 0, 0]);
+        assert_eq!(
+            parse_client_ver("f", "  26.3.27  ").unwrap(),
+            vec![26, 3, 27]
+        );
+    }
+
+    /// Empty stays empty so the field is absent from the proto and the core
+    /// keeps its own default. Sending three zero bytes instead would read as
+    /// "accept any client from 0.0.0 up", which is a different setting.
+    #[test]
+    fn empty_leaves_the_core_to_decide() {
+        assert!(parse_client_ver("f", "").unwrap().is_empty());
+        assert!(parse_client_ver("f", "   ").unwrap().is_empty());
+    }
+
+    /// Refused here rather than at core start, where a bad value takes the
+    /// whole inbound down with a message the operator never sees.
+    #[test]
+    fn a_malformed_version_is_refused() {
+        for bad in ["26.3.27.1", "26.3.256", "26.x.1", "v26.3.27", "26..1", "-1"] {
+            assert!(
+                parse_client_ver("min_client_ver", bad).is_err(),
+                "{bad} should be refused"
+            );
+        }
     }
 }

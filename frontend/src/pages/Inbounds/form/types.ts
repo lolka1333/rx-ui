@@ -132,6 +132,8 @@ export interface FormValues {
   // SpiderX crawl path — client-side camouflage walked on the real dest
   // after an unverified handshake. Rides in the share-link as `spx=`.
   reality_spider_x: string;
+  reality_min_client_ver: string;
+  reality_max_client_ver: string;
   reality_xver: number;
   // Reality x25519 keypair — body-carried (generated via
   // POST /api/keygen/reality-keypair) so the public key shows on the create

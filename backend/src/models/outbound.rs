@@ -159,6 +159,13 @@ pub struct WireguardOutbound {
     /// without a matching value the handshake never completes.
     #[serde(default)]
     pub pre_shared_key: String,
+    /// Resolvers reached THROUGH the tunnel, for names resolved on its behalf
+    /// (`remoteDNS` in xray's own config, v26.8.25). Empty ≡ the core resolves
+    /// them the way it resolves everything else, which on a provider that
+    /// hands out its own resolvers is what leaks the lookups around the
+    /// tunnel.
+    #[serde(default)]
+    pub remote_dns: Vec<String>,
     /// How the core resolves a peer named by domain. Empty ≡ the core's own
     /// default (`ForceIP`, which picks at random among every A and AAAA).
     /// `ForceIPv4` / `ForceIPv6` and their `v6v4` / `v4v6` preference forms

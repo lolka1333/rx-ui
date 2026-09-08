@@ -230,6 +230,10 @@ export const ru = {
     xrayFreedomAllowPrivate: 'Доступ в локальную сеть',
     xrayFreedomAllowPrivateHint: 'Приватные диапазоны, куда клиент может ходить через direct. По умолчанию ядро блокирует их все, чтобы туннель не стал входом в сеть сервера. Пусто — блокировка целиком. Применяется после рестарта xray.',
     xrayFreedomAllowPrivatePlaceholder: '192.168.1.10/32',
+    xrayFreedomBlockDelay: 'Задержка перед блокировкой',
+    xrayFreedomBlockDelayHint:
+      'Сколько ядро держит соединение, прежде чем оборвать его по правилу блокировки. Мгновенный отказ сам по себе сигнал: он говорит, что кто-то принял решение. Задержка выглядит как недоступный хост. Секунды или диапазон вида 30-90, максимум 600. Пусто — ядро возьмёт свои 30~90 секунд. Применяется после рестарта xray.',
+    xrayFreedomBlockDelayPlaceholder: '30-90',
     xrayRoutingStrategy: 'Стратегия маршрутизации',
     xrayRoutingStrategyHint: 'domainStrategy: AsIs матчит только по домену, IPIfNonMatch/IPOnDemand резолвят в IP для geoip.',
     xrayTestUrl: 'URL проверки выхода',
@@ -324,6 +328,9 @@ export const ru = {
     ruleSourcePort: 'Порт источника',
     ruleInboundTag: 'Инбаунд',
     ruleUser: 'Пользователь (email)',
+    ruleLocalOs: 'ОС самого ядра',
+    ruleLocalOsHint:
+      'Совпадает с системой, на которой запущен сам xray. У панели одно ядро на одной машине, так что правило по этому полю либо совпадает всегда, либо никогда — смысл появляется, только если набор правил переносится между хостами.',
     rulePreview: 'Превью правила (xray)',
     // Account section — field groups
     groupInfo: 'Информация об учётной записи',
@@ -456,6 +463,10 @@ export const ru = {
     xrayStop: 'Остановить',
     xrayRestart: 'Перезапустить',
     xrayNotInstalled: 'не установлен',
+    coreTooOldTitle: 'Ядро {{version}} старее, чем ожидает панель',
+    coreTooOldDesc:
+      'В v26.9.8 в протоколе сменились номера полей. Панель отдаёт инбаунды ядру по gRPC, и старое ядро прочитает те же байты по своей нумерации — инбаунды на QUIC и Hysteria либо не поднимутся, либо молча получат чужие настройки. Обновите ядро до v26.9.8 или новее.',
+    coreTooOldAction: 'Обновить ядро',
     xrayStartedToast: 'Xray запущен',
     xrayStoppedToast: 'Xray остановлен',
     xrayRestartedToast: 'Xray перезапущен',
@@ -486,6 +497,10 @@ export const ru = {
     wgPreSharedKey: 'Pre-shared key пира',
     wgPreSharedKeyHint: 'Дополнительный общий секрет (wg genpsk). Пусто — если пир его не использует; если использует, без совпадающего значения хендшейк не пройдёт.',
     wgDomainStrategy: 'Резолв домена пира',
+    wgRemoteDns: 'DNS через туннель',
+    wgRemoteDnsHint:
+      'Резолверы, к которым ядро ходит по этому туннелю, когда резолвит для него имена. Пусто — резолвит как обычно, то есть мимо туннеля: провайдер выдал свои резолверы, а запросы всё равно уходят наружу.',
+    wgRemoteDnsPlaceholder: 'адрес + Enter',
     wgDomainStrategyHint: 'Работает, только когда пир задан доменом. По умолчанию ядро берёт случайную запись из всех A и AAAA — на кривом IPv6 это туннель, который поднимается через раз.',
     wgDomainStrategyDefault: 'По умолчанию (любой адрес)',
     wgReserved: 'reserved',
@@ -788,6 +803,14 @@ export const ru = {
     fingerprint: 'Fingerprint',
     tlsFingerprintTooltip: 'Профиль uTLS ClientHello, который эмулирует клиент; уходит в подписку как fp=. Сопоставьте с тем, что реально согласует ваше клиентское приложение, чтобы флот одинаковых рукопожатий не выделялся.',
     realitySpiderX: 'SpiderX (spx)',
+    realityMinClientVer: 'Минимальная версия клиента',
+    realityMinClientVerTooltip:
+      'Клиенты старее этой не пройдут handshake. Пусто — это не «любые»: с версии 26.7.11 ядро само подставляет 26.3.27, и вернуть старых клиентов можно только заполнив это поле. Формат — до трёх чисел через точку, каждое от 0 до 255.',
+    realityMaxClientVer: 'Максимальная версия клиента',
+    realityMaxClientVerTooltip:
+      'Верхняя граница версии клиента. Пусто — без ограничения, это поведение по умолчанию и почти всегда то, что нужно.',
+    realityClientVerPlaceholder: '26.3.27',
+    realityClientVerNone: 'без ограничения',
     realitySpiderXTooltip: 'Путь обхода, который клиент проходит по реальному dest после неподтверждённого handshake — маскировка от активного зондирования. Уходит клиентам как spx=. По умолчанию «/».',
     xver: 'PROXY ver.',
     xverTooltip: 'Версия PROXY-protocol для проброса оригинального IP клиента: 0 — отключено, 1 или 2.',
