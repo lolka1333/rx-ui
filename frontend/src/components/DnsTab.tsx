@@ -91,28 +91,35 @@ export function DnsTab({ onExternalChange }: Props) {
 
   return (
     <div className="app-dns">
-      {/* The master switch, its state and the one warning this tab can raise,
-          all on one line. Off keeps every field below on screen — dimmed, not
-          hidden: a setup that disappears reads as deleted, and the whole point
-          of the switch is that nothing is lost. */}
+      {/* The master switch, its state and the one warning this tab can raise.
+          Off keeps every field below on screen — dimmed, not hidden: a setup
+          that disappears reads as deleted, and the whole point of the switch is
+          that nothing is lost.
+
+          The switch stands beside the name it belongs to. It used to be pushed
+          to the far end of the row, which on a wide card put 1800px of nothing
+          between a control and the words saying what it controls — the same
+          fault the settings below had, and the row is the first thing on the
+          tab, so it set the tone for all of it. */}
       <div className="app-dns-status">
-        {/* `htmlFor` rather than wrapping: the switch is at the far end of the
-            row and the action button sits between the two, and a label that
-            reached around both would make a click on "поставить UseIP" a click
-            on the label as well. */}
-        <label className="app-dns-status-txt" htmlFor="xray_dns_enabled">
-          <span className="app-dns-status-name">
+        <div className="app-dns-status-head">
+          {/* `htmlFor` rather than wrapping: a label around the switch would
+              take the click twice. `button` is labelable, so this forwards. */}
+          <label className="app-dns-status-name" htmlFor="xray_dns_enabled">
             {/* Only for the one state worth a colour. A dot beside a switch
                 that already reads on/off was two indicators arguing about the
                 same thing; the amber one earns its place because nothing else
                 on the line says "configured but never asked". */}
             {inert && <span className="app-dns-dot is-warn" aria-hidden="true" />}
             {t('settings.dnsEnabled')}
-          </span>
-          <span className="app-dns-status-sub">{statusText}</span>
-        </label>
-        {inert && (
-          <span className="app-dns-status-act">
+          </label>
+          <Form.Item name="xray_dns_enabled" noStyle valuePropName="checked">
+            <Switch id="xray_dns_enabled" />
+          </Form.Item>
+        </div>
+        <div className="app-dns-status-sub">
+          {statusText}
+          {inert && (
             <Button
               size="small"
               onClick={() => {
@@ -122,11 +129,8 @@ export function DnsTab({ onExternalChange }: Props) {
             >
               {t('settings.dnsInertAction')}
             </Button>
-          </span>
-        )}
-        <Form.Item name="xray_dns_enabled" noStyle valuePropName="checked">
-          <Switch id="xray_dns_enabled" />
-        </Form.Item>
+          )}
+        </div>
       </div>
 
       {/* The wrapper always carries `app-dns-body` — the spacing between the

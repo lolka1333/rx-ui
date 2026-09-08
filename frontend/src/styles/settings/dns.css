@@ -32,22 +32,24 @@
  * control pushed the sentence 56px to the right, onto a vertical nothing else
  * on the tab shared — the one line at the top of the page was the one line
  * that lined up with nothing. */
+/* Name, switch and the sentence about them, in that order and all of it on
+   the tab's left edge. The switch used to sit at the far end of the row, which
+   on a 1250px card left 1800px between it and the words it answers to. */
 .app-dns-status {
   display: flex;
-  align-items: center;
-  gap: 14px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
   /* The same 15px the cards below put between their edge and their content,
      so the heading, the card contents and this sentence share one edge. */
   padding: 0 15px 14px;
   border-bottom: 1px solid var(--border);
 }
-.app-dns-status-txt {
+.app-dns-status-head {
   display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 3px;
+  align-items: center;
+  gap: 12px;
   min-width: 0;
-  cursor: pointer;
 }
 .app-dns-status-name {
   display: flex;
@@ -55,15 +57,19 @@
   gap: 8px;
   font-size: 14px;
   font-weight: 500;
+  cursor: pointer;
 }
+/* The sentence and, in the one state that has one, the button that fixes it.
+   The button sits where the sentence ends rather than at the row's far edge,
+   for the same reason the switch does. */
 .app-dns-status-sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
   font-size: 12.5px;
   line-height: 1.45;
   color: var(--text-2, #94a3b8);
-}
-.app-dns-status-act {
-  align-self: center;
-  flex: none;
 }
 .app-dns-dot {
   width: 7px;
@@ -624,13 +630,6 @@
   }
   .app-dns-hr-row .app-dns-host-val {
     grid-column: 1 / 2;
-  }
-  .app-dns-status {
-    flex-wrap: wrap;
-  }
-  .app-dns-status-act {
-    margin-left: 0;
-    flex-basis: 100%;
   }
 }
 
