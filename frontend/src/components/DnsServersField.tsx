@@ -125,13 +125,11 @@ function roleOf(list: DnsServer[], i: number, parallel: boolean, noFallback: boo
 const NEW = -1;
 
 interface Props {
-  /** Which step of the lookup this block is, drawn in its heading. */
-  step?: number;
   value?: DnsServer[];
   onChange?: (next: DnsServer[]) => void;
 }
 
-export function DnsServersField({ step, value, onChange }: Props) {
+export function DnsServersField({ value, onChange }: Props) {
   const { t } = useTranslation();
   // The section's own settings, read from the page form this field lives in.
   // The strategy is checked against a per-server one before it can be picked;
@@ -211,11 +209,6 @@ export function DnsServersField({ step, value, onChange }: Props) {
   return (
     <section className="app-dns-section">
       <div className="app-dns-head">
-        {step !== undefined && (
-          <span className="app-dns-stage-n" aria-hidden="true">
-            {step}
-          </span>
-        )}
         <span className="app-dns-title">{t('settings.xrayDnsServers')}</span>
         <span className="app-dns-sub">{t('settings.dnsServersSub')}</span>
         {/* The quick picks lived inside the dialog's autocomplete, which is

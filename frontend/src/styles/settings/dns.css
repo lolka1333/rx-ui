@@ -88,32 +88,6 @@
   flex-direction: column;
   gap: 20px;
 }
-.app-dns-stage {
-  position: relative;
-}
-/* The number belongs to its heading, so it sits in it.
- *
- * It used to hang in its own 34px column beside a rail, grey on grey: 34px
- * from the title it numbered, on a vertical of its own, in the quietest colour
- * on the tab. It read as a stray mark rather than a step, and it was what gave
- * the page a fifth left edge. Accent-tinted and inline, it is legible at 17px
- * and costs no column. */
-.app-dns-stage-n {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  align-self: center;
-  flex: none;
-  width: 17px;
-  height: 17px;
-  border-radius: 50%;
-  background: rgba(99, 102, 241, 0.16);
-  color: #8b88f5;
-  font-size: 10.5px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
 .app-dns-section {
   display: flex;
   flex-direction: column;
@@ -134,7 +108,13 @@
      crooked. */
   align-items: baseline;
   gap: 10px;
-  flex-wrap: wrap;
+  /* One line, and the subtitle is what gives way.
+   *
+   * Wrapping put the action on a second row, pinned right by its own
+   * `margin-left: auto` — a button floating under the heading with nothing
+   * beside it. The title and the button are fixed; the sentence between them
+   * is the part that can be cut, so it clips instead. */
+  flex-wrap: nowrap;
   /* Every section header is the height of the one with a button, so the
      spacing between sections does not change with whether a section happens to
      have an action. */
@@ -149,6 +129,8 @@
   /* Letter-spacing is added AFTER the last letter too, so an uppercase title
      carries a phantom sliver of it into the gap. Take it back. */
   margin-right: -0.06em;
+  /* The title never shrinks; the sentence beside it does. */
+  flex: none;
 }
 .app-dns-head .ant-btn {
   margin-left: auto;
@@ -158,19 +140,34 @@
 .app-dns-sub {
   font-size: 12px;
   color: var(--text-3, #8a94a6);
+  /* Takes the leftover width and gives it back first. */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.app-dns-head .ant-btn {
+  flex: none;
 }
 
 /* ── Empty states ──────────────────────────────────────────────────────── */
 
 /* An empty list is where an operator is most stuck, so it is the one place
    that offers to do the work: the presets that were reachable only as
-   autocomplete inside the add dialog are buttons here. */
+   autocomplete inside the add dialog are buttons here.
+ *
+ * On one line with them. Stacked, "Записей нет." sat alone above a row of
+ * buttons and the block came to 88px — a card the height of two server rows
+ * to say there is nothing in it. Side by side it is 46px, and the sentence
+ * reads as the label of the buttons rather than as a paragraph of its own. */
 .app-dns-empty {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 11px;
-  padding: 15px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 10px 15px;
+  min-height: 46px;
   font-size: 12.5px;
   color: var(--text-3, #8a94a6);
 }
@@ -546,6 +543,13 @@
   }
   .app-dns-head {
     align-items: center;
+    /* Under 900px the sentence would be clipped to a couple of words, so the
+       heading takes a second row after all — and the action goes with it
+       rather than being stranded beside an ellipsis. */
+    flex-wrap: wrap;
+  }
+  .app-dns-sub {
+    white-space: normal;
   }
 }
 @media (max-width: 620px) {

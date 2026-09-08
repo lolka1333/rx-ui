@@ -43,13 +43,11 @@ const answersIntoTheVoid = (values: string[]): boolean =>
   values.length > 0 && values.every((v) => VOID_ADDRESSES.has(v.trim()));
 
 interface Props {
-  /** Which step of the lookup this block is, drawn in its heading. */
-  step?: number;
   value?: DnsHost[];
   onChange?: (next: DnsHost[]) => void;
 }
 
-export function DnsHostsField({ step, value, onChange }: Props) {
+export function DnsHostsField({ value, onChange }: Props) {
   const { t } = useTranslation();
   const list = useMemo(() => value ?? [], [value]);
 
@@ -60,11 +58,6 @@ export function DnsHostsField({ step, value, onChange }: Props) {
   return (
     <section className="app-dns-section">
       <div className="app-dns-head">
-        {step !== undefined && (
-          <span className="app-dns-stage-n" aria-hidden="true">
-            {step}
-          </span>
-        )}
         <span className="app-dns-title">{t('settings.xrayDnsHosts')}</span>
         <span className="app-dns-sub">{t('settings.dnsHostsSub')}</span>
         <Button

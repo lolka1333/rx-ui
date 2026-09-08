@@ -9,12 +9,16 @@
 //! matters — the list of servers.
 //!
 //! Two ideas drive the layout. First, ORDER: xray answers from `hosts` before
-//! it asks anyone, then walks the servers top-down. The tab is numbered in that
-//! order, so the page itself says what the old subtitle ("отдаются до
-//! серверов") had to explain. Second, NAMED OUTCOMES: the six section switches
-//! were three separate subjects written as negations, so "off" meant "yes, do
-//! it". They are three controls now, each listing what will actually happen,
-//! with the consequence spelled out underneath instead of hidden in a tooltip.
+//! it asks anyone, then walks the servers top-down, and the blocks sit in that
+//! order — the static answers used to be UNDER the list they precede. Each
+//! heading's subtitle says where its block falls in the sequence, which is why
+//! there is no numbering on top of that: a step number in the heading was one
+//! more thing to read for something the position already says.
+//!
+//! Second, NAMED OUTCOMES: the six section switches were three separate
+//! subjects written as negations, so "off" meant "yes, do it". They are three
+//! controls now, each listing what will actually happen, with the consequence
+//! shown under the row whose value just moved and behind every name on hover.
 //!
 //! Everything still binds through the parent `Form`, so the page dirty bar and
 //! the save-then-restart prompt keep working untouched.
@@ -130,21 +134,20 @@ export function DnsTab({ onExternalChange }: Props) {
           sections had no gap at all and sat glued to each other. */}
       <div className={`app-dns-body${on ? '' : ' app-dns-off'}`}>
         <div className="app-dns-flow">
-          {/* 1 — answered without asking anyone. It sat UNDER the servers
-              before, which is the opposite of the order the core uses. The
-              step travels into each block so its number can sit in the
-              heading rather than in a column of its own beside it. */}
+          {/* Answered without asking anyone. This sat UNDER the servers
+              before, which is the opposite of the order the core uses — the
+              blocks are in that order now, and each heading's subtitle says
+              where it falls in it, so the sequence needs no numbering on top
+              of that. */}
           <Form.Item name="xray_dns_hosts" noStyle>
-            <DnsHostsField step={1} />
+            <DnsHostsField />
           </Form.Item>
 
-          {/* 2 — the ordered list. */}
           <Form.Item name="xray_dns_servers" noStyle>
-            <DnsServersField step={2} />
+            <DnsServersField />
           </Form.Item>
 
-          {/* 3 — what governs the two above. */}
-          <BehaviourSection step={3} />
+          <BehaviourSection />
         </div>
       </div>
     </div>
@@ -182,7 +185,7 @@ function RuleRow({
   );
 }
 
-function BehaviourSection({ step }: { step: number }) {
+function BehaviourSection() {
   const { t } = useTranslation();
   const form = Form.useFormInstance();
   const [extraOpen, setExtraOpen] = useState(false);
@@ -253,9 +256,6 @@ function BehaviourSection({ step }: { step: number }) {
   return (
     <section className="app-dns-section">
       <div className="app-dns-head">
-        <span className="app-dns-stage-n" aria-hidden="true">
-          {step}
-        </span>
         <span className="app-dns-title">{t('settings.xrayGroupDnsBehaviour')}</span>
         <span className="app-dns-sub">{t('settings.dnsBehaviourSub')}</span>
       </div>
