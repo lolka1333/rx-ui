@@ -26,26 +26,28 @@
    took ~90px of the top of the tab to say on/off, and the warning banner that
    appeared above the content whenever the resolver was configured but never
    asked. Both were about the same question — is this setup in effect right now
-   — so both are answered in one sentence, with the dot carrying the state. */
+   — so both are answered in one sentence.
+ *
+ * The switch sits at the FAR END, not in front of the text. Leading with the
+ * control pushed the sentence 56px to the right, onto a vertical nothing else
+ * on the tab shared — the one line at the top of the page was the one line
+ * that lined up with nothing. */
 .app-dns-status {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 0 2px 14px;
+  gap: 14px;
+  /* The same 15px the cards below put between their edge and their content,
+     so the heading, the card contents and this sentence share one edge. */
+  padding: 0 15px 14px;
   border-bottom: 1px solid var(--border);
-}
-.app-dns-status-main {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-  cursor: pointer;
 }
 .app-dns-status-txt {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 3px;
   min-width: 0;
+  cursor: pointer;
 }
 .app-dns-status-name {
   display: flex;
@@ -60,7 +62,6 @@
   color: var(--text-2, #94a3b8);
 }
 .app-dns-status-act {
-  margin-left: auto;
   align-self: center;
   flex: none;
 }
@@ -83,41 +84,33 @@
 /* ── The flow: three numbered stages on one rail ───────────────────────── */
 
 .app-dns-flow {
-  position: relative;
-  padding-left: 34px;
   display: flex;
   flex-direction: column;
   gap: 20px;
 }
-/* The rail runs behind the numbers; each number's own fill covers it, so the
-   line reads as connecting them rather than crossing them. The fill has to be
-   the settings container's colour, which is what sits behind this tab. */
-.app-dns-flow::before {
-  content: '';
-  position: absolute;
-  left: 11px;
-  top: 12px;
-  bottom: 12px;
-  width: 1px;
-  background: var(--border);
-}
 .app-dns-stage {
   position: relative;
 }
+/* The number belongs to its heading, so it sits in it.
+ *
+ * It used to hang in its own 34px column beside a rail, grey on grey: 34px
+ * from the title it numbered, on a vertical of its own, in the quietest colour
+ * on the tab. It read as a stray mark rather than a step, and it was what gave
+ * the page a fifth left edge. Accent-tinted and inline, it is legible at 17px
+ * and costs no column. */
 .app-dns-stage-n {
-  position: absolute;
-  left: -34px;
-  top: 2px;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 23px;
-  height: 23px;
-  border: 1px solid var(--border);
+  align-self: center;
+  flex: none;
+  width: 17px;
+  height: 17px;
   border-radius: 50%;
-  background: var(--surface, #131c2e);
-  font-size: 11px;
-  color: var(--text-3, #8a94a6);
+  background: rgba(99, 102, 241, 0.16);
+  color: #8b88f5;
+  font-size: 10.5px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
@@ -130,6 +123,10 @@
 /* Section heading, its one-line subtitle, and the section's own action pushed
    to the far edge — the same shape the routing tab's rule list uses. */
 .app-dns-head {
+  /* Indented to the cards' own inner padding, so a block's heading starts on
+     the same vertical as the rows underneath it instead of on the card's
+     outer edge, 15px to the left of everything it introduces. */
+  padding-left: 15px;
   display: flex;
   /* By baseline, not by centre: the title and its subtitle run at different
      sizes (11 vs 12px) and therefore different line boxes, so centring them
@@ -421,12 +418,18 @@
    whose options are named outcomes, and the sentence under it says what the
    chosen one does. That sentence is why the tab no longer needs "hover a name
    for an explanation". */
+/* One line per setting. The explanation used to sit under every control at
+   once: five permanent grey lines that turned a card of five settings into
+   405px, more than half the tab, while the server list — the thing the tab is
+   opened for — had 88px. The sentence now appears under the row that was just
+   changed, and hovering a name gives the same text at any time. */
 .app-dns-rule {
   display: grid;
-  grid-template-columns: 196px minmax(0, 1fr);
-  gap: 18px;
-  align-items: start;
-  padding: 12px 15px;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 6px 18px;
+  align-items: center;
+  padding: 9px 15px;
+  min-height: 44px;
 }
 .app-dns-rule + .app-dns-rule,
 .app-dns-rule + .app-dns-fold {
@@ -435,14 +438,20 @@
 .app-dns-rule-name {
   font-size: 13px;
   color: var(--text, #f1f5f9);
-  padding-top: 5px;
+  /* The explanation is behind the name now, so say so the way the rest of the
+     panel does — a help cursor, not a text caret. */
+  cursor: help;
 }
 .app-dns-rule-r {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
   min-width: 0;
+}
+/* Second row of the grid, under the control rather than under the name. */
+.app-dns-rule > .app-dns-hint {
+  grid-column: 2;
 }
 /* The TTL sits with the mode it belongs to, on the same line as the control,
    so "отдавать просроченное" and "сколько держать" read as one setting. */
@@ -517,31 +526,26 @@
 
 /* ── Narrow ────────────────────────────────────────────────────────────── */
 
-@media (max-width: 900px) {
-  /* No rail: at this width the 34px indent is a third of a chip's room, and
-     the three numbers move inline with their titles instead. */
-  .app-dns-flow {
-    padding-left: 0;
-    gap: 18px;
-  }
-  .app-dns-flow::before {
-    display: none;
-  }
-  .app-dns-stage-n {
-    position: static;
-    width: 19px;
-    height: 19px;
-    font-size: 10.5px;
-  }
-  .app-dns-head {
-    align-items: center;
-  }
+/* The 200px name column and a three-option segmented stop fitting side by
+   side well before the tab is narrow: the sidebar takes 208px, so a 1200px
+   window leaves the settings card about 460px and "Никуда не идти" runs off
+   its right edge. The name goes above its control from here down. */
+@media (max-width: 1200px) {
   .app-dns-rule {
     grid-template-columns: minmax(0, 1fr);
     gap: 8px;
   }
-  .app-dns-rule-name {
-    padding-top: 0;
+  .app-dns-rule > .app-dns-hint {
+    grid-column: 1;
+  }
+}
+
+@media (max-width: 900px) {
+  .app-dns-flow {
+    gap: 18px;
+  }
+  .app-dns-head {
+    align-items: center;
   }
 }
 @media (max-width: 620px) {

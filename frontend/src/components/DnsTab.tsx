@@ -19,9 +19,9 @@
 //! Everything still binds through the parent `Form`, so the page dirty bar and
 //! the save-then-restart prompt keep working untouched.
 
-import { Button, Form, Input, InputNumber, Segmented, Select, Switch } from 'antd';
+import { Button, Form, Input, InputNumber, Segmented, Select, Switch, Tooltip } from 'antd';
 import { RightOutlined } from '@ant-design/icons';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { DnsServersField } from '@/components/DnsServersField';
 import { DnsHostsField } from '@/components/DnsHostsField';
@@ -91,24 +91,20 @@ export function DnsTab({ onExternalChange }: Props) {
           hidden: a setup that disappears reads as deleted, and the whole point
           of the switch is that nothing is lost. */}
       <div className="app-dns-status">
-        {/* The label covers the switch and its text and stops there. With the
-            button inside it too, a click on "поставить UseIP" would also be a
-            click on the label — and the only thing keeping that from toggling
-            the resolver off is that a button counts as interactive content. */}
-        <label className="app-dns-status-main">
-          <Form.Item name="xray_dns_enabled" noStyle valuePropName="checked">
-            <Switch />
-          </Form.Item>
-          <span className="app-dns-status-txt">
-            <span className="app-dns-status-name">
-              <span
-                className={`app-dns-dot${state === 'ok' ? ' is-ok' : state === 'inert' ? ' is-warn' : ''}`}
-                aria-hidden="true"
-              />
-              {t('settings.dnsEnabled')}
-            </span>
-            <span className="app-dns-status-sub">{statusText}</span>
+        {/* `htmlFor` rather than wrapping: the switch is at the far end of the
+            row and the action button sits between the two, and a label that
+            reached around both would make a click on "поставить UseIP" a click
+            on the label as well. */}
+        <label className="app-dns-status-txt" htmlFor="xray_dns_enabled">
+          <span className="app-dns-status-name">
+            {/* Only for the one state worth a colour. A dot beside a switch
+                that already reads on/off was two indicators arguing about the
+                same thing; the amber one earns its place because nothing else
+                on the line says "configured but never asked". */}
+            {inert && <span className="app-dns-dot is-warn" aria-hidden="true" />}
+            {t('settings.dnsEnabled')}
           </span>
+          <span className="app-dns-status-sub">{statusText}</span>
         </label>
         {inert && (
           <span className="app-dns-status-act">
@@ -123,6 +119,9 @@ export function DnsTab({ onExternalChange }: Props) {
             </Button>
           </span>
         )}
+        <Form.Item name="xray_dns_enabled" noStyle valuePropName="checked">
+          <Switch id="xray_dns_enabled" />
+        </Form.Item>
       </div>
 
       {/* The wrapper always carries `app-dns-body` — the spacing between the
@@ -132,62 +131,106 @@ export function DnsTab({ onExternalChange }: Props) {
       <div className={`app-dns-body${on ? '' : ' app-dns-off'}`}>
         <div className="app-dns-flow">
           {/* 1 — answered without asking anyone. It sat UNDER the servers
-              before, which is the opposite of the order the core uses. */}
-          <div className="app-dns-stage">
-            <span className="app-dns-stage-n" aria-hidden="true">
-              1
-            </span>
-            <Form.Item name="xray_dns_hosts" noStyle>
-              <DnsHostsField />
-            </Form.Item>
-          </div>
+              before, which is the opposite of the order the core uses. The
+              step travels into each block so its number can sit in the
+              heading rather than in a column of its own beside it. */}
+          <Form.Item name="xray_dns_hosts" noStyle>
+            <DnsHostsField step={1} />
+          </Form.Item>
 
           {/* 2 — the ordered list. */}
-          <div className="app-dns-stage">
-            <span className="app-dns-stage-n" aria-hidden="true">
-              2
-            </span>
-            <Form.Item name="xray_dns_servers" noStyle>
-              <DnsServersField />
-            </Form.Item>
-          </div>
+          <Form.Item name="xray_dns_servers" noStyle>
+            <DnsServersField step={2} />
+          </Form.Item>
 
           {/* 3 — what governs the two above. */}
-          <div className="app-dns-stage">
-            <span className="app-dns-stage-n" aria-hidden="true">
-              3
-            </span>
-            <BehaviourSection />
-          </div>
+          <BehaviourSection step={3} />
         </div>
       </div>
     </div>
   );
 }
 
-/** One row of the behaviour card: the setting's name, then the control with
- *  its consequence written underneath. */
-function RuleRow({ name, children }: { name: string; children: ReactNode }) {
+/** One row of the behaviour card: the setting's name, its control, and the
+ *  consequence of the current choice.
+ *
+ *  That consequence used to sit under every control at once — five permanent
+ *  grey lines that made this card 405px, more than half the tab, while the
+ *  server list had 88px. It shows under the row that was just changed, which
+ *  is the moment it answers a question, and hovering the name gives the same
+ *  sentence at any other moment. */
+function RuleRow({
+  name,
+  hint,
+  active,
+  children,
+}: {
+  name: string;
+  hint: string;
+  /** This is the row whose value changed last. */
+  active: boolean;
+  children: ReactNode;
+}) {
   return (
     <div className="app-dns-rule">
-      <span className="app-dns-rule-name">{name}</span>
+      <Tooltip title={hint}>
+        <span className="app-dns-rule-name">{name}</span>
+      </Tooltip>
       <div className="app-dns-rule-r">{children}</div>
+      {active && <span className="app-dns-hint">{hint}</span>}
     </div>
   );
 }
 
-function BehaviourSection() {
+function BehaviourSection({ step }: { step: number }) {
   const { t } = useTranslation();
   const form = Form.useFormInstance();
   const [extraOpen, setExtraOpen] = useState(false);
 
-  const parallel = Form.useWatch<boolean>('xray_dns_parallel_query', form) ?? false;
-  const noFallback = Form.useWatch<boolean>('xray_dns_disable_fallback', form) ?? false;
-  const ifMatch = Form.useWatch<boolean>('xray_dns_disable_fallback_if_match', form) ?? false;
-  const noCache = Form.useWatch<boolean>('xray_dns_disable_cache', form) ?? false;
-  const stale = Form.useWatch<boolean>('xray_dns_serve_stale', form) ?? false;
+  // `useWatch` has nothing on the first render — it subscribes in an effect —
+  // so every one of these falls back to the value the form already holds. It
+  // is not cosmetic here: the "changed last" check below compares renders, and
+  // a field that reads empty once and then its real value looks exactly like
+  // the operator having just set it. That is what made the strategy row
+  // explain itself on load, before anyone touched anything.
+  const w = <T,>(name: string, watched: T | undefined, fallback: T): T =>
+    watched ?? (form.getFieldValue(name) as T | undefined) ?? fallback;
+  const parallel = w('xray_dns_parallel_query', Form.useWatch<boolean>('xray_dns_parallel_query', form), false);
+  const noFallback = w('xray_dns_disable_fallback', Form.useWatch<boolean>('xray_dns_disable_fallback', form), false);
+  const ifMatch = w('xray_dns_disable_fallback_if_match', Form.useWatch<boolean>('xray_dns_disable_fallback_if_match', form), false);
+  const noCache = w('xray_dns_disable_cache', Form.useWatch<boolean>('xray_dns_disable_cache', form), false);
+  const stale = w('xray_dns_serve_stale', Form.useWatch<boolean>('xray_dns_serve_stale', form), false);
+  const strategy = w('xray_dns_query_strategy', Form.useWatch<string>('xray_dns_query_strategy', form), '');
+  const sysHosts = w('xray_dns_use_system_hosts', Form.useWatch<boolean>('xray_dns_use_system_hosts', form), false);
   const clientIp = (Form.useWatch<string>('xray_dns_client_ip', form) ?? '').trim();
   const tag = (Form.useWatch<string>('xray_dns_tag', form) ?? '').trim();
+
+  // Which row explains itself right now: the one whose value moved last.
+  //
+  // Watching the values rather than wiring a callback through every control
+  // keeps the three segmented components unaware of this, and it catches the
+  // paired flags too — the fallback and cache modes each write a second field
+  // with `setFieldValue`, which no `onChange` of theirs would report.
+  const [touched, setTouched] = useState<string | null>(null);
+  const seen = useRef<Record<string, unknown> | null>(null);
+  const values: Record<string, unknown> = {
+    ask: parallel,
+    fallback: `${noFallback}/${ifMatch}`,
+    cache: `${noCache}/${stale}`,
+    strategy,
+    hosts: sysHosts,
+  };
+  useEffect(() => {
+    const before = seen.current;
+    seen.current = values;
+    // First run only records: the values arriving from the server are not a
+    // change the operator made, and a hint on load would explain nothing.
+    if (!before) return;
+    const moved = Object.keys(values).find((k) => values[k] !== before[k]);
+    if (moved) setTouched(moved);
+    // `values` is rebuilt every render; the watched fields are the real deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parallel, noFallback, ifMatch, noCache, stale, strategy, sysHosts]);
 
   const fallbackHint = noFallback
     ? t('settings.dnsFallbackNoneHint')
@@ -210,6 +253,9 @@ function BehaviourSection() {
   return (
     <section className="app-dns-section">
       <div className="app-dns-head">
+        <span className="app-dns-stage-n" aria-hidden="true">
+          {step}
+        </span>
         <span className="app-dns-title">{t('settings.xrayGroupDnsBehaviour')}</span>
         <span className="app-dns-sub">{t('settings.dnsBehaviourSub')}</span>
       </div>
@@ -217,16 +263,21 @@ function BehaviourSection() {
       <div className="app-dns-table">
         {/* One field, two named modes — the switch was called "Спрашивать все
             сразу", so its OFF state ("по порядку") had no name at all. */}
-        <RuleRow name={t('settings.dnsAskMode')}>
+        <RuleRow
+          name={t('settings.dnsAskMode')}
+          hint={parallel ? t('settings.dnsAskAllHint') : t('settings.dnsAskOrderHint')}
+          active={touched === 'ask'}
+        >
           <Form.Item name="xray_dns_parallel_query" noStyle>
             <AskMode />
           </Form.Item>
-          <span className="app-dns-hint">
-            {parallel ? t('settings.dnsAskAllHint') : t('settings.dnsAskOrderHint')}
-          </span>
         </RuleRow>
 
-        <RuleRow name={t('settings.dnsFallbackMode')}>
+        <RuleRow
+          name={t('settings.dnsFallbackMode')}
+          hint={fallbackHint}
+          active={touched === 'fallback'}
+        >
           <Form.Item name="xray_dns_disable_fallback" noStyle>
             <FallbackMode />
           </Form.Item>
@@ -241,10 +292,9 @@ function BehaviourSection() {
               <Switch />
             </Form.Item>
           </span>
-          <span className="app-dns-hint">{fallbackHint}</span>
         </RuleRow>
 
-        <RuleRow name={t('settings.dnsCacheMode')}>
+        <RuleRow name={t('settings.dnsCacheMode')} hint={cacheHint} active={touched === 'cache'}>
           <div className="app-dns-rule-line">
             <Form.Item name="xray_dns_disable_cache" noStyle>
               <CacheMode />
@@ -268,10 +318,13 @@ function BehaviourSection() {
               </Form.Item>
             </span>
           </div>
-          <span className="app-dns-hint">{cacheHint}</span>
         </RuleRow>
 
-        <RuleRow name={t('settings.xrayDnsQueryStrategy')}>
+        <RuleRow
+          name={t('settings.xrayDnsQueryStrategy')}
+          hint={t('settings.xrayDnsQueryStrategyHint')}
+          active={touched === 'strategy'}
+        >
           <Form.Item name="xray_dns_query_strategy" noStyle>
             <Select
               size="small"
@@ -279,14 +332,16 @@ function BehaviourSection() {
               options={DNS_QUERY_STRATEGIES.map((v) => ({ value: v, label: v }))}
             />
           </Form.Item>
-          <span className="app-dns-hint">{t('settings.xrayDnsQueryStrategyHint')}</span>
         </RuleRow>
 
-        <RuleRow name={t('settings.xrayDnsUseSystemHosts')}>
+        <RuleRow
+          name={t('settings.xrayDnsUseSystemHosts')}
+          hint={t('settings.xrayDnsUseSystemHostsHint')}
+          active={touched === 'hosts'}
+        >
           <Form.Item name="xray_dns_use_system_hosts" noStyle valuePropName="checked">
             <Switch size="small" />
           </Form.Item>
-          <span className="app-dns-hint">{t('settings.xrayDnsUseSystemHostsHint')}</span>
         </RuleRow>
 
         <button
@@ -301,17 +356,23 @@ function BehaviourSection() {
         </button>
 
         <div className={`app-dns-extra${extraOpen ? '' : ' app-dns-hidden'}`}>
-          <RuleRow name={t('settings.xrayDnsClientIp')}>
+          <RuleRow
+            name={t('settings.xrayDnsClientIp')}
+            hint={t('settings.xrayDnsClientIpHint')}
+            active={false}
+          >
             <Form.Item name="xray_dns_client_ip" noStyle>
               <Input size="small" spellCheck={false} placeholder={t('settings.dnsChipEmpty')} />
             </Form.Item>
-            <span className="app-dns-hint">{t('settings.xrayDnsClientIpHint')}</span>
           </RuleRow>
-          <RuleRow name={t('settings.xrayDnsTag')}>
+          <RuleRow
+            name={t('settings.xrayDnsTag')}
+            hint={t('settings.xrayDnsTagHint')}
+            active={false}
+          >
             <Form.Item name="xray_dns_tag" noStyle>
               <Input size="small" spellCheck={false} placeholder={t('settings.dnsChipEmpty')} />
             </Form.Item>
-            <span className="app-dns-hint">{t('settings.xrayDnsTagHint')}</span>
           </RuleRow>
         </div>
       </div>
