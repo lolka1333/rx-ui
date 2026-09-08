@@ -588,8 +588,11 @@
    for a 888px-tall single column; grouping plus a disclosure for the three
    rarely-touched fields is the same fix without the cost of a tab, which is
    that a value set on the hidden one is a value the operator cannot see. */
+/* The rhythm is what made this dialog feel mostly empty: four groups at
+   16px top and bottom is 128px of pure padding in a 712px sheet, before a
+   single control. 12px reads as the same grouping and gives the space back. */
 .app-dns-form-group {
-  padding: 16px 0;
+  padding: 12px 0;
   border-top: 1px solid var(--border);
 }
 .app-dns-form-group:first-child {
@@ -600,7 +603,7 @@
   display: flex;
   align-items: baseline;
   gap: 9px;
-  margin-bottom: 9px;
+  margin-bottom: 6px;
 }
 .app-dns-form-name {
   font-size: 13px;
@@ -616,7 +619,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 9px;
+  margin-top: 7px;
   font-size: 12px;
   line-height: 1.45;
   color: var(--text-2, #94a3b8);
@@ -676,7 +679,12 @@
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  padding: 11px 0;
+  padding: 9px 0;
+}
+/* The description must not run under the switch, and it must not stretch to
+   a line so long that the eye loses the row it belongs to. */
+.app-dns-form-switch > span:first-child {
+  max-width: 62ch;
 }
 .app-dns-form-switch + .app-dns-form-switch {
   border-top: 1px solid var(--border);

@@ -602,19 +602,30 @@ function ServerForm({
         {/* One decision with two sides, so the two lists sit side by side. */}
         <div className="app-dns-form-duo">
           <Form.Item name="expect_ips" label={t('settings.dnsServerExpectIps')}>
-            <Select mode="tags" options={GEOIP_PRESETS} tokenSeparators={[',', ' ']} />
+            <Select
+              mode="tags"
+              options={GEOIP_PRESETS}
+              tokenSeparators={[',', ' ']}
+              placeholder={t('settings.dnsServerIpsPlaceholder')}
+            />
           </Form.Item>
           <Form.Item name="unexpected_ips" label={t('settings.dnsServerUnexpectedIps')}>
-            <Select mode="tags" options={GEOIP_PRESETS} tokenSeparators={[',', ' ']} />
+            <Select
+              mode="tags"
+              options={GEOIP_PRESETS}
+              tokenSeparators={[',', ' ']}
+              placeholder={t('settings.dnsServerIpsPlaceholder')}
+            />
           </Form.Item>
         </div>
       </div>
 
       <div className="app-dns-form-group">
-        <div className="app-dns-form-label">
-          <span className="app-dns-form-name">{t('settings.dnsServerPlace')}</span>
-        </div>
-        {/* Switch rows, not "label above, switch below": the label and the thing
+        {/* No heading: "Не подхватывать чужие домены" and "Ответ окончателен"
+            already say what "Место в списке" was introducing, and the line it
+            took was 26px in a sheet that had too many of them.
+         *
+         * Switch rows, not "label above, switch below": the label and the thing
             it controls belong on one line. */}
         <div className="app-dns-form-switch">
           <span>

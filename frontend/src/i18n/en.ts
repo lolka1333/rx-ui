@@ -206,7 +206,7 @@ export const en: Dict = {
     dnsServerCheckSub: 'the defence against a resolver that lies about where an address is',
     dnsServerExpectIps: 'Accept only if the address is listed',
     dnsServerUnexpectedIps: 'Drop if the address is listed',
-    dnsServerPlace: 'Place in the list',
+    dnsServerIpsPlaceholder: 'geoip:ru, 1.1.1.1',
     dnsServerSkipFallback: 'No fallback duty',
     dnsServerSkipFallbackHint:
       'The server answers only for what is chosen for it and never stands in for the others.',

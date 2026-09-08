@@ -206,7 +206,7 @@ export const ru = {
     dnsServerCheckSub: 'защита от резолвера, который врёт про страну',
     dnsServerExpectIps: 'Принять, только если адрес в списке',
     dnsServerUnexpectedIps: 'Отбросить, если адрес в списке',
-    dnsServerPlace: 'Место в списке',
+    dnsServerIpsPlaceholder: 'geoip:ru, 1.1.1.1',
     dnsServerSkipFallback: 'Не подхватывать чужие домены',
     dnsServerSkipFallbackHint:
       'Сервер отвечает только на то, что выбрано для него, и не работает запасным для остальных.',
