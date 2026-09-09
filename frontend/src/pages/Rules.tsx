@@ -24,6 +24,7 @@ import { apiErrorMessage } from '@/api/errors';
 import { useLoadState } from '@/api/loadState';
 import { LoadError, LoadStale } from '@/components/LoadState';
 import { RoutingRulesField } from '@/components/RoutingRulesField';
+import { reportRouting, type RoutingApplyResult } from '@/lib/routingReport';
 import type { PanelSettings, RoutingRule } from '@/api/types';
 
 /** The slice of the settings row this page puts in a form: the two fields it
@@ -93,18 +94,28 @@ export function Rules() {
       // never echoed back. Both are "keep what is stored" when sent empty,
       // which is what an absent field deserialises to.
       const fresh = (await apiClient.get<PanelSettings>('/settings/panel')).data;
-      await apiClient.put('/settings/panel', {
+      const res = await apiClient.put<RoutingApplyResult>('/settings/panel', {
         ...fresh,
         xray_custom_rules: v.xray_custom_rules,
         xray_rule_order: v.xray_rule_order,
       });
+      return res.data ?? {};
     },
-    onSuccess: async () => {
+    onSuccess: async (routing) => {
       setDirty(false);
       await qc.invalidateQueries({ queryKey: ['panel-settings'] });
-      message.success(t('settings.saved'));
+      // The response says what happened to the LIVE router, and this page is
+      // the one whose every save is a routing change. `reportRouting` owns
+      // both messages worth having — the rules did not reach the core, or they
+      // did but only because xray was restarted and every client reconnected —
+      // so a plain "saved" here would hide an unapplied rule set or an outage
+      // this save caused. Claim success only when it had nothing to say.
+      if (reportRouting(routing, message, t) === 'clean') {
+        message.success(t('settings.xrayRoutingApplied'));
+      }
     },
-    onError: (e: unknown) => message.error(apiErrorMessage(e)),
+    onError: (e: unknown) =>
+      message.error(apiErrorMessage(e) ?? t('settings.panelSaveError')),
   });
 
   const discard = useCallback(() => {
