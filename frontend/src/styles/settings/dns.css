@@ -18,91 +18,80 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
-  /* One set of columns for the whole tab. The status line at the top and every
-     setting in the behaviour card share them, so the master switch stands in
-     the same column as the controls it presides over and the sentence about it
-     starts where all the other sentences do. Declared here, used in both
-     places; the behaviour card is its own container, so its queries still key
-     off the card. */
-  container-type: inline-size;
+  /* The columns the behaviour card's settings stand in. They were shared with
+     the status line above for a while, on the theory that the master switch
+     should hold the same column as the controls it presides over. It does not
+     work: that card has a background of its own, so its grid is invisible from
+     outside it, and a lone row obeying an unseen grid just looks scattered. */
   --dns-name-col: 196px;
   --dns-ctl-col: minmax(490px, max-content);
   --dns-col-gap: 24px;
 }
 
-/* ── The status line ───────────────────────────────────────────────────── */
+/* ── The status line: the tab's heading ───────────────────────────────── */
 
-/* One line, not a card. It replaces two things: the master-switch plaque that
-   took ~90px of the top of the tab to say on/off, and the warning banner that
-   appeared above the content whenever the resolver was configured but never
-   asked. Both were about the same question — is this setup in effect right now
-   — so both are answered in one sentence.
+/* It replaces two things: the master-switch plaque that took ~90px of the top
+   of the tab to say on/off, and the warning banner that appeared above the
+   content whenever the resolver was configured but never asked. Both were
+   about the same question — is this setup in effect right now — so both are
+   answered in one sentence.
  *
- * It is also the first row of the tab's grid, not a line of its own: the name,
- * the switch and the sentence stand in the same three columns the settings
- * below stand in. The switch was at the far end of the row before, 1800px from
- * the words it answers to, and then hard against the title, which used the
- * width no better — it lined up with nothing either way. Now the one control
- * that governs the tab shares a column with every control on it. */
+ * The line is a HEADING, not a row of settings, and that is what took three
+ * tries to get to. The switch has been at the far end of the row, 1800px from
+ * the words it answers to; then hard against the title, with the whole width
+ * left blank beside it; then in the same column as the controls in the card
+ * below, which reads as three islands on an empty strip, because that card has
+ * a background of its own and its grid cannot be seen from out here.
+ *
+ * What holds these three together is not alignment but type: the name is the
+ * largest thing on the tab, the switch is part of it, and the sentence follows
+ * at the size everything else on the tab explains itself in. The sentence also
+ * takes whatever width is left, so there is no empty tail to answer for — and
+ * the whole line is one flex run, so it folds instead of overflowing. */
 .app-dns-status {
-  display: grid;
-  grid-template-columns: var(--dns-name-col) var(--dns-ctl-col) minmax(0, 1fr);
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  column-gap: var(--dns-col-gap);
+  gap: 8px 14px;
   /* The same 15px the cards below put between their edge and their content,
      so the heading, the card contents and this sentence share one edge. */
-  padding: 0 15px 14px;
+  padding: 0 15px 15px;
   border-bottom: 1px solid var(--border);
+}
+/* Name and switch never split across lines: the switch is part of the name. */
+.app-dns-status-id {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
 }
 .app-dns-status-name {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  font-weight: 500;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
   cursor: pointer;
 }
-.app-dns-status-ctl {
-  display: flex;
-  align-items: center;
-}
-/* The sentence and, in the one state that has one, the button that fixes it.
-   The button follows the sentence it answers rather than standing at the far
-   edge of the row. */
+/* Takes the rest of the line, and a line of its own once less than 320px of it
+   is left. The button of the one state that has one sits in the sentence it
+   answers, not at the far edge of the row. */
 .app-dns-status-sub {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 14px;
+  flex: 1 1 320px;
+  min-width: 0;
+  margin: 0;
   font-size: 12.5px;
-  line-height: 1.45;
+  line-height: 1.55;
   color: var(--text-2, #94a3b8);
 }
-
-/* Narrow tab: the third column can no longer hold a sentence, and this
-   sentence — unlike the ones on the settings below — may never be dropped,
-   since it is the whole state of the tab. It takes a line of its own, and the
-   switch closes up against the name. */
-@container (max-width: 1099px) {
-  .app-dns-status {
-    /* The name column stays, because the settings below keep it too: the
-       switch has to hold the same column as the controls it presides over at
-       this width as well. */
-    grid-template-columns: var(--dns-name-col) minmax(0, max-content);
-    row-gap: 5px;
-  }
-  .app-dns-status-sub {
-    grid-column: 1 / -1;
-  }
-}
-/* Below 700px the settings send their controls under their own names, and a
-   name column that wide would strand the master switch in the middle of the
-   line. It closes up against the name instead. */
-@container (max-width: 699px) {
-  .app-dns-status {
-    grid-template-columns: max-content max-content;
-    column-gap: 12px;
-  }
+.app-dns-status-sub .ant-btn {
+  margin-left: 9px;
+  vertical-align: middle;
+  position: relative;
+  top: -1px;
 }
 
 .app-dns-dot {

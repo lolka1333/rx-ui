@@ -91,34 +91,37 @@ export function DnsTab({ onExternalChange }: Props) {
 
   return (
     <div className="app-dns">
-      {/* The master switch, its state and the one warning this tab can raise.
-          Off keeps every field below on screen — dimmed, not hidden: a setup
-          that disappears reads as deleted, and the whole point of the switch is
-          that nothing is lost.
+      {/* The tab's heading, with the master switch set into it and the state
+          of the resolver said in one sentence beside it. Off keeps every field
+          below on screen — dimmed, not hidden: a setup that disappears reads as
+          deleted, and the whole point of the switch is that nothing is lost.
 
-          Name, switch, sentence — the same three columns every setting in the
-          behaviour card stands in, so the control that governs the tab shares a
-          column with the controls it governs. It has been at both ends of this
-          row before: at the far right, 1800px from the words saying what it
-          does, and then hard against the title, which used the width no better.
-          Neither lined up with anything. */}
+          It stopped being a row of settings, which is what the three tries
+          before it were. The switch has been at the far end (1800px from the
+          words it answers to), hard against the title (with the whole width
+          blank beside it), and in the same column as the controls below (which
+          nobody can see, because those live in a card with its own background —
+          so it read as three islands on an empty strip). None of those was a
+          composition. A heading is: the name is the biggest thing on the tab,
+          the switch belongs to it, and the sentence follows in the size the
+          rest of the tab explains itself in. */}
       <div className="app-dns-status">
-        {/* `htmlFor` rather than wrapping: a label around the switch would
-            take the click twice. `button` is labelable, so this forwards. */}
-        <label className="app-dns-status-name" htmlFor="xray_dns_enabled">
-          {/* Only for the one state worth a colour. A dot beside a switch that
-              already reads on/off was two indicators arguing about the same
-              thing; the amber one earns its place because nothing else on the
-              line says "configured but never asked". */}
-          {inert && <span className="app-dns-dot is-warn" aria-hidden="true" />}
-          {t('settings.dnsEnabled')}
-        </label>
-        <div className="app-dns-status-ctl">
+        <div className="app-dns-status-id">
+          {/* `htmlFor` rather than wrapping: a label around the switch would
+              take the click twice. `button` is labelable, so this forwards. */}
+          <label className="app-dns-status-name" htmlFor="xray_dns_enabled">
+            {/* Only for the one state worth a colour. A dot beside a switch that
+                already reads on/off was two indicators arguing about the same
+                thing; the amber one earns its place because nothing else on the
+                line says "configured but never asked". */}
+            {inert && <span className="app-dns-dot is-warn" aria-hidden="true" />}
+            {t('settings.dnsEnabled')}
+          </label>
           <Form.Item name="xray_dns_enabled" noStyle valuePropName="checked">
             <Switch id="xray_dns_enabled" />
           </Form.Item>
         </div>
-        <div className="app-dns-status-sub">
+        <p className="app-dns-status-sub">
           {statusText}
           {inert && (
             <Button
@@ -131,7 +134,7 @@ export function DnsTab({ onExternalChange }: Props) {
               {t('settings.dnsInertAction')}
             </Button>
           )}
-        </div>
+        </p>
       </div>
 
       {/* The wrapper always carries `app-dns-body` — the spacing between the
