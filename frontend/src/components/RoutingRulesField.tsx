@@ -808,11 +808,12 @@ export function RoutingRulesField({
 
   return (
     <section className="app-rt-section">
-      {/* The same toolbar the other list pages carry: what the list means on
-          the left, its actions on the right. The page is titled by the sidebar
-          now, so the block does not title itself a second time. */}
+      {/* Actions only, right-aligned, the way the other list pages open.
+          A line saying the rules are read top to bottom and the first match
+          wins used to sit at the left of it — which the table already says
+          twice: the "№" column IS the evaluation order, and the last row is
+          "everything that did not match". */}
       <div className="app-rt-toolbar">
-        <span className="app-rt-sub">{t('settings.rulesOrderSub')}</span>
         {/* A rule needs somewhere to send traffic, and this is the one exit a
             server can grow without owning a second server — so it is offered
             here, beside the rules, rather than only on the outbounds page. */}

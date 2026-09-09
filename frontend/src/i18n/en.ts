@@ -269,7 +269,6 @@ export const en: Dict = {
     xrayGeoIpPlaceholder: 'geoip:ru · 10.0.0.0/8 · 1.1.1.1',
     xrayGeoSitePlaceholder: 'geosite:cn · example.com',
     // Custom routing rules (ordered, first-match-wins, after the basic ones)
-    rulesOrderGroup: 'Rule order',
     warpTitle: 'Cloudflare WARP tunnel',
     warpCreate: 'Create',
     warpServicesPlaceholder: 'pick one or type your own',
@@ -287,7 +286,6 @@ export const en: Dict = {
       'Register a Cloudflare WARP tunnel and add it to the outbounds. A rule can then send traffic into it — whatever will not go out directly, say.',
     warpAdded: 'WARP tunnel added: {{tag}}. It is in the outbound list now.',
     warpFailed: 'Could not register the WARP tunnel',
-    rulesOrderSub: 'tried top to bottom, first match wins',
     rulesColRule: 'Rule',
     rulesColConditions: 'Conditions',
     rulesColTarget: 'Target',

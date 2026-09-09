@@ -73,19 +73,13 @@
 .app-rt-section {
   margin-top: 0;
 }
-/* What the list means on the left, its actions on the right — the shape the
-   other list pages open with. */
+/* Actions, right-aligned — the shape the other list pages open with. */
 .app-rt-toolbar {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 12px;
   margin-bottom: 24px;
-}
-.app-rt-sub {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-size: 13px;
-  color: var(--text-3, #8a94a6);
 }
 /* The grip is laid over the rank, so the cell has to be the thing they share. */
 .app-rt-num {

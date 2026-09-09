@@ -269,7 +269,6 @@ export const ru = {
     xrayGeoIpPlaceholder: 'geoip:ru · 10.0.0.0/8 · 1.1.1.1',
     xrayGeoSitePlaceholder: 'geosite:cn · example.com',
     // Пользовательские правила (упорядочены, первое совпадение, после базовых)
-    rulesOrderGroup: 'Порядок правил',
     warpTitle: 'Туннель Cloudflare WARP',
     warpCreate: 'Создать',
     warpServicesPlaceholder: 'выбери или впиши свой',
@@ -287,7 +286,6 @@ export const ru = {
       'Зарегистрировать туннель Cloudflare WARP и добавить его в исходящие. Дальше правило может слать в него трафик — например, то, что не пускают напрямую.',
     warpAdded: 'Туннель WARP добавлен: {{tag}}. Он уже в списке исходящих.',
     warpFailed: 'Не удалось зарегистрировать туннель WARP',
-    rulesOrderSub: 'проверяются сверху вниз, первое совпадение выигрывает',
     rulesColRule: 'Правило',
     rulesColConditions: 'Условия',
     rulesColTarget: 'Куда',
