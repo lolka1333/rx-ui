@@ -66,7 +66,6 @@ import { mergePanelSettings } from '@/lib/panelSettings';
 import { pemRule } from '@/lib/pem';
 import { reportRouting } from '@/lib/routingReport';
 import type { RoutingApplyResult } from '@/lib/routingReport';
-import { RoutingRulesField } from '@/components/RoutingRulesField';
 import type { DnsHost, DnsServer } from '@/api/types/settings';
 
 type SectionKey = 'account' | 'access' | 'subscription' | 'xray' | 'tls';
@@ -2599,8 +2598,21 @@ function XraySection({
                       />
                     </Form.Item>
                   </FieldGroup>
-                  <Form.Item name="xray_custom_rules" noStyle>
-                    <RoutingRulesField />
+                  {/* Where it went. These four lists are what the built-in
+                      rules are made of, so an operator editing them is the one
+                      most likely to look for the order here. */}
+                  <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
+                    {t('settings.rulesMovedHint')}
+                  </Typography.Text>
+                  {/* The table moved to its own page in the sidebar. Both
+                      fields stay registered here, hidden: they carry
+                      `#[serde(default)]` on the backend, so a settings save
+                      that omitted them would write an empty list over whatever
+                      the operator had — the rules would vanish on the next save
+                      of an unrelated field. Registered and untouched, they
+                      round-trip. */}
+                  <Form.Item name="xray_custom_rules" hidden>
+                    <HiddenField />
                   </Form.Item>
                   <Form.Item name="xray_rule_order" hidden>
                     <HiddenField />

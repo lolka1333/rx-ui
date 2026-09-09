@@ -7,6 +7,7 @@ import { Dashboard } from '@/pages/Dashboard';
 import { Inbounds } from '@/pages/Inbounds';
 import { Outbounds } from '@/pages/Outbounds';
 import { Clients } from '@/pages/Clients';
+import { Rules } from '@/pages/Rules';
 import { Settings } from '@/pages/Settings';
 import { SubscriptionLanding } from '@/pages/SubscriptionLanding';
 import { useAuth } from '@/stores/auth';
@@ -151,6 +152,7 @@ function AdminApp() {
   const dashboardPage = useMemo(() => <Dashboard />, []);
   const inboundsPage = useMemo(() => <Inbounds />, []);
   const outboundsPage = useMemo(() => <Outbounds />, []);
+  const rulesPage = useMemo(() => <Rules />, []);
   const clientsPage = useMemo(() => <Clients />, []);
   // Settings is a full-width page now, driven by the sidebar's accordion.
   // `section` picks which category shows; all sections stay mounted inside so
@@ -214,6 +216,12 @@ function AdminApp() {
             style={{ display: current === 'outbounds' ? 'block' : 'none' }}
           >
             {outboundsPage}
+          </div>
+          <div
+            className="app-page-fade"
+            style={{ display: current === 'rules' ? 'block' : 'none' }}
+          >
+            {rulesPage}
           </div>
           <div
             className="app-page-fade"

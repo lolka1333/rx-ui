@@ -29,10 +29,17 @@ export const SETTINGS_SECTIONS = [
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 export type SettingsPage = `settings-${SettingsSection}`;
 
-export type NavPage = 'dashboard' | 'inbounds' | 'outbounds' | 'clients' | SettingsPage;
+export type NavPage =
+  | 'dashboard'
+  | 'inbounds'
+  | 'outbounds'
+  | 'rules'
+  | 'clients'
+  | SettingsPage;
 
 const VALID_PAGES: ReadonlySet<NavPage> = new Set<NavPage>([
   'dashboard',
+  'rules',
   'inbounds',
   'outbounds',
   'clients',
