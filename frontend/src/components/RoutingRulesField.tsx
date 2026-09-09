@@ -23,6 +23,7 @@ import {
   Select,
   Space,
   Switch,
+  Table,
   Tag,
   Tooltip,
   theme,
@@ -666,17 +667,157 @@ export function RoutingRulesField({
     whiteSpace: 'nowrap',
     flexShrink: 0,
   };
+  /** A rule's conditions, fitted to the width the column actually got.
+   *
+   *  Fill the row group by group until the column runs out; the remainder
+   *  collapses into one "+N" pill. Splitting a group across the boundary would
+   *  leave a labelled kind showing only some of its values with no sign the
+   *  rest exist, so a group is taken whole or deferred whole — and a group's
+   *  kind label is part of what it costs. */
+  const renderConds = (rule: RoutingRule) => {
+    const groups = summarizeGroups(rule);
+    const total = condCount(groups);
+    if (total === 0) {
+      return (
+        <span style={{ fontSize: 11.5, color: token.colorTextTertiary }}>
+          {t('settings.rulesMatchAll')}
+        </span>
+      );
+    }
+    // Phone: inline chips never fit beside the name, so every condition
+    // collapses into one count-pill with the full list behind it.
+    if (isMobile) {
+      return (
+        <Popover trigger="click" content={<GroupList groups={groups} t={t} />}>
+          <Tag style={{ cursor: 'pointer', margin: 0, flexShrink: 0 }}>
+            <FilterOutlined style={{ marginInlineEnd: 4 }} />
+            {total}
+          </Tag>
+        </Popover>
+      );
+    }
+    const shownGroups: CondGroup[] = [];
+    let used = 0;
+    for (const g of groups) {
+      const cost =
+        t(g.key).length * CHIP_CHAR +
+        CHIP_GAP * 2 +
+        g.items.reduce((sum, c) => sum + chipWidth(c) + CHIP_GAP, 0);
+      const avail = condsWidth - (g === groups[groups.length - 1] ? 0 : OVERFLOW_PILL);
+      if (condsWidth > 0 && used + cost > avail) break;
+      shownGroups.push(g);
+      used += cost;
+    }
+    // Never collapse to a bare "+N": a row that shows only a count says nothing
+    // about the rule it belongs to. When even the first group is too wide, it
+    // comes along cut to the chips that fit whole — the pill counts what was
+    // left out, so a part-shown group still says there is more.
+    if (shownGroups.length === 0) {
+      const [first] = groups;
+      const room = condsWidth - t(first.key).length * CHIP_CHAR - CHIP_GAP * 2 - OVERFLOW_PILL;
+      shownGroups.push({ ...first, items: first.items.slice(0, fitChips(first.items, room)) });
+    }
+    const rest = total - condCount(shownGroups);
+    return (
+      <div className="app-rt-conds">
+        {shownGroups.map((g) => (
+          <span
+            key={g.key}
+            style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}
+          >
+            <span style={condLabelStyle}>{t(g.key)}</span>
+            {g.items.map((c) => (
+              <Tag
+                key={c}
+                style={{
+                  margin: 0,
+                  maxWidth: 180,
+                  minWidth: 0,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {c}
+              </Tag>
+            ))}
+          </span>
+        ))}
+        {rest > 0 && (
+          <Popover
+            trigger="click"
+            content={<GroupList groups={groups.slice(shownGroups.length)} t={t} />}
+          >
+            <Tag style={{ cursor: 'pointer', margin: 0, flexShrink: 0 }}>+{rest}</Tag>
+          </Popover>
+        )}
+      </div>
+    );
+  };
+
+  const menuFor = (i: number): MenuProps['items'] => [
+    { key: 'edit', icon: <EditOutlined />, label: t('settings.rulesEdit') },
+    {
+      key: 'up',
+      icon: <ArrowUpOutlined />,
+      label: t('settings.rulesMoveUp'),
+      // Not across the api pin: the backend hoists it back to the front, so the
+      // move would only desync this list from what xray evaluates.
+      disabled: i === 0 || order[i - 1] === 'api',
+    },
+    {
+      key: 'down',
+      icon: <ArrowDownOutlined />,
+      label: t('settings.rulesMoveDown'),
+      disabled: i === order.length - 1,
+    },
+    { type: 'divider' },
+    { key: 'delete', icon: <DeleteOutlined />, label: t('settings.rulesDelete'), danger: true },
+  ];
+
+  const onMenuFor =
+    (id: string, i: number): MenuProps['onClick'] =>
+    ({ key }) => {
+      if (key === 'edit') openEditId(id);
+      else if (key === 'up') moveToken(i, i - 1);
+      else if (key === 'down') moveToken(i, i + 1);
+      else if (key === 'delete') deleteId(id);
+    };
+
+  /** One line of the evaluation order. The two kinds are read-only in
+   *  different ways — a system row is edited in the settings tab that produces
+   *  it, the tail matches whatever reached it — so they carry their own shape
+   *  rather than being a rule with fields blanked out. */
+  type Row =
+    | { key: string; kind: 'sys'; tok: SystemToken; i: number }
+    | { key: string; kind: 'rule'; rule: RoutingRule; i: number }
+    | { key: string; kind: 'tail' };
+
+  const rows: Row[] = [
+    ...order.flatMap((tok, i): Row[] => {
+      if (isSystemToken(tok)) return [{ key: tok, kind: 'sys', tok, i }];
+      const rule = customById.get(tok);
+      return rule ? [{ key: rule.id, kind: 'rule', rule, i }] : [];
+    }),
+    { key: '__tail', kind: 'tail' },
+  ];
+
+  /** The api row is pinned (the backend hoists it to the front regardless, so
+   *  offering the gesture would only mislead) and the tail has nowhere to go. */
+  const draggable = (r: Row) => r.kind === 'rule' || (r.kind === 'sys' && r.tok !== 'api');
+
   return (
     <section className="app-rt-section">
-      <div className="app-rt-head">
-        <span className="app-rt-title">{t('settings.rulesOrderGroup')}</span>
+      {/* The same toolbar the other list pages carry: what the list means on
+          the left, its actions on the right. The page is titled by the sidebar
+          now, so the block does not title itself a second time. */}
+      <div className="app-rt-toolbar">
         <span className="app-rt-sub">{t('settings.rulesOrderSub')}</span>
         {/* A rule needs somewhere to send traffic, and this is the one exit a
             server can grow without owning a second server — so it is offered
             here, beside the rules, rather than only on the outbounds page. */}
         <Tooltip title={t('settings.warpHint')}>
           <Button
-            size="small"
             icon={<CloudOutlined />}
             onClick={() => {
               setWarpKey((k) => k + 1);
@@ -686,262 +827,142 @@ export function RoutingRulesField({
             {t('settings.warpAdd')}
           </Button>
         </Tooltip>
-        {/* Quiet, like the "add" buttons on the DNS tab. As a primary button it
-            was the loudest thing on the tab, which put the accent on adding a
-            rule rather than on the order the rules are read in. */}
-        <Button size="small" icon={<PlusOutlined />} onClick={openAdd}>
+        <Button type="primary" icon={<PlusOutlined />} onClick={openAdd}>
           {t('settings.rulesAdd')}
         </Button>
       </div>
 
-      {/* A table, the same one the resolver list is: the numbered spine and its
-          separate handle column spent two columns of chrome before a row said
-          anything, and the conditions — the part worth reading — got what was
-          left. Columns name themselves in a header instead. */}
-      <div className="app-rt-table">
-        <div className="app-rt-tr app-rt-th">
-          <span>№</span>
-          <span>{t('settings.rulesColRule')}</span>
-          {/* The column measures itself here, once, for every row below it. */}
-          <span ref={condsRef}>{t('settings.rulesColConditions')}</span>
-          <span>{t('settings.rulesColTarget')}</span>
-          <span />
-        </div>
-
-        {order.map((tok, i) => {
-          const dragging = dragIndex === i;
-          const dropTarget = overIndex === i && dragIndex !== null && dragIndex !== i;
-          const rowClass = (extra?: string) =>
-            [
-              'app-rt-tr',
-              dragging ? 'is-drag' : '',
-              dropTarget ? 'is-over' : '',
-              extra ?? '',
-            ]
-              .filter(Boolean)
-              .join(' ');
-          /** The rank, which is also the grip — one cell, as in the DNS table. */
-          const ord = (grabbable: boolean) => (
-            <span className="app-rt-num">
-              <span className="app-rt-ord">{i + 1}</span>
-              {grabbable && <HolderOutlined className="app-rt-grip" aria-hidden="true" />}
-            </span>
-          );
-
-          // System row — read-only content (edited in "Basic connections"),
-          // but reorderable like any other.
-          if (isSystemToken(tok)) {
-            const info = sysInfo[tok];
-            // The api pin is pinned: no drag handle, and the backend puts it
-            // first anyway, so offering the gesture would only mislead.
-            const pinned = tok === 'api';
-            return (
-              <div
-                key={tok}
-                className={rowClass('is-sys')}
-                {...(pinned ? {} : rowDnd(i))}
-              >
-                {ord(!pinned)}
-                <span className="app-rt-name">
-                  <LockOutlined className="app-rt-icon" />
-                  <span className="app-rt-label">{info.label}</span>
+      <Table<Row>
+        rowKey="key"
+        dataSource={rows}
+        pagination={false}
+        scroll={{ x: 'max-content' }}
+        size={isMobile ? 'small' : 'middle'}
+        // Native DnD rides on the row element itself; antd spreads whatever
+        // `onRow` returns onto the `<tr>`.
+        onRow={(r) => ({
+          ...(draggable(r) && r.kind !== 'tail' ? rowDnd(r.i) : {}),
+          className: [
+            draggable(r) ? 'app-rt-row' : '',
+            r.kind === 'sys' || r.kind === 'tail' ? 'is-sys' : '',
+            r.kind === 'rule' && !r.rule.enabled ? 'is-off' : '',
+            r.kind !== 'tail' && dragIndex === r.i ? 'is-drag' : '',
+            r.kind !== 'tail' && overIndex === r.i && dragIndex !== null && dragIndex !== r.i
+              ? 'is-over'
+              : '',
+          ]
+            .filter(Boolean)
+            .join(' '),
+        })}
+        columns={[
+          {
+            title: '№',
+            key: 'ord',
+            width: 64,
+            render: (_, r) =>
+              r.kind === 'tail' ? null : (
+                <span className="app-rt-num">
+                  <span className="app-rt-ord">{r.i + 1}</span>
+                  {draggable(r) && (
+                    <HolderOutlined className="app-rt-grip" aria-hidden="true" />
+                  )}
                 </span>
-                {/* What the row matches on, in its own words. Edited in the
-                    block above — the tooltip on the name says so — but shown
-                    here, because "set in the block above" filled the widest
-                    column of the table with a sentence about somewhere else. */}
-                <div className="app-rt-conds">
-                  {info.items.length === 0 ? (
-                    <span className="app-rt-muted">{t('settings.rulesSysEmpty')}</span>
-                  ) : (
+              ),
+          },
+          {
+            title: t('settings.rulesColRule'),
+            key: 'name',
+            render: (_, r) => {
+              if (r.kind === 'tail') {
+                return (
+                  <span className="app-rt-name">
+                    <FlagOutlined className="app-rt-icon" />
+                    <span className="app-rt-label">{t('settings.rulesDefaultLabel')}</span>
+                  </span>
+                );
+              }
+              if (r.kind === 'sys') {
+                return (
+                  <span className="app-rt-name">
+                    <LockOutlined className="app-rt-icon" />
+                    <span className="app-rt-label">{sysInfo[r.tok].label}</span>
+                  </span>
+                );
+              }
+              return (
+                <span className={r.rule.name ? 'app-rt-label' : 'app-rt-label app-rt-muted'}>
+                  {r.rule.name || t('settings.rulesUnnamed')}
+                </span>
+              );
+            },
+          },
+          {
+            // The column measures itself here, once, for every row below it —
+            // the chip budget is written to the width the column actually got.
+            title: (
+              <span ref={condsRef} style={{ display: 'block' }}>
+                {t('settings.rulesColConditions')}
+              </span>
+            ),
+            key: 'conds',
+            render: (_, r) => {
+              if (r.kind === 'tail') {
+                return <span className="app-rt-muted">{t('settings.rulesDefaultConds')}</span>;
+              }
+              if (r.kind === 'sys') {
+                const info = sysInfo[r.tok];
+                return info.items.length === 0 ? (
+                  <span className="app-rt-muted">{t('settings.rulesSysEmpty')}</span>
+                ) : (
+                  <div className="app-rt-conds">
                     <ChipList
                       items={info.items}
                       budget={isMobile ? 1 : fitChips(info.items, condsWidth)}
                     />
-                  )}
-                </div>
-                <Tag color={colorOf(info.target)} style={{ margin: 0 }}>
-                  {info.target}
+                  </div>
+                );
+              }
+              return renderConds(r.rule);
+            },
+          },
+          {
+            title: t('settings.rulesColTarget'),
+            key: 'target',
+            align: 'right',
+            render: (_, r) => {
+              const tag =
+                r.kind === 'tail' ? 'direct' : r.kind === 'sys' ? sysInfo[r.tok].target : r.rule.outbound_tag;
+              return (
+                <Tag color={colorOf(tag)} style={{ margin: 0 }}>
+                  {tag}
                 </Tag>
-                <span aria-hidden="true" />
-              </div>
-            );
-          }
-
-          const rule = customById.get(tok);
-          if (!rule) return null;
-          const groups = summarizeGroups(rule);
-          const total = condCount(groups);
-          // Fill the row group by group until the column runs out; the
-          // remainder collapses into one "+N" pill. Splitting a group across
-          // the boundary would leave a labelled kind showing only some of its
-          // values with no sign the rest exist, so a group is taken whole or
-          // deferred whole — and a group's kind label is part of what it costs.
-          const shownGroups: CondGroup[] = [];
-          let used = 0;
-          for (const g of groups) {
-            const cost =
-              t(g.key).length * CHIP_CHAR +
-              CHIP_GAP * 2 +
-              g.items.reduce((s, c) => s + chipWidth(c) + CHIP_GAP, 0);
-            const avail = condsWidth - (g === groups[groups.length - 1] ? 0 : OVERFLOW_PILL);
-            if (condsWidth > 0 && used + cost > avail) break;
-            shownGroups.push(g);
-            used += cost;
-          }
-          // Never collapse to a bare "+N": a row that shows only a count says
-          // nothing about the rule it belongs to. When even the first group is
-          // too wide, it comes along cut to the chips that fit whole — the
-          // pill counts what was left out, so a part-shown group still says
-          // there is more. Squeezing the whole group into ellipses instead
-          // would spend the same width on `geosi…`, which names nothing.
-          if (shownGroups.length === 0 && groups.length > 0) {
-            const [first] = groups;
-            const room = condsWidth - t(first.key).length * CHIP_CHAR - CHIP_GAP * 2 - OVERFLOW_PILL;
-            shownGroups.push({ ...first, items: first.items.slice(0, fitChips(first.items, room)) });
-          }
-          const rest = total - condCount(shownGroups);
-          const hiddenGroups = groups.slice(shownGroups.length);
-          const menu: MenuProps['items'] = [
-            { key: 'edit', icon: <EditOutlined />, label: t('settings.rulesEdit') },
-            {
-              key: 'up',
-              icon: <ArrowUpOutlined />,
-              label: t('settings.rulesMoveUp'),
-              // Not across the api pin: the backend hoists it back to the front,
-              // so the move would only desync this list from what xray evaluates.
-              disabled: i === 0 || order[i - 1] === 'api',
+              );
             },
-            {
-              key: 'down',
-              icon: <ArrowDownOutlined />,
-              label: t('settings.rulesMoveDown'),
-              disabled: i === order.length - 1,
-            },
-            { type: 'divider' },
-            { key: 'delete', icon: <DeleteOutlined />, label: t('settings.rulesDelete'), danger: true },
-          ];
-          const onMenu: MenuProps['onClick'] = ({ key }) => {
-            if (key === 'edit') openEditId(rule.id);
-            else if (key === 'up') moveToken(i, i - 1);
-            else if (key === 'down') moveToken(i, i + 1);
-            else if (key === 'delete') deleteId(rule.id);
-          };
-          return (
-            <div
-              key={rule.id}
-              className={rowClass(rule.enabled ? undefined : 'is-off')}
-              {...rowDnd(i)}
-            >
-              {ord(true)}
-              <span className={rule.name ? 'app-rt-label' : 'app-rt-label app-rt-muted'}>
-                {rule.name || t('settings.rulesUnnamed')}
-              </span>
-              <div className="app-rt-conds">
-                {total === 0 ? (
-                  <span
-                    style={{ fontSize: 11.5, color: token.colorTextTertiary, flexShrink: 0 }}
+          },
+          {
+            title: '',
+            key: 'actions',
+            width: 92,
+            align: 'right',
+            render: (_, r) =>
+              r.kind !== 'rule' ? null : (
+                <span className="app-rt-tail">
+                  <Switch
+                    size="small"
+                    checked={r.rule.enabled}
+                    onChange={() => toggleId(r.rule.id)}
+                  />
+                  <Dropdown
+                    menu={{ items: menuFor(r.i), onClick: onMenuFor(r.rule.id, r.i) }}
+                    trigger={['click']}
                   >
-                    {t('settings.rulesMatchAll')}
-                  </span>
-                ) : isMobile ? (
-                  // Phone: inline chips never fit beside the name, so collapse
-                  // every condition into one count-pill → Popover with the full
-                  // list. flexShrink:0 keeps it visible however long the name is.
-                  <Popover
-                    trigger="click"
-                    content={<GroupList groups={groups} t={t} />}
-                  >
-                    <Tag
-                      style={{ cursor: 'pointer', margin: 0, flexShrink: 0 }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <FilterOutlined style={{ marginInlineEnd: 4 }} />
-                      {total}
-                    </Tag>
-                  </Popover>
-                ) : (
-                  <>
-                    {shownGroups.map((g) => (
-                      <span
-                        key={g.key}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 5,
-                          minWidth: 0,
-                          flexShrink: 1,
-                        }}
-                      >
-                        <span style={condLabelStyle}>{t(g.key)}</span>
-                        {g.items.map((c) => (
-                          <Tag
-                            key={c}
-                            style={{
-                              margin: 0,
-                              maxWidth: 180,
-                              minWidth: 0,
-                              flexShrink: 1,
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                            }}
-                          >
-                            {c}
-                          </Tag>
-                        ))}
-                      </span>
-                    ))}
-                    {rest > 0 && (
-                      // "+N" pill — click opens a Popover listing the hidden
-                      // conditions, same affordance as the Clients page's inbound
-                      // overflow. Click-only (touch double-fires hover+click); stop
-                      // propagation so it doesn't reach the draggable row.
-                      // flexShrink:0 keeps it visible as the chips shrink.
-                      <Popover
-                        trigger="click"
-                        content={<GroupList groups={hiddenGroups} t={t} />}
-                      >
-                        <Tag
-                          style={{ cursor: 'pointer', margin: 0, flexShrink: 0 }}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          +{rest}
-                        </Tag>
-                      </Popover>
-                    )}
-                  </>
-                )}
-              </div>
-              <Tag color={colorOf(rule.outbound_tag)} style={{ margin: 0 }}>
-                {rule.outbound_tag}
-              </Tag>
-              <span className="app-rt-tail">
-                <Switch size="small" checked={rule.enabled} onChange={() => toggleId(rule.id)} />
-                <Dropdown menu={{ items: menu, onClick: onMenu }} trigger={['click']}>
-                  <MoreOutlined className="app-rt-more" />
-                </Dropdown>
-              </span>
-            </div>
-          );
-        })}
-
-        {/* The fallback: it matches whatever reached it, so it has no
-            conditions of its own, and it always ends the chain — no rank, and
-            no grip, because there is nowhere for it to move. */}
-        <div className="app-rt-tr is-sys">
-          <span className="app-rt-num" aria-hidden="true" />
-          <span className="app-rt-name">
-            <FlagOutlined className="app-rt-icon" />
-            <span className="app-rt-label">{t('settings.rulesDefaultLabel')}</span>
-          </span>
-          <span className="app-rt-muted">{t('settings.rulesDefaultConds')}</span>
-          <Tag color="success" style={{ margin: 0 }}>
-            direct
-          </Tag>
-          <span aria-hidden="true" />
-        </div>
-      </div>
+                    <MoreOutlined className="app-rt-more" />
+                  </Dropdown>
+                </span>
+              ),
+          },
+        ]}
+      />
 
       <WarpModal
         key={warpKey}

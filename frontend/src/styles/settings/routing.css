@@ -63,50 +63,36 @@
 
 /* ── The rule table ────────────────────────────────────────────────────── */
 
-/* Shell, row rhythm, header, number-cell-as-grip and the drag states come from
-   settings/table.css — shared with the resolver list. Only the columns and the
-   cells peculiar to a rule live here. */
+/* The list is an antd `Table`, the same component the inbound, outbound and
+   client lists are. It used to be a hand-rolled grid of divs, which is how it
+   came to look like nothing else in the panel — its own header row, its own
+   rhythm, its own hover. The number-cell-as-grip and the drag states still come
+   from settings/table.css, shared with the resolver list.
+
+   What stays here is the toolbar above it and the cells peculiar to a rule. */
 .app-rt-section {
-  margin-top: 20px;
+  margin-top: 0;
 }
-.app-rt-head {
+/* What the list means on the left, its actions on the right — the shape the
+   other list pages open with. */
+.app-rt-toolbar {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
-  margin: 0 0 10px 2px;
-}
-.app-rt-title {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-3, #8a94a6);
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
 }
 .app-rt-sub {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-3, #8a94a6);
-  opacity: 0.75;
 }
-
-/* Conditions get the widest track: they are the part of a rule worth reading,
-   and the part that used to be squeezed onto a second line. */
-/* "Куда" is one short chip, so it takes the width of that chip and nothing
-   more — as a proportional track it owned ~150px of a wide table, which is
-   what put a band of nothing between the target and the row's controls, and
-   took the room from the one column that had something to say. */
-.app-rt-tr {
-  grid-template-columns:
-    26px minmax(130px, 1.2fr) minmax(200px, 3fr)
-    max-content 56px;
-}
-
-/* The target is a chip, not a column-wide bar: a grid child stretches to its
-   track unless told otherwise, which turned every tag into a 90px slab. */
-.app-rt-tr > .ant-tag {
-  justify-self: start;
-  margin: 0;
+/* The grip is laid over the rank, so the cell has to be the thing they share. */
+.app-rt-num {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
 }
 
 .app-rt-name {
@@ -169,10 +155,10 @@
 
 /* A system row is read-only here (its matchers live in the block above), and a
    rule switched off still has to be readable — neither is "disabled". */
-.app-rt-tr.is-sys .app-rt-label {
+.ant-table-row.is-sys .app-rt-label {
   color: var(--text-2, #94a3b8);
 }
-.app-rt-tr.is-off {
+.ant-table-row.is-off {
   opacity: 0.55;
 }
 
