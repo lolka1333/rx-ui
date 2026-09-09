@@ -252,9 +252,6 @@ export interface FormValues {
   quic_max_conn_receive_window: number | null;
   quic_disable_path_mtu_discovery: boolean;
   quic_max_incoming_streams: number | null;
-  quic_udp_hop_ports: string[];
-  quic_udp_hop_interval_min: number | null;
-  quic_udp_hop_interval_max: number | null;
   // FinalMask — wire-level obfuscation wrapping socket bytes after the
   // TLS/Reality handshake. Variants:
   //   * sudoku   — TCP + UDP, password-derived lookup + entropy + padding

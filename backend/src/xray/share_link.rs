@@ -212,23 +212,6 @@ pub fn build_hysteria2_share_link(
         }
     }
 
-    // Port hopping: carry the server's udp_hop port set as `mport=` (v2rayN /
-    // NekoBox read it into their "port range" field) so the client rotates the
-    // same ports. Without it the subscription hands out only the single listen
-    // port and hopping is lost client-side.
-    if let TransportConfig::Hysteria(ht) = &inbound.transport
-        && let Some(hop) = ht.quic_params.as_ref().and_then(|q| q.udp_hop.as_ref())
-        && !hop.ports.is_empty()
-    {
-        let ports = hop
-            .ports
-            .iter()
-            .map(u32::to_string)
-            .collect::<Vec<_>>()
-            .join(",");
-        params.push(("mport".to_owned(), ports));
-    }
-
     let query = params
         .iter()
         .map(|(k, v)| format!("{k}={}", urlencoding::encode(v)))
@@ -1118,29 +1101,13 @@ mod tests {
         assert!(!link.contains("obfs=salamander"), "got: {link}");
     }
 
+    /// `mport=` went with the server-side hopping that fed it. xray v26.9.9
+    /// deleted `UdpHop` from `QuicParams` and moved port hopping to the
+    /// finalmask system, so the panel has no port set to advertise — and
+    /// telling a client to rotate ports a server no longer listens on is worse
+    /// than saying nothing.
     #[test]
-    fn hysteria2_port_hopping_rides_as_mport() {
-        use crate::transports::quic::{QuicParams, UdpHop};
-        let mut inb = hy_inbound(tls_with_sni("hy.example.com"));
-        let TransportConfig::Hysteria(ht) = &mut inb.transport else {
-            unreachable!("hy_inbound builds a hysteria transport");
-        };
-        ht.quic_params = Some(QuicParams {
-            udp_hop: Some(UdpHop {
-                ports: vec![23929, 23931],
-                interval_min: 30,
-                interval_max: 30,
-            }),
-            ..QuicParams::default()
-        });
-        let link = build_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
-        // Ports joined by comma (url-encoded to %2C) → v2rayN's port-range field.
-        assert!(link.contains("mport=23929%2C23931"), "got: {link}");
-    }
-
-    #[test]
-    fn hysteria2_no_mport_without_port_hopping() {
-        // The basic fixture has quic_params: None → no port hopping → no mport.
+    fn hysteria2_never_carries_mport() {
         let inb = hy_inbound(tls_with_sni("hy.example.com"));
         let link = build_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
         assert!(!link.contains("mport="), "got: {link}");

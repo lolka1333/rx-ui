@@ -14,17 +14,25 @@ use tokio::{
 /// The oldest xray whose protobuf layout matches the definitions vendored under
 /// `backend/proto/`.
 ///
-/// v26.9.8 renumbered two messages the panel fills in on every inbound push:
-/// `QuicParams` (a field inserted at 5 shifted everything after it) and
-/// hysteria's `Config` (one inserted at 8 shifted the masquerade fields). The
-/// panel talks to the core in protobuf over gRPC, and that channel carries no
-/// version handshake — an older core decodes the panel's bytes with its own
-/// numbering and either refuses the message or, where the wire types happen to
-/// line up, builds a different setting entirely. Neither end says a word, so
-/// the panel says it instead.
-pub const MIN_XRAY_VERSION: (u32, u32, u32) = (26, 9, 8);
+/// Two releases running have renumbered messages the panel fills in on every
+/// inbound push. v26.9.8 moved `QuicParams` (a field inserted at 5 shifted
+/// everything after it) and hysteria's `Config` (one inserted at 8 shifted the
+/// masquerade fields). v26.9.9 moved `QuicParams` again, in the other
+/// direction: `UdpHop udp_hop = 6` was deleted and all eleven fields above it
+/// dropped one number.
+///
+/// That second move is why v26.9.8 is on the WRONG side of this floor rather
+/// than the right one. The two layouts are incompatible in both directions and
+/// the panel can only speak one of them.
+///
+/// The panel talks to the core in protobuf over gRPC, and that channel carries
+/// no version handshake — a core on the other layout decodes the panel's bytes
+/// with its own numbering and either refuses the message or, where the wire
+/// types happen to line up, builds a different setting entirely. Neither end
+/// says a word, so the panel says it instead.
+pub const MIN_XRAY_VERSION: (u32, u32, u32) = (26, 9, 9);
 
-/// `"v26.9.8"` → `(26, 9, 8)`. `None` for anything that is not three numbers,
+/// `"v26.9.9"` → `(26, 9, 9)`. `None` for anything that is not three numbers,
 /// which covers a custom build with its own version string.
 fn parse_xray_version(tag: &str) -> Option<(u32, u32, u32)> {
     let mut parts = tag.trim().trim_start_matches('v').split('.');
@@ -461,13 +469,17 @@ mod tests {
     use super::{parse_xray_line, strip_xray_timestamp, version_too_old};
 
     /// The comparison is on numbers, not on the string: "26.10.1" is newer than
-    /// "26.9.8" and sorts before it alphabetically.
+    /// "26.9.9" and sorts before it alphabetically.
+    ///
+    /// v26.9.8 is on the flagged side now. It was the floor until v26.9.9
+    /// renumbered `QuicParams` a second time, and the two are not compatible on
+    /// that message in either direction — the panel has to name one of them.
     #[test]
     fn a_core_older_than_the_vendored_protos_is_flagged() {
-        for old in ["v26.7.11", "v26.7.28", "v26.3.27", "v25.12.31", "26.9.7"] {
+        for old in ["v26.9.8", "v26.7.11", "v26.7.28", "v26.3.27", "v25.12.31", "26.9.7"] {
             assert!(version_too_old(old), "{old} should be flagged");
         }
-        for ok in ["v26.9.8", "v26.9.9", "v26.10.1", "v27.0.0", "  v26.9.8  "] {
+        for ok in ["v26.9.9", "v26.10.1", "v27.0.0", "  v26.9.9  "] {
             assert!(!version_too_old(ok), "{ok} should pass");
         }
     }

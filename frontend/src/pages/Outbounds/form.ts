@@ -8,7 +8,6 @@
 import type {
   CustomOutbound,
   QuicParams,
-  UdpHop,
   SecurityConfig,
   TransportConfig,
   VlessEncryptionMode,
@@ -73,9 +72,6 @@ export interface OutboundFormValues extends FinalMaskFormFields {
   hy_max_idle_secs: number | null;
   // Port hopping — rotate the UDP port across a set to dodge port-based
   // blocking. Empty = disabled.
-  hy_udp_hop_ports: string[];
-  hy_udp_hop_interval_min: number | null;
-  hy_udp_hop_interval_max: number | null;
   // transport
   network: OutboundNetwork;
   ws_path: string;
@@ -157,9 +153,6 @@ export const OUTBOUND_DEFAULTS: OutboundFormValues = {
   hy_brutal_down_mbps: null,
   hy_keep_alive_secs: null,
   hy_max_idle_secs: null,
-  hy_udp_hop_ports: [],
-  hy_udp_hop_interval_min: null,
-  hy_udp_hop_interval_max: null,
   network: 'tcp',
   ws_path: '/',
   ws_host: '',
@@ -348,31 +341,18 @@ function buildSecurity(v: OutboundFormValues): SecurityConfig {
 function buildHyQuic(v: OutboundFormValues): QuicParams | null {
   const congestion =
     v.hy_congestion === 'brutal' ? 'brutal' : v.hy_congestion === 'bbr' ? 'bbr' : null;
-  const ports = v.hy_udp_hop_ports
-    .map((p) => Number.parseInt(p, 10))
-    .filter((n) => Number.isFinite(n) && n > 0 && n < 65536);
-  const udpHop: UdpHop | null =
-    ports.length > 0
-      ? {
-          ports,
-          interval_min: v.hy_udp_hop_interval_min ?? 0,
-          interval_max: v.hy_udp_hop_interval_max ?? 0,
-        }
-      : null;
   const anySet =
     congestion !== null ||
     v.hy_brutal_up_mbps !== null ||
     v.hy_brutal_down_mbps !== null ||
     v.hy_keep_alive_secs !== null ||
-    v.hy_max_idle_secs !== null ||
-    udpHop !== null;
+    v.hy_max_idle_secs !== null;
   if (!anySet) return null;
   return {
     congestion,
     bbr_profile: null,
     brutal_up_mbps: v.hy_brutal_up_mbps,
     brutal_down_mbps: v.hy_brutal_down_mbps,
-    udp_hop: udpHop,
     init_stream_receive_window: null,
     max_stream_receive_window: null,
     init_conn_receive_window: null,
@@ -538,11 +518,6 @@ export function outboundToForm(ob: CustomOutbound): OutboundFormValues {
       d.hy_brutal_down_mbps = q.brutal_down_mbps;
       d.hy_keep_alive_secs = q.keep_alive_period_secs;
       d.hy_max_idle_secs = q.max_idle_timeout_secs;
-      if (q.udp_hop) {
-        d.hy_udp_hop_ports = q.udp_hop.ports.map(String);
-        d.hy_udp_hop_interval_min = q.udp_hop.interval_min;
-        d.hy_udp_hop_interval_max = q.udp_hop.interval_max;
-      }
     }
   }
   const toPairs = (h: { [k: string]: string } | null): HeaderPair[] =>

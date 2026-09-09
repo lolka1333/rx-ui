@@ -89,28 +89,6 @@ export function QuicTuning() {
         />
       </SideBySide>
 
-      <Form.Item
-        name="quic_udp_hop_ports"
-        label={t('inbounds.quicUdpHopPorts')}
-        tooltip={t('inbounds.quicUdpHopPortsHint')}
-      >
-        <Select mode="tags" tokenSeparators={[',', ' ']} placeholder="20000, 20001, 20002" />
-      </Form.Item>
-      <SideBySide>
-        <NumberUnitField
-          name="quic_udp_hop_interval_min"
-          labelKey="inbounds.quicUdpHopIntervalMin"
-          placeholder="30"
-          unit={t('inbounds.unitSec')}
-        />
-        <NumberUnitField
-          name="quic_udp_hop_interval_max"
-          labelKey="inbounds.quicUdpHopIntervalMax"
-          placeholder="60"
-          unit={t('inbounds.unitSec')}
-        />
-      </SideBySide>
-
       <SideBySide>
         <NumberUnitField
           name="quic_init_stream_receive_window"

@@ -21,7 +21,6 @@ import type {
   SocketOpt,
   TlsSecurity,
   TransportConfig,
-  UdpHop,
   VlessProtocol,
   WsTransport,
   XhttpTransport,
@@ -371,11 +370,6 @@ function hydrateQuicParams(v: FormValues, q: QuicParams) {
   v.quic_max_conn_receive_window = q.max_conn_receive_window ?? null;
   v.quic_disable_path_mtu_discovery = q.disable_path_mtu_discovery;
   v.quic_max_incoming_streams = q.max_incoming_streams ?? null;
-  if (q.udp_hop) {
-    v.quic_udp_hop_ports = q.udp_hop.ports.map(String);
-    v.quic_udp_hop_interval_min = q.udp_hop.interval_min;
-    v.quic_udp_hop_interval_max = q.udp_hop.interval_max;
-  }
 }
 
 /** Collect the operator-set QUIC tuning fields into a `QuicParams`,
@@ -383,23 +377,11 @@ function hydrateQuicParams(v: FormValues, q: QuicParams) {
  *  skip persisting an empty object and leave xray on its hard-coded
  *  defaults. */
 function buildQuicParams(v: FormValues): QuicParams | null {
-  const ports = v.quic_udp_hop_ports
-    .map((p) => Number.parseInt(p, 10))
-    .filter((n) => Number.isFinite(n) && n > 0 && n < 65536);
-  const udpHop: UdpHop | null =
-    ports.length > 0
-      ? {
-          ports,
-          interval_min: v.quic_udp_hop_interval_min ?? 0,
-          interval_max: v.quic_udp_hop_interval_max ?? 0,
-        }
-      : null;
   const q: QuicParams = {
     congestion: v.quic_congestion === 'default' ? null : v.quic_congestion,
     bbr_profile: orNull(v.quic_bbr_profile),
     brutal_up_mbps: orNullNum(v.quic_brutal_up_mbps),
     brutal_down_mbps: orNullNum(v.quic_brutal_down_mbps),
-    udp_hop: udpHop,
     init_stream_receive_window: orNullNum(v.quic_init_stream_receive_window),
     max_stream_receive_window: orNullNum(v.quic_max_stream_receive_window),
     init_conn_receive_window: orNullNum(v.quic_init_conn_receive_window),
@@ -416,7 +398,6 @@ function buildQuicParams(v: FormValues): QuicParams | null {
     q.bbr_profile === null &&
     q.brutal_up_mbps === null &&
     q.brutal_down_mbps === null &&
-    q.udp_hop === null &&
     q.init_stream_receive_window === null &&
     q.max_stream_receive_window === null &&
     q.init_conn_receive_window === null &&

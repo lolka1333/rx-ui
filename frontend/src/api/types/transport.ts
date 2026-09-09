@@ -47,7 +47,7 @@ brutal_up_mbps: number | null,
 /**
  * Brutal-mode downstream cap, megabits/sec.
  */
-brutal_down_mbps: number | null, udp_hop: UdpHop | null, 
+brutal_down_mbps: number | null, 
 /**
  * Initial QUIC stream receive window, in bytes.
  */
@@ -93,25 +93,6 @@ export type TransportConfig = { "kind": "tcp" } & TcpTransport | { "kind": "ws" 
  * and on the wire to identify which variant of `TransportConfig` follows.
  */
 export type TransportKind = "tcp" | "ws" | "xhttp" | "hysteria";
-
-/**
- * UDP port-hopping — defeats simple port-based blocking by rotating
- * the listening port from the `ports` set every `interval_min..max`
- * seconds.
- */
-export type UdpHop = { 
-/**
- * Ports to rotate through. Must contain at least one entry.
- */
-ports: Array<number>, 
-/**
- * Lower bound of the random hop interval, in seconds.
- */
-interval_min: number, 
-/**
- * Upper bound. `min == max` produces a fixed cadence.
- */
-interval_max: number, };
 
 export type WsTransport = { 
 /**

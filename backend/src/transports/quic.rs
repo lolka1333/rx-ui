@@ -11,7 +11,7 @@
 //! for most deployments).
 
 use crate::xray::proto::xray::transport::internet::{
-    QuicParams as XrayQuicParams, UdpHop as XrayUdpHop,
+    QuicParams as XrayQuicParams,
 };
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -47,22 +47,6 @@ impl QuicCongestion {
     }
 }
 
-/// UDP port-hopping — defeats simple port-based blocking by rotating
-/// the listening port from the `ports` set every `interval_min..max`
-/// seconds.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../frontend/src/api/types/transport.ts")]
-pub struct UdpHop {
-    /// Ports to rotate through. Must contain at least one entry.
-    pub ports: Vec<u32>,
-    /// Lower bound of the random hop interval, in seconds.
-    #[ts(type = "number")]
-    pub interval_min: i64,
-    /// Upper bound. `min == max` produces a fixed cadence.
-    #[ts(type = "number")]
-    pub interval_max: i64,
-}
-
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../frontend/src/api/types/transport.ts")]
 pub struct QuicParams {
@@ -78,7 +62,6 @@ pub struct QuicParams {
     /// Brutal-mode downstream cap, megabits/sec.
     #[ts(type = "number | null")]
     pub brutal_down_mbps: Option<u64>,
-    pub udp_hop: Option<UdpHop>,
     /// Initial QUIC stream receive window, in bytes.
     #[ts(type = "number | null")]
     pub init_stream_receive_window: Option<u64>,
@@ -118,17 +101,12 @@ impl QuicParams {
             // every one of them, so the emitted config is unchanged — they are
             // named rather than left to `..default()` because this struct is
             // exhaustively initialised on purpose: the compiler is what caught
-            // the v26.9.8 renumbering, and it can only do that while every
-            // field is spelled out.
+            // both the v26.9.8 and the v26.9.9 renumbering, and it can only do
+            // that while every field is spelled out.
             brutal_disable_loss_compensation: false,
             disable_chrome_parrot: false,
             disable_gso: false,
             disable_stateless_reset: false,
-            udp_hop: self.udp_hop.as_ref().map(|h| XrayUdpHop {
-                ports: h.ports.clone(),
-                interval_min: h.interval_min,
-                interval_max: h.interval_max,
-            }),
             init_stream_receive_window: self.init_stream_receive_window.unwrap_or(0),
             max_stream_receive_window: self.max_stream_receive_window.unwrap_or(0),
             init_conn_receive_window: self.init_conn_receive_window.unwrap_or(0),

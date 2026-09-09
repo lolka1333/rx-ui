@@ -830,8 +830,9 @@ mod tests {
 
     /// The gRPC path against a real core, end to end.
     ///
-    /// Builds a Hysteria inbound that fills in exactly the two messages xray
-    /// v26.9.8 renumbered — `QuicParams` and the hysteria string masquerade —
+    /// Builds a Hysteria inbound that fills in exactly the messages the last
+    /// two releases renumbered — `QuicParams`, which moved in both v26.9.8 and
+    /// v26.9.9, and the hysteria string masquerade, which moved in v26.9.8 —
     /// and pushes it into a running xray with `AddInbound`.
     ///
     /// This is the test the renumbering needed and did not have. Nothing on
@@ -916,10 +917,11 @@ mod tests {
         let _ = child.kill();
         let _ = child.wait();
 
-        // A core older than v26.9.8 fails here with "cannot parse invalid
-        // wire-format data": it reads `udp_hop` at the number that now holds a
-        // bool. That is the whole point of the test — the message names the
-        // binary so the reason is obvious when it is simply the wrong core.
+        // A core older than v26.9.9 mis-reads this inbound: every QuicParams
+        // field from 6 up moved down one number in that release, so the values
+        // land in their neighbours' slots. That is the whole point of the test
+        // — the message names the binary so the reason is obvious when it is
+        // simply the wrong core.
         assert!(
             last.is_none(),
             "{bin} refused the pushed hysteria inbound: {}",
@@ -927,12 +929,12 @@ mod tests {
         );
     }
 
-    /// A hysteria inbound carrying every field the v26.9.8 renumbering touched:
-    /// the QUIC params from `udp_hop` onwards, and a string masquerade with its
-    /// headers and status code.
+    /// A hysteria inbound carrying every field the v26.9.8 and v26.9.9
+    /// renumberings touched: every `QuicParams` field the panel models, and a
+    /// string masquerade with its headers and status code.
     #[cfg(test)]
     fn hysteria_push_fixture(cert: String, key: String) -> Inbound {
-        use crate::transports::quic::{QuicParams, UdpHop};
+        use crate::transports::quic::QuicParams;
         let mut inb = hysteria2_tls_inbound(vec![TlsCertificate {
             source: TlsCertSource::Inline,
             cert,
@@ -956,11 +958,6 @@ mod tests {
                 bbr_profile: None,
                 brutal_up_mbps: None,
                 brutal_down_mbps: None,
-                udp_hop: Some(UdpHop {
-                    ports: vec![20000, 20001],
-                    interval_min: 30,
-                    interval_max: 60,
-                }),
                 init_stream_receive_window: Some(1 << 20),
                 max_stream_receive_window: Some(1 << 22),
                 init_conn_receive_window: Some(1 << 20),

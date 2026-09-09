@@ -496,35 +496,6 @@ export const OutboundForm = memo(function OutboundForm({
               <InputNumber min={0} placeholder="30" />
             </Form.Item>
           </SideBySide>
-          <Form.Item
-            name="hy_udp_hop_ports"
-            label={t('outbounds.hyUdpHopPorts')}
-            tooltip={t('outbounds.hyUdpHopPortsHint')}
-          >
-            <Select
-              mode="tags"
-              tokenSeparators={[',', ' ']}
-              allowClear
-              placeholder="20000, 20001, 20002"
-            />
-          </Form.Item>
-          <SideBySide>
-            <Form.Item
-              name="hy_udp_hop_interval_min"
-              label={t('outbounds.hyUdpHopMin')}
-              tooltip={t('outbounds.hyUdpHopHint')}
-              style={{ flex: 1 }}
-            >
-              <InputNumber min={1} placeholder="30" />
-            </Form.Item>
-            <Form.Item
-              name="hy_udp_hop_interval_max"
-              label={t('outbounds.hyUdpHopMax')}
-              style={{ flex: 1 }}
-            >
-              <InputNumber min={1} placeholder="60" />
-            </Form.Item>
-          </SideBySide>
         </>
       )}
 
