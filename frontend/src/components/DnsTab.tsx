@@ -250,9 +250,7 @@ function BehaviourSection() {
           >
             <Form.Item name="xray_dns_query_strategy" noStyle>
               <Select
-                size="small"
-                popupMatchSelectWidth={false}
-                style={{ width: 136 }}
+                className="app-dns-pick"
                 options={DNS_QUERY_STRATEGIES.map((v) => ({ value: v, label: v }))}
               />
             </Form.Item>
@@ -263,7 +261,7 @@ function BehaviourSection() {
             hint={t('settings.xrayDnsUseSystemHostsHint')}
           >
             <Form.Item name="xray_dns_use_system_hosts" noStyle valuePropName="checked">
-              <Switch size="small" />
+              <Switch />
             </Form.Item>
           </SettingRow>
 
@@ -299,9 +297,8 @@ function BehaviourSection() {
             <SettingRow name={t('settings.xrayDnsClientIp')} hint={t('settings.xrayDnsClientIpHint')}>
               <Form.Item name="xray_dns_client_ip" noStyle>
                 <Input
-                  size="small"
+                  className="app-dns-pick"
                   spellCheck={false}
-                  style={{ width: 260 }}
                   placeholder={t('settings.dnsChipEmpty')}
                 />
               </Form.Item>
@@ -309,9 +306,8 @@ function BehaviourSection() {
             <SettingRow name={t('settings.xrayDnsTag')} hint={t('settings.xrayDnsTagHint')}>
               <Form.Item name="xray_dns_tag" noStyle>
                 <Input
-                  size="small"
+                  className="app-dns-pick"
                   spellCheck={false}
-                  style={{ width: 260 }}
                   placeholder={t('settings.dnsChipEmpty')}
                 />
               </Form.Item>

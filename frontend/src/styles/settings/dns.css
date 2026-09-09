@@ -18,14 +18,6 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
-  /* The columns the behaviour card's settings stand in. The heading above the
-     card shared them for a while, on the theory that a control at the top
-     should hold the same column as the controls below it. It does not work:
-     that card has a background of its own, so its grid is invisible from
-     outside it, and a lone row obeying an unseen grid just looks scattered. */
-  --dns-name-col: 196px;
-  --dns-ctl-col: minmax(490px, max-content);
-  --dns-col-gap: 24px;
 }
 
 /* ── The one warning this tab can raise ───────────────────────────────── */
@@ -96,6 +88,11 @@
   background: var(--surface-2);
   border-radius: 14px;
   overflow: hidden;
+  /* The rows inside size themselves against the CARD, not the window: with a
+     sidebar and the browser's zoom both in the way, a viewport breakpoint is
+     guessing at how much room a row actually has. Every `@container` rule in
+     this file keys off this. */
+  container-type: inline-size;
 }
 /* The body no longer draws a card of its own; the section around it does. */
 .app-dns-section > .app-dns-table {
@@ -457,22 +454,33 @@
 }
 /* Every picker in the block is the same width, so their edges line up down the
    card whatever the chosen value happens to be. */
-.app-dns-pick.ant-select {
+.app-dns-pick.ant-select,
+.app-dns-pick.ant-input,
+.app-dns-pick .ant-input {
   width: 250px;
 }
-/* Under 620px a 250px picker plus its name no longer share a line. */
+/* Under 620px a 250px picker and its name no longer share a line: the picker
+   holds its width, the name gives way, and a name like "Адрес клиента (EDNS)"
+   ends up broken over three lines beside a control that fits. So the control
+   takes a line of its own and the name gets the card. */
 @container (max-width: 619px) {
   .app-dns-row {
     flex-wrap: wrap;
+    align-items: flex-start;
     gap: 8px;
     padding: 12px 20px;
     min-height: 0;
+  }
+  .app-dns-row-name {
+    flex: 1 0 100%;
   }
   .app-dns-row-ctl {
     flex: 1 0 100%;
     justify-content: flex-start;
   }
-  .app-dns-pick.ant-select {
+  .app-dns-pick.ant-select,
+  .app-dns-pick.ant-input,
+  .app-dns-pick .ant-input {
     width: 100%;
   }
 }
