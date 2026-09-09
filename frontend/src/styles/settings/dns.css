@@ -531,6 +531,22 @@
 .app-dns-ttl .ant-input-number {
   width: 92px;
 }
+/* Both disclosures here open through the shared `app-reveal`, which collapses a
+   grid row from 1fr to 0fr. Padding on the grid item INSIDE that row does not
+   collapse with it, and the tab's extra settings carry 9px above and 10px
+   below — measured, that 19px stayed on screen as a sliver of an open block
+   with the block shut. It moves onto the reveal, which already transitions its
+   own padding alongside the row.
+   Only that one needs it: the server dialog's reveal holds a bare grid whose
+   spacing is all `gap`, so it collapses to nothing on its own. */
+.app-dns-reveal > .app-dns-set {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.app-dns-reveal.is-in {
+  padding: 9px 0 10px;
+}
+
 /* Hidden, not unmounted. A `Form.Item` that leaves the tree drops out of the
    values antd hands to `onFinish` — and every one of these fields carries
    `#[serde(default)]` on the backend, so a save would quietly reset it to zero

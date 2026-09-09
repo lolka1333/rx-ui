@@ -295,27 +295,42 @@ function BehaviourSection() {
           <span className="app-dns-fold-sub">{extraSummary}</span>
         </button>
 
-        <div className={`app-dns-set is-minor${extraOpen ? '' : ' app-dns-hidden'}`}>
-          <SettingRow name={t('settings.xrayDnsClientIp')} hint={t('settings.xrayDnsClientIpHint')}>
-            <Form.Item name="xray_dns_client_ip" noStyle>
-              <Input
-                size="small"
-                spellCheck={false}
-                style={{ width: 260 }}
-                placeholder={t('settings.dnsChipEmpty')}
-              />
-            </Form.Item>
-          </SettingRow>
-          <SettingRow name={t('settings.xrayDnsTag')} hint={t('settings.xrayDnsTagHint')}>
-            <Form.Item name="xray_dns_tag" noStyle>
-              <Input
-                size="small"
-                spellCheck={false}
-                style={{ width: 260 }}
-                placeholder={t('settings.dnsChipEmpty')}
-              />
-            </Form.Item>
-          </SettingRow>
+        {/* Revealed rather than snapped in, in both directions, and kept mounted
+            while shut: `{cond && <Block/>}` tears the node out the instant cond
+            turns false and leaves nothing to animate on the way out — and these
+            two fields have to stay registered anyway, or they drop out of the
+            values antd hands to `onFinish`.
+
+            `inert` is what makes "collapsed" mean collapsed for the keyboard
+            too: the CSS collapse hides the rows but leaves both inputs
+            focusable, so tabbing through the tab would put the caret in an
+            invisible field. */}
+        <div
+          className={`app-reveal app-dns-reveal${extraOpen ? ' is-in' : ''}`}
+          inert={!extraOpen}
+        >
+          <div className="app-dns-set is-minor">
+            <SettingRow name={t('settings.xrayDnsClientIp')} hint={t('settings.xrayDnsClientIpHint')}>
+              <Form.Item name="xray_dns_client_ip" noStyle>
+                <Input
+                  size="small"
+                  spellCheck={false}
+                  style={{ width: 260 }}
+                  placeholder={t('settings.dnsChipEmpty')}
+                />
+              </Form.Item>
+            </SettingRow>
+            <SettingRow name={t('settings.xrayDnsTag')} hint={t('settings.xrayDnsTagHint')}>
+              <Form.Item name="xray_dns_tag" noStyle>
+                <Input
+                  size="small"
+                  spellCheck={false}
+                  style={{ width: 260 }}
+                  placeholder={t('settings.dnsChipEmpty')}
+                />
+              </Form.Item>
+            </SettingRow>
+          </div>
         </div>
       </div>
     </section>

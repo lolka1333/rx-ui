@@ -664,46 +664,54 @@ function ServerForm({
         <span className="app-dns-fold-sub">{t('settings.dnsServerFineSub')}</span>
       </button>
 
-      <div className={`app-dns-form-trio${extraOpen ? '' : ' app-dns-hidden'}`}>
-        <Form.Item
-          name="query_strategy"
-          label={t('settings.dnsServerQueryStrategy')}
-          extra={
-            sectionStrategy === 'UseIPv4' || sectionStrategy === 'UseIPv6'
-              ? t('settings.dnsStrategyClashHint', { section: sectionStrategy })
-              : undefined
-          }
-        >
-          <Select
-            allowClear
-            placeholder={t('settings.dnsInherit')}
-            options={DNS_QUERY_STRATEGIES.map((v) => ({
-              value: v,
-              label: v,
-              disabled: strategyClashes(sectionStrategy, v),
-            }))}
-          />
-        </Form.Item>
-        <Form.Item
-          name="client_ip"
-          label={t('settings.dnsServerClientIp')}
-          tooltip={t('settings.dnsServerClientIpHint')}
-        >
-          <Input placeholder={t('settings.dnsInherit')} spellCheck={false} />
-        </Form.Item>
-        <Form.Item
-          name="timeout_ms"
-          label={t('settings.dnsServerTimeout')}
-          tooltip={t('settings.dnsServerTimeoutHint')}
-        >
-          <InputNumber
-            min={0}
-            max={60000}
-            step={500}
-            placeholder={t('settings.dnsDefault')}
-            style={{ width: '100%' }}
-          />
-        </Form.Item>
+      {/* Same reveal the subscription tab's TLS pair uses: collapsed by CSS
+          rather than unmounted, so it animates shut as well as open, and `inert`
+          keeps the three fields out of the tab order while it is. */}
+      <div
+        className={`app-reveal${extraOpen ? ' is-in' : ''}`}
+        inert={!extraOpen}
+      >
+        <div className="app-dns-form-trio">
+          <Form.Item
+            name="query_strategy"
+            label={t('settings.dnsServerQueryStrategy')}
+            extra={
+              sectionStrategy === 'UseIPv4' || sectionStrategy === 'UseIPv6'
+                ? t('settings.dnsStrategyClashHint', { section: sectionStrategy })
+                : undefined
+            }
+          >
+            <Select
+              allowClear
+              placeholder={t('settings.dnsInherit')}
+              options={DNS_QUERY_STRATEGIES.map((v) => ({
+                value: v,
+                label: v,
+                disabled: strategyClashes(sectionStrategy, v),
+              }))}
+            />
+          </Form.Item>
+          <Form.Item
+            name="client_ip"
+            label={t('settings.dnsServerClientIp')}
+            tooltip={t('settings.dnsServerClientIpHint')}
+          >
+            <Input placeholder={t('settings.dnsInherit')} spellCheck={false} />
+          </Form.Item>
+          <Form.Item
+            name="timeout_ms"
+            label={t('settings.dnsServerTimeout')}
+            tooltip={t('settings.dnsServerTimeoutHint')}
+          >
+            <InputNumber
+              min={0}
+              max={60000}
+              step={500}
+              placeholder={t('settings.dnsDefault')}
+              style={{ width: '100%' }}
+            />
+          </Form.Item>
+        </div>
       </div>
     </Form>
   );
