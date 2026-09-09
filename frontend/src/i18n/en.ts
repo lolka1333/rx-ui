@@ -84,11 +84,6 @@ export const en: Dict = {
     xrayTabDns: 'DNS',
     hoverForHint: 'Hover a name for the explanation.',
     // — The status line ————————————————————————————————————————————
-    dnsEnabled: 'Own resolver',
-    dnsStatusOn: 'The core resolves names itself — {{what}}.',
-    dnsStatusHosts: 'entries: {{n}}',
-    dnsStatusServers: 'servers: {{n}}',
-    dnsStatusEmpty: 'Nothing configured — names go to the machine’s own resolver.',
     dnsStatusInert:
       'Servers are set but the core never asks them: the Freedom and routing strategies are both AsIs, so names go to the machine’s own resolver.',
     dnsInertAction: 'Set UseIP',

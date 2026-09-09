@@ -69,52 +69,37 @@ export function DnsTab({ onExternalChange }: Props) {
   // nothing. Say so instead.
   const inert = configured && freedom === 'AsIs' && routing === 'AsIs';
 
-  // One sentence for the whole tab, where a plaque and a warning banner used
-  // to be two blocks asking the same question: is this setup in effect?
-  const summary = [
-    ...(hostCount ? [t('settings.dnsStatusHosts', { n: hostCount })] : []),
-    ...(serverCount ? [t('settings.dnsStatusServers', { n: serverCount })] : []),
-  ].join(', ');
-  const state = inert ? 'inert' : configured ? 'ok' : 'idle';
-  const statusText = {
-    inert: t('settings.dnsStatusInert'),
-    idle: t('settings.dnsStatusEmpty'),
-    ok: t('settings.dnsStatusOn', { what: summary }),
-  }[state];
-
   return (
     <div className="app-dns">
-      {/* The tab's heading and, beside it, the state of the resolver in one
-          sentence.
+      {/* The one thing this tab has to say that nothing else on it does, and
+          nothing at all the rest of the time.
 
-          There is no master switch. It was a second gate on top of one that
-          already existed — the core is handed a `dns` section only when a
-          server or a static answer is configured, so an empty resolver is a
-          switched-off one — and all it added was a saved list deliberately not
-          applied. That state cost a control on the heading, four states in this
-          sentence instead of three, and a dimmed copy of the whole tab. */}
-      <div className="app-dns-status">
-        <span className="app-dns-status-name">
-          {/* The one state worth a colour: nothing else on the line says
-              "configured, and never asked". */}
-          {inert && <span className="app-dns-dot is-warn" aria-hidden="true" />}
-          {t('settings.dnsEnabled')}
-        </span>
-        <p className="app-dns-status-sub">
-          {statusText}
-          {inert && (
-            <Button
-              size="small"
-              onClick={() => {
-                form.setFieldValue('xray_freedom_strategy', 'UseIP');
-                onExternalChange?.();
-              }}
-            >
-              {t('settings.dnsInertAction')}
-            </Button>
-          )}
-        </p>
-      </div>
+          A heading used to stand here permanently, carrying a sentence about
+          the state of the resolver. Two of its three states said what the
+          sections below already say — "серверов: 1" duplicated the list right
+          under it, and "ничего не задано" duplicated that list's own empty
+          state — and the tab is titled by its own tab strip, so the name on it
+          was a title for something already titled. What was left was a short
+          line stranded on a full-width band, which is what it looked like.
+
+          The third state is the one worth a band, precisely because it is not
+          always there: a resolver the core will never ask is invisible in
+          every other way. */}
+      {inert && (
+        <div className="app-dns-warn">
+          <span className="app-dns-dot is-warn" aria-hidden="true" />
+          <p className="app-dns-warn-text">{t('settings.dnsStatusInert')}</p>
+          <Button
+            size="small"
+            onClick={() => {
+              form.setFieldValue('xray_freedom_strategy', 'UseIP');
+              onExternalChange?.();
+            }}
+          >
+            {t('settings.dnsInertAction')}
+          </Button>
+        </div>
+      )}
 
       {/* Carries the spacing between the sections. */}
       <div className="app-dns-body">

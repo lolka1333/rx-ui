@@ -28,64 +28,36 @@
   --dns-col-gap: 24px;
 }
 
-/* ── The status line: the tab's heading ───────────────────────────────── */
+/* ── The one warning this tab can raise ───────────────────────────────── */
 
-/* It replaces three things: the master-switch plaque that took ~90px of the top
-   of the tab to say on/off, the warning banner that appeared above the content
-   whenever the resolver was configured but never asked, and finally the switch
-   itself. All three answered the same question — is this setup in effect right
-   now — and one sentence answers it better than a control the operator has to
-   reason about, because an empty resolver already means a switched-off one.
+/* A permanent heading stood here for a long time, saying in one sentence
+   whether the resolver was in effect. Two of its three states were already
+   said by the sections below — the server count duplicated the list under it,
+   and "nothing configured" duplicated that list's own empty state — and the
+   tab carries its name in the tab strip, so the title on it titled something
+   already titled. What remained was a short line stranded on a full-width
+   band, and it read as exactly that.
  *
- * The line is a HEADING, not a row of settings, and that took several tries.
- * While the switch was still here it stood at the far end of the row, 1800px
- * from the words it answers to; then hard against the title, with the whole
- * width left blank beside it; then in the same column as the controls in the
- * card below, which reads as three islands on an empty strip, because that card
- * has a background of its own and its grid cannot be seen from out here.
- *
- * What holds the name and the sentence together is type, not alignment: the
- * name is the largest thing on the tab and the sentence follows at the size
- * everything else on the tab explains itself in. The sentence takes whatever
- * width is left, so there is no empty tail to answer for, and the whole line is
- * one flex run, so it folds instead of overflowing. */
-.app-dns-status {
+ * What is left is the state that no other part of the tab can show: servers
+ * configured and a core that will never ask them. A band across the tab is the
+ * right shape for that precisely because it is not always there. */
+.app-dns-warn {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 14px;
-  /* The same 15px the cards below put between their edge and their content,
-     so the heading, the card contents and this sentence share one edge. */
-  padding: 0 15px 15px;
-  border-bottom: 1px solid var(--border);
+  gap: 8px 12px;
+  padding: 11px 14px;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 12px;
+  background: rgba(245, 158, 11, 0.07);
 }
-.app-dns-status-name {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: none;
-  font-size: 16px;
-  font-weight: 600;
-  line-height: 1.4;
-  letter-spacing: -0.01em;
-  white-space: nowrap;
-}
-/* Takes the rest of the line, and a line of its own once less than 320px of it
-   is left. The button of the one state that has one sits in the sentence it
-   answers, not at the far edge of the row. */
-.app-dns-status-sub {
+.app-dns-warn-text {
   flex: 1 1 320px;
   min-width: 0;
   margin: 0;
   font-size: 12.5px;
-  line-height: 1.55;
+  line-height: 1.5;
   color: var(--text-2, #94a3b8);
-}
-.app-dns-status-sub .ant-btn {
-  margin-left: 9px;
-  vertical-align: middle;
-  position: relative;
-  top: -1px;
 }
 
 .app-dns-dot {
