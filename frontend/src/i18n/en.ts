@@ -90,7 +90,7 @@ export const en: Dict = {
     // — Stage 1: answers without a query ———————————————————————————
     xrayDnsHosts: 'Answers without a query',
     dnsHostsSub: 'given before any server is asked',
-    dnsNoHosts: 'No entries.',
+    dnsNoHosts: 'No entries. Start from a template:',
     dnsAddHost: 'Add entry',
     dnsHostDomainPlaceholder: 'domain or geosite:…',
     dnsHostValuePlaceholder: 'address + Enter',
@@ -133,10 +133,8 @@ export const en: Dict = {
     dnsSkipFallbackTag: 'no fallback duty',
     dnsFinalQueryTag: 'answer is final',
     // — Stage 3: behaviour —————————————————————————————————————————
-    xrayGroupDnsBehaviour: 'Resolver behaviour',
-    dnsBehaviourSub: 'applies to the whole list above',
-    dnsGroupHow: 'How the core asks',
-    dnsGroupWhat: 'What to ask for',
+    xrayGroupDnsBehaviour: 'How the resolver answers',
+    dnsBehaviourSub: 'the whole list',
     dnsAskMode: 'Asking the servers',
     dnsAskOrder: 'In order',
     dnsAskAll: 'All at once',
@@ -164,7 +162,7 @@ export const en: Dict = {
     dnsCacheStaleHint:
       'While an answer refreshes, the old one is served — worth it against a flapping upstream. 0 seconds leaves it to the core.',
     dnsMore: 'Advanced',
-    dnsMoreEmpty: 'EDNS client address and resolver query tag — both unset',
+    dnsMoreEmpty: 'EDNS and query tag — both unset',
     dnsMoreEdns: 'EDNS {{v}}',
     dnsMoreTag: 'tag {{v}}',
     xrayDnsClientIp: 'Client address (EDNS)',

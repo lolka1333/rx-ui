@@ -24,7 +24,7 @@
 //! Everything still binds through the parent `Form`, so the page dirty bar and
 //! the save-then-restart prompt keep working untouched.
 
-import { Button, Form, Input, InputNumber, Segmented, Select, Switch, Tooltip } from 'antd';
+import { Button, Form, Input, InputNumber, Select, Switch, Tooltip } from 'antd';
 import { RightOutlined } from '@ant-design/icons';
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -124,21 +124,15 @@ export function DnsTab({ onExternalChange }: Props) {
   );
 }
 
-/** One row of the behaviour card: the setting's name, its control, and the
- *  consequence of the choice standing in it — three columns, in that order.
+/** One row of the behaviour card: the setting's name, and the control that
+ *  sets it at the far edge.
  *
- *  Every one of the three keeps its own left edge across all five rows. The
- *  layout before this pinned the controls to the RIGHT edge instead, and their
- *  left edges then landed wherever each control's width put them: on a 1250px
- *  card they staggered across 730px of empty middle. A ragged right edge reads
- *  as the end of content; a ragged left edge reads as a mistake.
- *
- *  The consequence is always on screen rather than appearing on the row that
- *  moved last. It is what fills the space to the right of the controls, so the
- *  block has no empty middle to explain away — and changing a mode rewrites
- *  the sentence in place, which says more than lighting the row up did. Below
- *  1100px the third column is too narrow to hold a sentence, and the CSS drops
- *  it; the name still carries it on hover at every width. */
+ *  The consequence of the current choice used to stand in a column between
+ *  them. It was worth its width while the controls were segmented — the chosen
+ *  option was a word among other words and the sentence said what that word
+ *  did — but a select shows one value and names it, so the sentence became a
+ *  second answer to a question already answered. It is on the name, where the
+ *  rest of the panel keeps its explanations. */
 function SettingRow({
   name,
   hint,
@@ -154,7 +148,6 @@ function SettingRow({
         <span className="app-dns-row-name">{name}</span>
       </Tooltip>
       <div className="app-dns-row-ctl">{children}</div>
-      <span className="app-dns-why">{hint}</span>
     </div>
   );
 }
@@ -199,20 +192,15 @@ function BehaviourSection() {
   return (
     <section className="app-dns-section">
       <div className="app-dns-head">
-        <span className="app-dns-title">{t('settings.xrayGroupDnsBehaviour')}</span>
-        <span className="app-dns-sub">{t('settings.dnsBehaviourSub')}</span>
+        <div className="app-dns-head-txt">
+          <span className="app-dns-title">{t('settings.xrayGroupDnsBehaviour')}</span>
+        </div>
+        {/* Scope, not description: it qualifies the whole block rather than
+            its title, so it sits at the far edge instead of beside it. */}
+        <span className="app-dns-head-note">{t('settings.dnsBehaviourSub')}</span>
       </div>
 
-      {/* Two groups, because the five are not one subject: three of them say
-          how the core asks, and two say what it asks for. They are told apart
-          by a quiet caption, by one hairline in the whole block, and by the
-          second group being set smaller and tighter than the first — five rows
-          of identical weight read as a list of five equal things, which these
-          are not. */}
       <div className="app-dns-table app-dns-beh">
-        <div className="app-dns-set">
-          <div className="app-dns-set-cap">{t('settings.dnsGroupHow')}</div>
-
           <SettingRow
             name={t('settings.dnsAskMode')}
             hint={parallel ? t('settings.dnsAskAllHint') : t('settings.dnsAskOrderHint')}
@@ -255,10 +243,6 @@ function BehaviourSection() {
               </Form.Item>
             </span>
           </SettingRow>
-        </div>
-
-        <div className="app-dns-set is-minor">
-          <div className="app-dns-set-cap">{t('settings.dnsGroupWhat')}</div>
 
           <SettingRow
             name={t('settings.xrayDnsQueryStrategy')}
@@ -282,7 +266,6 @@ function BehaviourSection() {
               <Switch size="small" />
             </Form.Item>
           </SettingRow>
-        </div>
 
         <button
           type="button"
@@ -290,9 +273,12 @@ function BehaviourSection() {
           aria-expanded={extraOpen}
           onClick={() => setExtraOpen((v) => !v)}
         >
-          <RightOutlined className="app-dns-fold-icon" />
           {t('settings.dnsMore')}
           <span className="app-dns-fold-sub">{extraSummary}</span>
+          {/* At the end of the row, where the controls on every row above it
+              are — a chevron in front of the word put the one row that opens
+              something on a vertical of its own. */}
+          <RightOutlined className="app-dns-fold-icon" />
         </button>
 
         {/* Revealed rather than snapped in, in both directions, and kept mounted
@@ -345,8 +331,8 @@ function BehaviourSection() {
 function AskMode({ value, onChange }: { value?: boolean; onChange?: (v: boolean) => void }) {
   const { t } = useTranslation();
   return (
-    <Segmented
-      size="small"
+    <Select
+      className="app-dns-pick"
       value={value ? 'all' : 'order'}
       onChange={(next: string) => onChange?.(next === 'all')}
       options={[
@@ -375,8 +361,8 @@ function FallbackMode({ value, onChange }: { value?: boolean; onChange?: (v: boo
   const mode = value ? 'none' : ifMatch ? 'match' : 'next';
 
   return (
-    <Segmented
-      size="small"
+    <Select
+      className="app-dns-pick"
       value={mode}
       onChange={(next: string) => {
         form.setFieldValue('xray_dns_disable_fallback_if_match', next === 'match');
@@ -403,8 +389,8 @@ function CacheMode({ value, onChange }: { value?: boolean; onChange?: (v: boolea
   const mode = value ? 'off' : stale ? 'stale' : 'normal';
 
   return (
-    <Segmented
-      size="small"
+    <Select
+      className="app-dns-pick"
       value={mode}
       onChange={(next: string) => {
         form.setFieldValue('xray_dns_serve_stale', next === 'stale');

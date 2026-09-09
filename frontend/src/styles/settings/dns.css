@@ -83,57 +83,56 @@
   flex-direction: column;
   gap: 20px;
 }
+/* A section IS its card. The heading, the sentence beside it and the section's
+   own action sit on the same surface as the rows they introduce, separated
+   from them by a hairline.
+ *
+ * They used to float above the card on the page background, indented 15px to
+ * fake alignment with content the heading did not actually contain — three
+ * loose captions over three loose boxes rather than three objects. */
 .app-dns-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  background: var(--surface-2);
+  border-radius: 14px;
+  overflow: hidden;
+}
+/* The body no longer draws a card of its own; the section around it does. */
+.app-dns-section > .app-dns-table {
+  background: transparent;
+  border-radius: 0;
 }
 
-/* Section heading, its one-line subtitle, and the section's own action pushed
-   to the far edge — the same shape the routing tab's rule list uses. */
 .app-dns-head {
-  /* Indented to the cards' own inner padding, so a block's heading starts on
-     the same vertical as the rows underneath it instead of on the card's
-     outer edge, 15px to the left of everything it introduces. */
-  padding-left: 15px;
   display: flex;
-  /* By baseline, not by centre: the title and its subtitle run at different
-     sizes (11 vs 12px) and therefore different line boxes, so centring them
-     left the two texts sitting a fraction of a pixel apart — enough to read as
-     crooked. */
+  align-items: center;
+  gap: 14px;
+  padding: 13px 20px;
+  min-height: 62px;
+  border-bottom: 1px solid var(--border);
+}
+/* The title and its sentence run at different sizes, so they are aligned to
+   each other by BASELINE and the pair is centred in the row as one block.
+   Centring them individually put the two texts a fraction of a pixel apart,
+   which is enough to read as crooked. */
+.app-dns-head-txt {
+  display: flex;
   align-items: baseline;
-  gap: 10px;
-  /* One line, and the subtitle is what gives way.
-   *
-   * Wrapping put the action on a second row, pinned right by its own
-   * `margin-left: auto` — a button floating under the heading with nothing
-   * beside it. The title and the button are fixed; the sentence between them
-   * is the part that can be cut, so it clips instead. */
-  flex-wrap: nowrap;
-  /* Every section header is the height of the one with a button, so the
-     spacing between sections does not change with whether a section happens to
-     have an action. */
-  min-height: 28px;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .app-dns-title {
-  font-size: 11px;
+  font-size: 17px;
   font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-3, #8a94a6);
-  /* Letter-spacing is added AFTER the last letter too, so an uppercase title
-     carries a phantom sliver of it into the gap. Take it back. */
-  margin-right: -0.06em;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+  color: var(--text, #f1f5f9);
   /* The title never shrinks; the sentence beside it does. */
   flex: none;
 }
-.app-dns-head .ant-btn {
-  margin-left: auto;
-  /* The button has no business on the text baseline. */
-  align-self: center;
-}
 .app-dns-sub {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-3, #8a94a6);
   /* Takes the leftover width and gives it back first. */
   flex: 0 1 auto;
@@ -142,8 +141,18 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.app-dns-head .ant-btn {
+/* A note that belongs to the section as a whole rather than to its title sits
+   at the far edge instead of beside it. */
+.app-dns-head-note {
+  margin-left: auto;
   flex: none;
+  font-size: 13px;
+  color: var(--text-3, #8a94a6);
+}
+.app-dns-head .ant-btn,
+.app-dns-head .ant-dropdown-trigger {
+  flex: none;
+  margin-left: auto;
 }
 
 /* ── Empty states ──────────────────────────────────────────────────────── */
@@ -410,127 +419,64 @@
    whose options are named outcomes, and the sentence under it says what the
    chosen one does. That sentence is why the tab no longer needs "hover a name
    for an explanation". */
-/* Three columns that hold across every row: the name, the control, and the
- * sentence the current choice earns. Each keeps its own left edge, and there
- * are only three of those edges in the whole block.
+/* One setting to a row: the name at the left, the control at the right edge,
+   a hairline between rows and nothing else.
  *
- * The layout before this pinned controls to the RIGHT edge of the row, so
- * their left edges landed wherever each control's width put them — on a
- * 1250px card they staggered across 730px of empty middle. A ragged right
- * edge reads as the end of content; a ragged left edge reads as a mistake,
- * and that is what it was called.
- *
- * There is no hairline between rows. One line separates the two groups and
- * that is the only one in the block: a rule under every row is what makes a
- * settings list look like a default form, and the alignment does the work
- * those rules were doing. */
-.app-dns-beh {
-  container-type: inline-size;
+ * The controls were segmented — every option of every setting on screen at
+ * once, which is how the block came to be 486px wide in its widest row and
+ * needed three alignment columns and a permanent sentence beside each row to
+ * look deliberate. A select shows the chosen value and names it. Four of them
+ * are the same width, so the right edge is one vertical, and what used to take
+ * three columns takes two. */
+.app-dns-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 0 20px;
+  min-height: 64px;
 }
-/* A group of settings about one subject. The second is the minor one and is
-   set smaller and tighter, so the block reads as three decisions and two
-   details rather than five equal lines. */
-.app-dns-set {
-  padding: 11px 0 13px;
-}
-.app-dns-set + .app-dns-set {
+.app-dns-row + .app-dns-row,
+.app-dns-fold {
   border-top: 1px solid var(--border);
 }
-.app-dns-set-cap {
-  padding: 0 15px 3px;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--text-3, #8a94a6);
-}
-.app-dns-set.is-minor {
-  padding: 9px 0 10px;
-}
-
-.app-dns-row {
-  display: grid;
-  /* The control column is as wide as the widest control in the block — the
-     fallback's three options, 486px in antd's small size — so the sentence
-     column starts at the same x on every row. `max-content` keeps that true
-     if a translation grows. */
-  grid-template-columns: var(--dns-name-col) var(--dns-ctl-col) minmax(0, 1fr);
-  align-items: center;
-  column-gap: var(--dns-col-gap);
-  padding: 0 15px;
-  min-height: 42px;
-}
-.app-dns-set.is-minor .app-dns-row {
-  min-height: 34px;
-}
 .app-dns-row-name {
-  font-size: 13px;
-  line-height: 18px;
-  /* The sentence is behind the name wherever the third column is not drawn,
-     so say so the way the rest of the panel does. */
+  font-size: 14px;
+  line-height: 20px;
+  min-width: 0;
+  /* The consequence of the current choice lives here now. */
   cursor: help;
-}
-.app-dns-set.is-minor .app-dns-row-name {
-  font-size: 12.5px;
-  color: var(--text-2, #94a3b8);
 }
 .app-dns-row-ctl {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 10px;
-  min-width: 0;
+  justify-content: flex-end;
+  gap: 8px 12px;
+  flex: none;
 }
-.app-dns-why {
-  min-width: 0;
-  font-size: 11.5px;
-  line-height: 1.45;
-  color: var(--text-3, #8a94a6);
+/* Every picker in the block is the same width, so their edges line up down the
+   card whatever the chosen value happens to be. */
+.app-dns-pick.ant-select {
+  width: 250px;
 }
-
-/* Under 1100px the third column is too narrow to hold a sentence rather than
-   a stack of two-word lines, so it goes and the name carries it on hover. The
-   other two columns do not move. */
-@container (max-width: 1099px) {
+/* Under 620px a 250px picker plus its name no longer share a line. */
+@container (max-width: 619px) {
   .app-dns-row {
-    grid-template-columns: var(--dns-name-col) minmax(0, max-content);
-  }
-  .app-dns-why {
-    display: none;
-  }
-}
-/* Under 700px the name and the widest control cannot share a line at all.
-   Every control drops under its name — every one, not only the control that
-   ran out of room, because a column that holds for three rows out of five is
-   worse than no column. */
-@container (max-width: 700px) {
-  .app-dns-row {
-    display: flex;
     flex-wrap: wrap;
-    align-items: center;
-    gap: 4px 16px;
-    padding: 7px 15px;
-    min-height: 38px;
+    gap: 8px;
+    padding: 12px 20px;
+    min-height: 0;
   }
   .app-dns-row-ctl {
     flex: 1 0 100%;
+    justify-content: flex-start;
+  }
+  .app-dns-pick.ant-select {
+    width: 100%;
   }
 }
-/* The disclosure's own row sits under a hairline of its own. */
-.app-dns-extra {
-  border-top: 1px solid var(--border);
-}
 
-.app-dns-ttl {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 12px;
-  color: var(--text-3, #8a94a6);
-}
-.app-dns-ttl .ant-input-number {
-  width: 92px;
-}
 /* Both disclosures here open through the shared `app-reveal`, which collapses a
    grid row from 1fr to 0fr. Padding on the grid item INSIDE that row does not
    collapse with it, and the tab's extra settings carry 9px above and 10px
@@ -544,7 +490,10 @@
   padding-bottom: 0;
 }
 .app-dns-reveal.is-in {
-  padding: 9px 0 10px;
+  padding: 0;
+}
+.app-dns-reveal .app-dns-row {
+  border-top: 1px solid var(--border);
 }
 
 /* Hidden, not unmounted. A `Form.Item` that leaves the tree drops out of the
@@ -564,11 +513,13 @@
    strip at the top, where they sat at the same weight as the query strategy
    and spent their life reading "не задан". */
 .app-dns-fold {
+  font-size: 14px;
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 12px;
   width: 100%;
-  padding: 12px 15px;
+  padding: 0 20px;
+  min-height: 60px;
   border: 0;
   background: transparent;
   color: var(--text-2, #94a3b8);
@@ -581,6 +532,7 @@
   color: var(--text, #f1f5f9);
 }
 .app-dns-fold-icon {
+  margin-left: auto;
   transition: transform 0.15s ease;
   color: var(--text-3, #8a94a6);
 }
@@ -588,8 +540,12 @@
   transform: rotate(90deg);
 }
 .app-dns-fold-sub {
-  font-size: 11.5px;
+  font-size: 13px;
   color: var(--text-3, #8a94a6);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 @media (prefers-reduced-motion: reduce) {
   .app-dns-fold-icon {

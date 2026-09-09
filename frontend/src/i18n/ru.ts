@@ -90,7 +90,7 @@ export const ru = {
     // — Блок 1: ответы без запроса ——————————————————————————————————
     xrayDnsHosts: 'Ответы без запроса',
     dnsHostsSub: 'отдаются до серверов, никого не спрашивая',
-    dnsNoHosts: 'Записей нет.',
+    dnsNoHosts: 'Записей нет. Начать с шаблона:',
     dnsAddHost: 'Добавить запись',
     dnsHostDomainPlaceholder: 'домен или geosite:…',
     dnsHostValuePlaceholder: 'адрес + Enter',
@@ -133,10 +133,8 @@ export const ru = {
     dnsSkipFallbackTag: 'не подхватывает чужое',
     dnsFinalQueryTag: 'ответ окончателен',
     // — Блок 3: поведение ——————————————————————————————————————————
-    xrayGroupDnsBehaviour: 'Поведение резолвера',
-    dnsBehaviourSub: 'действует на весь список выше',
-    dnsGroupHow: 'Как ядро спрашивает',
-    dnsGroupWhat: 'Что спрашивать',
+    xrayGroupDnsBehaviour: 'Как резолвер отвечает',
+    dnsBehaviourSub: 'на весь список',
     dnsAskMode: 'Опрос серверов',
     dnsAskOrder: 'По порядку',
     dnsAskAll: 'Все сразу',
@@ -164,7 +162,7 @@ export const ru = {
     dnsCacheStaleHint:
       'Пока ответ обновляется, отдаётся старый — спасает при моргающем апстриме. 0 секунд — на усмотрение ядра.',
     dnsMore: 'Дополнительно',
-    dnsMoreEmpty: 'адрес клиента для EDNS и тег запросов резолвера — оба не заданы',
+    dnsMoreEmpty: 'EDNS и тег запросов — не заданы',
     dnsMoreEdns: 'EDNS {{v}}',
     dnsMoreTag: 'тег {{v}}',
     xrayDnsClientIp: 'Адрес клиента (EDNS)',

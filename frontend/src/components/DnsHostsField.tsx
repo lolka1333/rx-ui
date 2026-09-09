@@ -58,8 +58,10 @@ export function DnsHostsField({ value, onChange }: Props) {
   return (
     <section className="app-dns-section">
       <div className="app-dns-head">
-        <span className="app-dns-title">{t('settings.xrayDnsHosts')}</span>
-        <span className="app-dns-sub">{t('settings.dnsHostsSub')}</span>
+        <div className="app-dns-head-txt">
+          <span className="app-dns-title">{t('settings.xrayDnsHosts')}</span>
+          <span className="app-dns-sub">{t('settings.dnsHostsSub')}</span>
+        </div>
         <Button
           size="small"
           icon={<PlusOutlined />}

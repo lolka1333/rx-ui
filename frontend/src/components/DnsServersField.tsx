@@ -210,8 +210,10 @@ export function DnsServersField({ value, onChange }: Props) {
   return (
     <section className="app-dns-section">
       <div className="app-dns-head">
-        <span className="app-dns-title">{t('settings.xrayDnsServers')}</span>
-        <span className="app-dns-sub">{t('settings.dnsServersSub')}</span>
+        <div className="app-dns-head-txt">
+          <span className="app-dns-title">{t('settings.xrayDnsServers')}</span>
+          <span className="app-dns-sub">{t('settings.dnsServersSub')}</span>
+        </div>
         {/* The quick picks lived inside the dialog's autocomplete, which is
             behind the very button an operator with an empty list is looking
             at. They are the menu on that button now. */}
@@ -327,10 +329,14 @@ export function DnsServersField({ value, onChange }: Props) {
 
                 <span className="app-dns-srv">
                   <span className="app-dns-srv-l1">
+                    {/* The transport leads the row: it is what tells one server
+                        from another at a glance, and it is the same three or
+                        four letters on every row, so it makes a column. The
+                        address is what varies and reads after it. */}
+                    {wire && <span className="app-dns-badge">{wire.code}</span>}
                     <span className="app-dns-addr" title={s.address || undefined}>
                       {s.address ? displayAddress(s.address) : t('settings.dnsNoAddress')}
                     </span>
-                    {wire && <span className="app-dns-badge">{wire.code}</span>}
                     {wire?.qual && (
                       <span className="app-dns-wire">
                         {t(`settings.dnsWire${wire.qual === 'local' ? 'Local' : 'Chain'}`)}
