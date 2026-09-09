@@ -85,8 +85,6 @@ export const en: Dict = {
     hoverForHint: 'Hover a name for the explanation.',
     // — The status line ————————————————————————————————————————————
     dnsEnabled: 'Own resolver',
-    dnsEnabledOffHint:
-      'Saved but not applied — names are resolved by the machine’s own resolver.',
     dnsStatusOn: 'The core resolves names itself — {{what}}.',
     dnsStatusHosts: 'entries: {{n}}',
     dnsStatusServers: 'servers: {{n}}',

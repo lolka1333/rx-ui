@@ -18,10 +18,10 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
-  /* The columns the behaviour card's settings stand in. They were shared with
-     the status line above for a while, on the theory that the master switch
-     should hold the same column as the controls it presides over. It does not
-     work: that card has a background of its own, so its grid is invisible from
+  /* The columns the behaviour card's settings stand in. The heading above the
+     card shared them for a while, on the theory that a control at the top
+     should hold the same column as the controls below it. It does not work:
+     that card has a background of its own, so its grid is invisible from
      outside it, and a lone row obeying an unseen grid just looks scattered. */
   --dns-name-col: 196px;
   --dns-ctl-col: minmax(490px, max-content);
@@ -30,24 +30,25 @@
 
 /* ── The status line: the tab's heading ───────────────────────────────── */
 
-/* It replaces two things: the master-switch plaque that took ~90px of the top
-   of the tab to say on/off, and the warning banner that appeared above the
-   content whenever the resolver was configured but never asked. Both were
-   about the same question — is this setup in effect right now — so both are
-   answered in one sentence.
+/* It replaces three things: the master-switch plaque that took ~90px of the top
+   of the tab to say on/off, the warning banner that appeared above the content
+   whenever the resolver was configured but never asked, and finally the switch
+   itself. All three answered the same question — is this setup in effect right
+   now — and one sentence answers it better than a control the operator has to
+   reason about, because an empty resolver already means a switched-off one.
  *
- * The line is a HEADING, not a row of settings, and that is what took three
- * tries to get to. The switch has been at the far end of the row, 1800px from
- * the words it answers to; then hard against the title, with the whole width
- * left blank beside it; then in the same column as the controls in the card
- * below, which reads as three islands on an empty strip, because that card has
- * a background of its own and its grid cannot be seen from out here.
+ * The line is a HEADING, not a row of settings, and that took several tries.
+ * While the switch was still here it stood at the far end of the row, 1800px
+ * from the words it answers to; then hard against the title, with the whole
+ * width left blank beside it; then in the same column as the controls in the
+ * card below, which reads as three islands on an empty strip, because that card
+ * has a background of its own and its grid cannot be seen from out here.
  *
- * What holds these three together is not alignment but type: the name is the
- * largest thing on the tab, the switch is part of it, and the sentence follows
- * at the size everything else on the tab explains itself in. The sentence also
- * takes whatever width is left, so there is no empty tail to answer for — and
- * the whole line is one flex run, so it folds instead of overflowing. */
+ * What holds the name and the sentence together is type, not alignment: the
+ * name is the largest thing on the tab and the sentence follows at the size
+ * everything else on the tab explains itself in. The sentence takes whatever
+ * width is left, so there is no empty tail to answer for, and the whole line is
+ * one flex run, so it folds instead of overflowing. */
 .app-dns-status {
   display: flex;
   flex-wrap: wrap;
@@ -58,23 +59,16 @@
   padding: 0 15px 15px;
   border-bottom: 1px solid var(--border);
 }
-/* Name and switch never split across lines: the switch is part of the name. */
-.app-dns-status-id {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: none;
-}
 .app-dns-status-name {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex: none;
   font-size: 16px;
   font-weight: 600;
   line-height: 1.4;
   letter-spacing: -0.01em;
   white-space: nowrap;
-  cursor: pointer;
 }
 /* Takes the rest of the line, and a line of its own once less than 320px of it
    is left. The button of the one state that has one sits in the sentence it
@@ -784,11 +778,4 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
-}
-/* Visibly out of play, and still usable. It used to drop to 0.45 and take
-   `pointer-events: none` with it, which read as broken rather than idle and,
-   worse, made the one obvious workflow impossible: build the resolver with the
-   switch off, check it over, then turn it on. */
-.app-dns-off {
-  opacity: 0.62;
 }

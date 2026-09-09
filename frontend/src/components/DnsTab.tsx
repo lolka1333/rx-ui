@@ -48,12 +48,6 @@ interface Props {
 export function DnsTab({ onExternalChange }: Props) {
   const { t } = useTranslation();
   const form = Form.useFormInstance();
-  // `useWatch` returns nothing on the first render — it subscribes in an
-  // effect — so a resolver saved as off used to paint one frame at full
-  // opacity, hint and all, before dimming. The form knows the value already.
-  const watched = Form.useWatch<boolean>('xray_dns_enabled', form);
-  const on = (watched ?? form.getFieldValue('xray_dns_enabled')) !== false;
-
   const servers = Form.useWatch<DnsServer[]>('xray_dns_servers', form) ?? [];
   const hosts = Form.useWatch<DnsHost[]>('xray_dns_hosts', form) ?? [];
   const freedom = Form.useWatch<string>('xray_freedom_strategy', form);
@@ -73,7 +67,7 @@ export function DnsTab({ onExternalChange }: Props) {
   // skipped. Nothing errors, the config is valid and xray loads it happily, so
   // the only signal an operator ever gets is that their resolver changed
   // nothing. Say so instead.
-  const inert = on && configured && freedom === 'AsIs' && routing === 'AsIs';
+  const inert = configured && freedom === 'AsIs' && routing === 'AsIs';
 
   // One sentence for the whole tab, where a plaque and a warning banner used
   // to be two blocks asking the same question: is this setup in effect?
@@ -81,9 +75,8 @@ export function DnsTab({ onExternalChange }: Props) {
     ...(hostCount ? [t('settings.dnsStatusHosts', { n: hostCount })] : []),
     ...(serverCount ? [t('settings.dnsStatusServers', { n: serverCount })] : []),
   ].join(', ');
-  const state = !on ? 'off' : inert ? 'inert' : configured ? 'ok' : 'idle';
+  const state = inert ? 'inert' : configured ? 'ok' : 'idle';
   const statusText = {
-    off: t('settings.dnsEnabledOffHint'),
     inert: t('settings.dnsStatusInert'),
     idle: t('settings.dnsStatusEmpty'),
     ok: t('settings.dnsStatusOn', { what: summary }),
@@ -91,36 +84,22 @@ export function DnsTab({ onExternalChange }: Props) {
 
   return (
     <div className="app-dns">
-      {/* The tab's heading, with the master switch set into it and the state
-          of the resolver said in one sentence beside it. Off keeps every field
-          below on screen — dimmed, not hidden: a setup that disappears reads as
-          deleted, and the whole point of the switch is that nothing is lost.
+      {/* The tab's heading and, beside it, the state of the resolver in one
+          sentence.
 
-          It stopped being a row of settings, which is what the three tries
-          before it were. The switch has been at the far end (1800px from the
-          words it answers to), hard against the title (with the whole width
-          blank beside it), and in the same column as the controls below (which
-          nobody can see, because those live in a card with its own background —
-          so it read as three islands on an empty strip). None of those was a
-          composition. A heading is: the name is the biggest thing on the tab,
-          the switch belongs to it, and the sentence follows in the size the
-          rest of the tab explains itself in. */}
+          There is no master switch. It was a second gate on top of one that
+          already existed — the core is handed a `dns` section only when a
+          server or a static answer is configured, so an empty resolver is a
+          switched-off one — and all it added was a saved list deliberately not
+          applied. That state cost a control on the heading, four states in this
+          sentence instead of three, and a dimmed copy of the whole tab. */}
       <div className="app-dns-status">
-        <div className="app-dns-status-id">
-          {/* `htmlFor` rather than wrapping: a label around the switch would
-              take the click twice. `button` is labelable, so this forwards. */}
-          <label className="app-dns-status-name" htmlFor="xray_dns_enabled">
-            {/* Only for the one state worth a colour. A dot beside a switch that
-                already reads on/off was two indicators arguing about the same
-                thing; the amber one earns its place because nothing else on the
-                line says "configured but never asked". */}
-            {inert && <span className="app-dns-dot is-warn" aria-hidden="true" />}
-            {t('settings.dnsEnabled')}
-          </label>
-          <Form.Item name="xray_dns_enabled" noStyle valuePropName="checked">
-            <Switch id="xray_dns_enabled" />
-          </Form.Item>
-        </div>
+        <span className="app-dns-status-name">
+          {/* The one state worth a colour: nothing else on the line says
+              "configured, and never asked". */}
+          {inert && <span className="app-dns-dot is-warn" aria-hidden="true" />}
+          {t('settings.dnsEnabled')}
+        </span>
         <p className="app-dns-status-sub">
           {statusText}
           {inert && (
@@ -137,11 +116,8 @@ export function DnsTab({ onExternalChange }: Props) {
         </p>
       </div>
 
-      {/* The wrapper always carries `app-dns-body` — the spacing between the
-          sections lives there. It used to live in `app-dns-off`, which is only
-          applied while the resolver is switched off, so with DNS ON the
-          sections had no gap at all and sat glued to each other. */}
-      <div className={`app-dns-body${on ? '' : ' app-dns-off'}`}>
+      {/* Carries the spacing between the sections. */}
+      <div className="app-dns-body">
         <div className="app-dns-flow">
           {/* Answered without asking anyone. This sat UNDER the servers
               before, which is the opposite of the order the core uses — the

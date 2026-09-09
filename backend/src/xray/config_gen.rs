@@ -500,7 +500,6 @@ pub fn build_bootstrap_config(s: &BootstrapSettings) -> Value {
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone)]
 pub struct DnsSettings {
-    pub enabled: bool,
     pub servers: Vec<DnsServer>,
     pub hosts: Vec<DnsHost>,
     pub query_strategy: String,
@@ -516,12 +515,11 @@ pub struct DnsSettings {
 }
 
 impl Default for DnsSettings {
-    /// `enabled` starts true: the section is already gated by having no
-    /// servers, so a default-constructed value means "nothing configured",
-    /// not "switched off".
+    /// A default-constructed value means "nothing configured", which is the
+    /// same thing as "switched off": the section is gated by having no servers
+    /// and no static answers, so an empty one emits no `dns` key at all.
     fn default() -> Self {
         Self {
-            enabled: true,
             servers: Vec::new(),
             hosts: Vec::new(),
             query_strategy: String::new(),
@@ -583,7 +581,7 @@ fn dns_server_json(n: &DnsServer) -> Value {
 /// back to the host resolver, which is what every install ran on before this
 /// setting existed, so an untouched panel keeps emitting the very same config.
 fn dns_section(d: &DnsSettings) -> Option<Value> {
-    if !d.enabled || (d.servers.is_empty() && d.hosts.is_empty()) {
+    if d.servers.is_empty() && d.hosts.is_empty() {
         return None;
     }
     let mut o = serde_json::Map::new();
@@ -1302,11 +1300,12 @@ mod tests {
         assert_eq!(first["queryStrategy"], "UseIPv4");
     }
 
-    /// The switch is not the same thing as an empty list: a configured resolver
-    /// that is switched off keeps its servers in the database and emits no
-    /// section, so turning it back on costs nothing.
+    /// Emptying the resolver is what switches it off — there is no separate
+    /// flag any more, and there never needed to be one: with no server and no
+    /// static answer there is nothing for a `dns` section to say, so it is not
+    /// written and the host resolver stays in charge.
     #[test]
-    fn dns_switch_off_emits_nothing() {
+    fn an_emptied_resolver_emits_no_section() {
         let mut s = base(vec![], vec![]);
         s.dns.servers = vec![plain_server("1.1.1.1")];
         s.dns.hosts = vec![DnsHost {
@@ -1315,10 +1314,23 @@ mod tests {
         }];
         assert!(build_bootstrap_config(&s).get("dns").is_some());
 
-        s.dns.enabled = false;
+        // Either half on its own is still a resolver worth emitting.
+        s.dns.servers.clear();
+        assert!(
+            build_bootstrap_config(&s).get("dns").is_some(),
+            "static answers alone are still a dns section"
+        );
+        s.dns.servers = vec![plain_server("1.1.1.1")];
+        s.dns.hosts.clear();
+        assert!(
+            build_bootstrap_config(&s).get("dns").is_some(),
+            "servers alone are still a dns section"
+        );
+
+        s.dns.servers.clear();
         assert!(
             build_bootstrap_config(&s).get("dns").is_none(),
-            "a switched-off resolver must not reach the core"
+            "an empty resolver must not reach the core"
         );
     }
 

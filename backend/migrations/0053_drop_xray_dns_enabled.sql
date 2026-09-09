@@ -1,0 +1,13 @@
+-- The resolver's master switch, removed.
+--
+-- It was always a second gate on top of one that already existed: the `dns`
+-- section is emitted only when a server or a static answer is configured, so
+-- an empty list already means "the host resolver stays in charge". The switch
+-- added exactly one state on top of that — a saved list deliberately not
+-- applied — and it cost the tab a control that had to be explained.
+--
+-- A panel that had it switched OFF while keeping servers configured will start
+-- using those servers after this migration. That is the one behaviour change,
+-- and it is the reason this drops the column rather than leaving it dead: a
+-- column nothing reads is a trap for the next person who finds it.
+ALTER TABLE panel_settings DROP COLUMN xray_dns_enabled;

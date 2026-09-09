@@ -1897,7 +1897,6 @@ interface XrayFormValues {
   xray_direct_ips: string[];
   xray_direct_domains: string[];
   xray_ipv4_domains: string[];
-  xray_dns_enabled: boolean;
   xray_dns_servers: DnsServer[];
   xray_dns_hosts: DnsHost[];
   xray_dns_query_strategy: string;
@@ -2065,7 +2064,6 @@ function XraySection({
           xray_direct_ips: values.xray_direct_ips,
           xray_direct_domains: values.xray_direct_domains,
           xray_ipv4_domains: values.xray_ipv4_domains,
-          xray_dns_enabled: values.xray_dns_enabled,
           xray_dns_servers: values.xray_dns_servers,
           xray_dns_hosts: values.xray_dns_hosts,
           xray_dns_query_strategy: values.xray_dns_query_strategy,
@@ -2103,7 +2101,6 @@ function XraySection({
           values.xray_freedom_block_delay !== old.xray_freedom_block_delay ||
           // The core exposes no DNS service on its gRPC API, so every field of
           // the resolver lives in the config file only until the next load.
-          values.xray_dns_enabled !== old.xray_dns_enabled ||
           JSON.stringify(values.xray_dns_servers) !==
             JSON.stringify(old.xray_dns_servers ?? []) ||
           JSON.stringify(values.xray_dns_hosts) !== JSON.stringify(old.xray_dns_hosts ?? []) ||
@@ -2237,7 +2234,6 @@ function XraySection({
             xray_direct_ips: data.xray_direct_ips,
             xray_direct_domains: data.xray_direct_domains,
             xray_ipv4_domains: data.xray_ipv4_domains,
-            xray_dns_enabled: data.xray_dns_enabled ?? true,
             xray_dns_servers: data.xray_dns_servers ?? [],
             xray_dns_hosts: data.xray_dns_hosts ?? [],
             xray_dns_query_strategy: data.xray_dns_query_strategy || 'UseIP',
@@ -2276,7 +2272,6 @@ function XraySection({
             data.xray_direct_ips,
             data.xray_direct_domains,
             data.xray_ipv4_domains,
-            data.xray_dns_enabled,
             data.xray_dns_servers ?? [],
             data.xray_dns_hosts ?? [],
             data.xray_dns_query_strategy,
