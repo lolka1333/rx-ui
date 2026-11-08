@@ -41,6 +41,30 @@ const SESSION_ID_TABLE_OPTIONS = [
   'number',
 ].map((value) => ({ value }));
 
+// Ready-made h2Params documents. The field still takes free text — these just
+// spare the operator from remembering Go struct field names and the fact that
+// durations have to carry a unit. Kept whole rather than per-key: the value is
+// one JSON document, so a half-typed object is never a useful suggestion.
+const H2_PARAMS_PRESETS = [
+  {
+    value: '{"SendPingTimeout":"30s","PingTimeout":"10s"}',
+    label: 'Liveness ping - 30s idle, give up after 10s',
+  },
+  {
+    value: '{"SendPingTimeout":"15s","PingTimeout":"5s"}',
+    label: 'Liveness ping - 15s idle, give up after 5s',
+  },
+  {
+    value: '{"MaxReceiveBufferPerStream":4194304,"MaxReceiveBufferPerConnection":8388608}',
+    label: 'Receive windows - 4 MB per stream, 8 MB per connection',
+  },
+  {
+    value:
+      '{"SendPingTimeout":"30s","PingTimeout":"10s","MaxReceiveBufferPerStream":4194304}',
+    label: 'Liveness ping plus a 4 MB stream window',
+  },
+];
+
 // The four placement sets are NOT interchangeable — they're separate by
 // design in xray-core. Source of truth:
 // https://github.com/XTLS/Xray-core/blob/main/infra/conf/transport_internet.go
@@ -371,6 +395,33 @@ function XhttpAdvanced() {
                 name="xhttp_server_max_header_bytes"
                 labelKey="inbounds.xhttpServerMaxHeaderBytes"
                 tooltipKey="inbounds.xhttpServerMaxHeaderBytesTip"
+              />
+              <AutoCompleteField
+                name="xhttp_h2_params"
+                labelKey="inbounds.xhttpH2Params"
+                tooltipKey="inbounds.xhttpH2ParamsTip"
+                options={H2_PARAMS_PRESETS}
+                placeholderKey="inbounds.xhttpH2ParamsPlaceholder"
+                rules={[
+                  {
+                    // Only the shape is checked here. Which keys exist and how
+                    // durations are spelled is the backend's call, and it
+                    // answers with a precise message — two validators drifting
+                    // apart would be worse than one round trip.
+                    validator: (_, value: string) => {
+                      if (!value?.trim()) return Promise.resolve();
+                      try {
+                        const parsed: unknown = JSON.parse(value);
+                        if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                          return Promise.reject(new Error(t('inbounds.xhttpH2ParamsInvalid')));
+                        }
+                      } catch {
+                        return Promise.reject(new Error(t('inbounds.xhttpH2ParamsInvalid')));
+                      }
+                      return Promise.resolve();
+                    },
+                  },
+                ]}
                 last
               />
             </>

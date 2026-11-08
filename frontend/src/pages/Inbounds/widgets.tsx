@@ -297,6 +297,7 @@ export function AutoCompleteField({
   options,
   placeholderKey,
   last,
+  rules,
 }: AutoCompleteFieldProps) {
   const { t } = useTranslation();
   return (
@@ -304,6 +305,7 @@ export function AutoCompleteField({
       name={name}
       label={t(labelKey)}
       tooltip={tooltipKey ? t(tooltipKey) : undefined}
+      rules={rules}
       style={{ marginBottom: last ? 0 : 12 }}
     >
       <AutoComplete

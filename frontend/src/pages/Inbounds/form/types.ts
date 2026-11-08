@@ -213,6 +213,7 @@ export interface FormValues {
   xhttp_uplink_data_key: string;
   xhttp_uplink_chunk_size: string;
   xhttp_server_max_header_bytes: number | null;
+  xhttp_h2_params: string;
   // Hysteria 2 transport — server-wide preshared auth (rarely used in the
   // panel since per-client auth lives on Client.auth), QUIC UDP idle, and
   // a tagged masquerade selector with per-kind subfields.

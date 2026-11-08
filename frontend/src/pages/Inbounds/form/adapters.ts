@@ -139,6 +139,7 @@ export function inboundToForm(inb: Inbound): FormValues {
     v.xhttp_uplink_data_key = x.uplink_data_key ?? '';
     v.xhttp_uplink_chunk_size = x.uplink_chunk_size ?? '';
     v.xhttp_server_max_header_bytes = x.server_max_header_bytes ?? null;
+    v.xhttp_h2_params = x.h2_params ?? '';
     if (x.quic_params) hydrateQuicParams(v, x.quic_params);
   }
 
@@ -503,6 +504,7 @@ function buildTransport(v: FormValues): TransportConfig {
         uplink_data_key: packetUp ? orNull(v.xhttp_uplink_data_key) : null,
         uplink_chunk_size: orNull(v.xhttp_uplink_chunk_size),
         server_max_header_bytes: orNullNum(v.xhttp_server_max_header_bytes),
+        h2_params: orNull(v.xhttp_h2_params),
         quic_params: buildQuicParams(v),
       };
       return { kind: 'xhttp', ...x };

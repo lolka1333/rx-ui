@@ -88,6 +88,15 @@ pub struct XhttpTransport {
     pub uplink_chunk_size: Option<String>,
     #[ts(type = "number | null")]
     pub server_max_header_bytes: Option<i64>,
+    /// Raw JSON applied to the XHTTP listener's `net/http.HTTP2Config`
+    /// (xray-core v26.10.31, `splithttp/hub.go`). Server-side only — the
+    /// dialing client never reads it, so it stays out of the share link.
+    ///
+    /// Written in operator-friendly form and normalised on the way out by
+    /// [`XhttpTransport::build_h2_params`]: durations are typed as Go
+    /// duration strings (`"30s"`) and converted to the integer nanoseconds
+    /// `encoding/json` actually requires.
+    pub h2_params: Option<String>,
     /// Stream-level QUIC tuning. xray's splithttp reads this off
     /// `StreamConfig.quic_params` when running in H3 mode
     /// (`ALPN=["h3"]`); ignored for the TCP / H2 modes. Routed
@@ -116,6 +125,75 @@ impl XhttpTransport {
             h_max_reusable_secs: parse_range(self.xmux_h_max_reusable_secs.as_deref())?,
             h_keep_alive_period: self.xmux_h_keep_alive_period.unwrap_or(0),
         }))
+    }
+
+    /// Validate and normalise [`Self::h2_params`] into the bytes xray hands
+    /// to `json.Unmarshal`.
+    ///
+    /// Three traps live in that call, all verified against the Go stdlib:
+    ///
+    ///   * `time.Duration` has no JSON unmarshaller, so `"30s"` is a hard
+    ///     error and a bare `30` means thirty *nanoseconds*. Durations are
+    ///     taken as strings here and emitted as integer nanoseconds.
+    ///   * an unrecognised key is dropped without a word, so a typo would
+    ///     silently do nothing. Keys are matched against the real struct.
+    ///   * `encoding/json` matches field names case-insensitively, so the
+    ///     match here is too, and the canonical spelling is what we emit.
+    ///
+    /// Empty / absent input yields no bytes at all, which leaves the proto
+    /// field unset and xray on its own defaults.
+    fn build_h2_params(&self) -> anyhow::Result<Vec<u8>> {
+        let Some(raw) = self
+            .h2_params
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        else {
+            return Ok(Vec::new());
+        };
+        let parsed: serde_json::Value = serde_json::from_str(raw)
+            .map_err(|e| anyhow::anyhow!("h2Params is not valid JSON: {e}"))?;
+        let Some(obj) = parsed.as_object() else {
+            return Err(anyhow::anyhow!(
+                "h2Params must be a JSON object, for example {{\"SendPingTimeout\": \"30s\"}}"
+            ));
+        };
+        let mut out = serde_json::Map::new();
+        for (key, value) in obj {
+            let (canonical, kind) = canonical_h2_key(key)?;
+            let normalised = match kind {
+                H2Kind::Duration => {
+                    let Some(text) = value.as_str() else {
+                        return Err(anyhow::anyhow!(
+                            "h2Params '{canonical}' must be a duration string such as \"30s\" — a bare number is read as nanoseconds by the core"
+                        ));
+                    };
+                    serde_json::Value::from(parse_go_duration_nanos(canonical, text)?)
+                }
+                H2Kind::Integer => {
+                    let Some(n) = value.as_i64().filter(|n| *n >= 0) else {
+                        return Err(anyhow::anyhow!(
+                            "h2Params '{canonical}' must be a non-negative whole number"
+                        ));
+                    };
+                    serde_json::Value::from(n)
+                }
+                H2Kind::Boolean => {
+                    let Some(b) = value.as_bool() else {
+                        return Err(anyhow::anyhow!(
+                            "h2Params '{canonical}' must be true or false"
+                        ));
+                    };
+                    serde_json::Value::Bool(b)
+                }
+            };
+            if out.insert(canonical.to_owned(), normalised).is_some() {
+                return Err(anyhow::anyhow!(
+                    "h2Params names '{canonical}' twice (the core matches keys ignoring case)"
+                ));
+            }
+        }
+        Ok(serde_json::Value::Object(out).to_string().into_bytes())
     }
 }
 
@@ -259,6 +337,7 @@ impl Transport for XhttpTransport {
             uplink_data_key: self.uplink_data_key.clone().unwrap_or_default(),
             uplink_chunk_size: parse_range(self.uplink_chunk_size.as_deref())?,
             server_max_header_bytes,
+            h2_params: self.build_h2_params()?,
             ..XraySplitHttpConfig::default()
         };
         Ok(TypedMessage {
@@ -297,4 +376,263 @@ fn parse_range(input: Option<&str>) -> anyhow::Result<Option<RangeConfig>> {
         .parse()
         .map_err(|e| anyhow::anyhow!("range '{raw}': cannot parse as i32: {e}"))?;
     Ok(Some(RangeConfig { from: n, to: n }))
+}
+
+/// How `encoding/json` decodes each settable field of Go's
+/// `net/http.HTTP2Config`. `CountError` is a func field with no JSON
+/// representation, so it is deliberately absent.
+#[derive(Clone, Copy)]
+enum H2Kind {
+    Duration,
+    Integer,
+    Boolean,
+}
+
+const H2_FIELDS: [(&str, H2Kind); 11] = [
+    ("MaxConcurrentStreams", H2Kind::Integer),
+    ("StrictMaxConcurrentRequests", H2Kind::Boolean),
+    ("MaxDecoderHeaderTableSize", H2Kind::Integer),
+    ("MaxEncoderHeaderTableSize", H2Kind::Integer),
+    ("MaxReadFrameSize", H2Kind::Integer),
+    ("MaxReceiveBufferPerConnection", H2Kind::Integer),
+    ("MaxReceiveBufferPerStream", H2Kind::Integer),
+    ("SendPingTimeout", H2Kind::Duration),
+    ("PingTimeout", H2Kind::Duration),
+    ("WriteByteTimeout", H2Kind::Duration),
+    ("PermitProhibitedCipherSuites", H2Kind::Boolean),
+];
+
+/// Resolve an operator-typed key to its canonical spelling. Matching is
+/// case-insensitive because `encoding/json` is, and an unknown key is an
+/// error here precisely because it would *not* be one in the core.
+fn canonical_h2_key(key: &str) -> anyhow::Result<(&'static str, H2Kind)> {
+    H2_FIELDS
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(key))
+        .map(|(name, kind)| (*name, *kind))
+        .ok_or_else(|| {
+            let known = H2_FIELDS.map(|(name, _)| name).join(", ");
+            anyhow::anyhow!(
+                "h2Params: unknown key '{key}' — the core would drop it without a word. Known keys: {known}"
+            )
+        })
+}
+
+/// Parse a single-unit Go duration (`"30s"`, `"500ms"`, `"2m"`) into whole
+/// nanoseconds. Fractions and multi-part forms like `"1h30m"` are refused on
+/// purpose: the error names a spelling that works instead of rounding behind
+/// the operator's back.
+fn parse_go_duration_nanos(field: &str, raw: &str) -> anyhow::Result<i64> {
+    // Two-character units first, so "ms" is never read as "s".
+    const UNITS: [(&str, i64); 6] = [
+        ("ns", 1),
+        ("us", 1_000),
+        ("ms", 1_000_000),
+        ("s", 1_000_000_000),
+        ("m", 60_000_000_000),
+        ("h", 3_600_000_000_000),
+    ];
+    let text = raw.trim();
+    for (suffix, scale) in UNITS {
+        let Some(number) = text.strip_suffix(suffix) else {
+            continue;
+        };
+        let number = number.trim();
+        let value: i64 = number.parse().map_err(|_| {
+            anyhow::anyhow!(
+                "h2Params '{field}': cannot read '{raw}' as a whole number of {suffix} (write 1500ms rather than 1.5s)"
+            )
+        })?;
+        if value < 0 {
+            return Err(anyhow::anyhow!("h2Params '{field}': '{raw}' is negative"));
+        }
+        return value
+            .checked_mul(scale)
+            .ok_or_else(|| anyhow::anyhow!("h2Params '{field}': '{raw}' overflows nanoseconds"));
+    }
+    Err(anyhow::anyhow!(
+        "h2Params '{field}': '{raw}' needs a unit — one of ns, us, ms, s, m, h (for example \"30s\")"
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn with_h2(raw: &str) -> XhttpTransport {
+        XhttpTransport {
+            h2_params: Some(raw.to_owned()),
+            ..XhttpTransport::default()
+        }
+    }
+
+    fn emitted(raw: &str) -> serde_json::Value {
+        let bytes = with_h2(raw).build_h2_params().expect("accepted");
+        serde_json::from_slice(&bytes).expect("emits JSON")
+    }
+
+    fn refused(raw: &str) -> String {
+        with_h2(raw)
+            .build_h2_params()
+            .expect_err("should be refused")
+            .to_string()
+    }
+
+    /// xray hands these bytes to plain `encoding/json`, which has no
+    /// unmarshaller for `time.Duration`. Verified against the Go stdlib:
+    /// `"30s"` is a hard error there and a bare `30` is thirty *nanoseconds*.
+    /// Converting here is the only place the operator's intent survives.
+    #[test]
+    fn duration_strings_become_whole_nanoseconds() {
+        let v = emitted(r#"{"SendPingTimeout":"30s","PingTimeout":"10s"}"#);
+        assert_eq!(v["SendPingTimeout"], 30_000_000_000_i64);
+        assert_eq!(v["PingTimeout"], 10_000_000_000_i64);
+    }
+
+    #[test]
+    fn every_unit_scales() {
+        for (text, nanos) in [
+            ("5ns", 5_i64),
+            ("250us", 250_000),
+            ("500ms", 500_000_000),
+            ("30s", 30_000_000_000),
+            ("2m", 120_000_000_000),
+            ("1h", 3_600_000_000_000),
+        ] {
+            let v = emitted(&format!(r#"{{"WriteByteTimeout":"{text}"}}"#));
+            assert_eq!(v["WriteByteTimeout"], nanos, "unit {text}");
+        }
+    }
+
+    /// The trap that would hurt most: `30` reaches the core as 30ns and it
+    /// pings in a tight loop. Nothing downstream would complain.
+    #[test]
+    fn a_bare_number_duration_is_refused() {
+        let err = refused(r#"{"SendPingTimeout":30}"#);
+        assert!(err.contains("duration string"), "{err}");
+        assert!(err.contains("nanoseconds"), "{err}");
+    }
+
+    /// Go accepts "1.5s"; `encoding/json` into `time.Duration` does not. Say
+    /// so, and name a spelling that works.
+    #[test]
+    fn a_fraction_is_refused_and_names_the_fix() {
+        let err = refused(r#"{"PingTimeout":"1.5s"}"#);
+        assert!(err.contains("1500ms"), "{err}");
+    }
+
+    #[test]
+    fn a_duration_without_a_unit_is_refused() {
+        let err = refused(r#"{"PingTimeout":"10"}"#);
+        assert!(err.contains("needs a unit"), "{err}");
+    }
+
+    #[test]
+    fn a_negative_duration_is_refused() {
+        assert!(refused(r#"{"PingTimeout":"-5s"}"#).contains("negative"));
+    }
+
+    /// `encoding/json` drops keys it doesn't recognise without a word, so a
+    /// typo would silently configure nothing at all on the listener.
+    #[test]
+    fn an_unknown_key_is_refused() {
+        let err = refused(r#"{"SendPingInterval":"30s"}"#);
+        assert!(err.contains("unknown key"), "{err}");
+        assert!(
+            err.contains("SendPingTimeout"),
+            "the error lists the real keys: {err}"
+        );
+    }
+
+    /// ...but the keys it *does* know are matched ignoring case, so the panel
+    /// has to accept the same spellings and emit the canonical one.
+    #[test]
+    fn keys_match_ignoring_case_and_come_out_canonical() {
+        let v = emitted(r#"{"sendpingtimeout":"30s"}"#);
+        assert_eq!(v["SendPingTimeout"], 30_000_000_000_i64);
+        assert!(v.get("sendpingtimeout").is_none());
+    }
+
+    /// Two spellings of one field would silently collapse in the core, last
+    /// one winning. Better to say which key is doubled.
+    #[test]
+    fn the_same_key_twice_in_two_cases_is_refused() {
+        let err = refused(r#"{"PingTimeout":"1s","pingtimeout":"2s"}"#);
+        assert!(err.contains("twice"), "{err}");
+    }
+
+    #[test]
+    fn integers_and_booleans_keep_their_shape() {
+        let v =
+            emitted(r#"{"MaxReceiveBufferPerStream":4194304,"PermitProhibitedCipherSuites":true}"#);
+        assert_eq!(v["MaxReceiveBufferPerStream"], 4_194_304_i64);
+        assert_eq!(v["PermitProhibitedCipherSuites"], true);
+    }
+
+    #[test]
+    fn a_wrongly_typed_value_is_refused() {
+        assert!(refused(r#"{"MaxReadFrameSize":"big"}"#).contains("whole number"));
+        assert!(refused(r#"{"StrictMaxConcurrentRequests":1}"#).contains("true or false"));
+        assert!(refused(r#"{"MaxReadFrameSize":-1}"#).contains("non-negative"));
+    }
+
+    #[test]
+    fn blank_input_emits_no_bytes() {
+        for raw in ["", "   "] {
+            assert!(
+                with_h2(raw)
+                    .build_h2_params()
+                    .expect("blank is fine")
+                    .is_empty()
+            );
+        }
+        assert!(
+            XhttpTransport::default()
+                .build_h2_params()
+                .expect("absent is fine")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn malformed_input_is_refused() {
+        assert!(refused("not json").contains("not valid JSON"));
+        assert!(refused("[1,2]").contains("must be a JSON object"));
+    }
+
+    /// `h2Params` configures the *listener*. A client that merged it into its
+    /// own xhttpSettings would be configuring nothing, so it must never ride
+    /// the share link the way the symmetric knobs do.
+    #[test]
+    fn h2_params_stay_out_of_the_share_link() {
+        let link = with_h2(r#"{"SendPingTimeout":"30s"}"#).share_link_params();
+        assert!(
+            link.iter()
+                .all(|(k, v)| !k.contains("h2") && !v.contains("SendPingTimeout")),
+            "{link:?}"
+        );
+    }
+
+    /// Wiring: the normalised bytes have to reach proto field 30, not just
+    /// validate cleanly on their own.
+    #[test]
+    fn the_bytes_reach_the_proto_field() {
+        let msg = with_h2(r#"{"SendPingTimeout":"30s"}"#)
+            .build_settings()
+            .expect("builds");
+        let cfg = XraySplitHttpConfig::decode(msg.value.as_slice()).expect("decodes");
+        assert_eq!(
+            cfg.h2_params,
+            br#"{"SendPingTimeout":30000000000}"#.to_vec()
+        );
+    }
+
+    /// An inbound that never touches the field must encode byte-identically
+    /// to one from before it existed, or every stored inbound changes shape.
+    #[test]
+    fn an_untouched_inbound_leaves_the_field_empty() {
+        let msg = XhttpTransport::default().build_settings().expect("builds");
+        let cfg = XraySplitHttpConfig::decode(msg.value.as_slice()).expect("decodes");
+        assert!(cfg.h2_params.is_empty());
+    }
 }

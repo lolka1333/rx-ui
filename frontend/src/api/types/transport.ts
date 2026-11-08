@@ -140,6 +140,17 @@ session_id_table: string | null,
  */
 session_id_length: string | null, seq_placement: string | null, seq_key: string | null, uplink_data_placement: string | null, uplink_data_key: string | null, uplink_chunk_size: string | null, server_max_header_bytes: number | null, 
 /**
+ * Raw JSON applied to the XHTTP listener's `net/http.HTTP2Config`
+ * (xray-core v26.10.31, `splithttp/hub.go`). Server-side only — the
+ * dialing client never reads it, so it stays out of the share link.
+ *
+ * Written in operator-friendly form and normalised on the way out by
+ * [`XhttpTransport::build_h2_params`]: durations are typed as Go
+ * duration strings (`"30s"`) and converted to the integer nanoseconds
+ * `encoding/json` actually requires.
+ */
+h2_params: string | null, 
+/**
  * Stream-level QUIC tuning. xray's splithttp reads this off
  * `StreamConfig.quic_params` when running in H3 mode
  * (`ALPN=["h3"]`); ignored for the TCP / H2 modes. Routed

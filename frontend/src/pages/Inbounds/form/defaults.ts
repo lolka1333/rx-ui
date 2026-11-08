@@ -141,6 +141,7 @@ export const DEFAULTS: FormValues = {
   xhttp_uplink_data_key: '',
   xhttp_uplink_chunk_size: '',
   xhttp_server_max_header_bytes: null,
+  xhttp_h2_params: '',
   // Base mode: sniffing off (matches xray's own default). The
   // dest_override preset stays as a sane starting point for the moment
   // the operator decides to enable sniffing for domain-based routing.

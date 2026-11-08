@@ -228,6 +228,9 @@ export const OUTBOUND_DEFAULTS: OutboundFormValues = {
  *  Spread first in the xhttp branch; everything connectivity-relevant
  *  (path/host/mode/headers/padding-obfs/session/seq/uplink) is set explicitly. */
 const XHTTP_NULL = {
+  // h2Params configures the XHTTP *listener*; a dialling outbound has no
+  // listener, so there is nothing for it to set.
+  h2_params: null,
   no_grpc_header: null,
   no_sse_header: null,
   sc_max_each_post_bytes: null,

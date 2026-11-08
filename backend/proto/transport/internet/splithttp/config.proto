@@ -52,4 +52,8 @@ message Config {
   int32 serverMaxHeaderBytes = 27;
   string sessionIDTable = 28;
   RangeConfig sessionIDLength = 29;
+  // Raw JSON for Go's `net/http.HTTP2Config`, applied to the XHTTP
+  // listener (xray-core v26.10.31, splithttp/hub.go). Server-side only:
+  // the dialing client never reads it.
+  bytes h2Params = 30;
 }
