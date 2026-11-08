@@ -10,9 +10,7 @@
 //! `None` defers to xray's hard-coded defaults (which are sensible
 //! for most deployments).
 
-use crate::xray::proto::xray::transport::internet::{
-    QuicParams as XrayQuicParams,
-};
+use crate::xray::proto::xray::transport::internet::QuicParams as XrayQuicParams;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 

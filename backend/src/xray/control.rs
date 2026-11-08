@@ -476,7 +476,14 @@ mod tests {
     /// that message in either direction — the panel has to name one of them.
     #[test]
     fn a_core_older_than_the_vendored_protos_is_flagged() {
-        for old in ["v26.9.8", "v26.7.11", "v26.7.28", "v26.3.27", "v25.12.31", "26.9.7"] {
+        for old in [
+            "v26.9.8",
+            "v26.7.11",
+            "v26.7.28",
+            "v26.3.27",
+            "v25.12.31",
+            "26.9.7",
+        ] {
             assert!(version_too_old(old), "{old} should be flagged");
         }
         for ok in ["v26.9.9", "v26.10.1", "v27.0.0", "  v26.9.9  "] {
