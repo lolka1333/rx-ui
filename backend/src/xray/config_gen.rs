@@ -652,6 +652,22 @@ async fn write_tmp(tmp: &Path, bytes: &[u8]) -> anyhow::Result<()> {
 
 /// Atomically write `value` to `path` after validating it via `xray run -test`.
 /// If validation fails the tmp file is removed and the existing `path` is left
+/// Name for the throwaway config handed to `xray run -test`.
+///
+/// The extension is load-bearing. xray v26.10.31 (upstream #7255) refuses to
+/// read a config file whose extension is not one of `.jsonc .json .yml .yaml
+/// .toml .pb .protobuf`, and it checks the NAME — passing `-format json` does
+/// not excuse it. The obvious `config.json.tmp0` therefore made every
+/// validation fail on that core, which meant xray never started at all. So the
+/// sequence goes in the middle and `.json` stays on the end:
+/// `config.json` + 7 -> `config.tmp7.json`.
+///
+/// `seq` keeps concurrent writers off each other's path; staying a sibling of
+/// `path` keeps the publish a same-directory rename.
+fn tmp_config_path(path: &Path, seq: u64) -> std::path::PathBuf {
+    path.with_extension(format!("tmp{seq}.json"))
+}
+
 /// untouched, so the panel never overwrites a working config with a broken one.
 pub async fn write_config_validated(
     binary: &Path,
@@ -663,9 +679,9 @@ pub async fn write_config_validated(
     // in-flight write. The rename onto `path` is still the atomic publish.
     static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let seq = TMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let tmp = path.with_extension(format!("json.tmp{seq}"));
+    let tmp = tmp_config_path(path, seq);
     let bytes = serde_json::to_vec_pretty(value)?;
-    // Clean up on ANY failure: a bare `?` here would leave a `config.json.tmpN`
+    // Clean up on ANY failure: a bare `?` here would leave a `config.tmpN.json`
     // sibling behind on every full disk or permission error, and nothing sweeps
     // them (the sequence number means each attempt leaks a fresh one). The
     // errors carry context because they reach the operator, where a naked
@@ -676,8 +692,10 @@ pub async fn write_config_validated(
         return Err(e);
     }
 
-    // -format json: xray normally infers from extension (.json/.yaml/.toml)
-    // but we hand it a .tmp file, so be explicit. kill_on_drop because this
+    // -format json is belt and braces: the temp file already ends in `.json`
+    // (see `tmp_config_path` — xray refuses to read anything else), and this
+    // states the format outright for the cores that infer it. kill_on_drop
+    // because this
     // future gets dropped when a client disconnects mid-save — without it the
     // validator outlives the request that asked for it.
     let output = Command::new(binary)
@@ -803,6 +821,48 @@ mod tests {
         );
         // And the bare form really does hide it, which is why consumers use {e:#}.
         assert!(!format!("{err}").contains("os error"), "{err}");
+    }
+
+    /// A live regression, not a hypothetical. xray v26.10.31 (upstream #7255)
+    /// started refusing config files by extension, and it reads the NAME —
+    /// `-format json` does not excuse it. The old `config.json.tmp0` made every
+    /// validation fail on that core, so xray never started, the gRPC API never
+    /// came up, and saving any inbound answered 500. The suffix has to stay
+    /// inside the set the core accepts.
+    #[test]
+    fn the_validation_temp_file_keeps_an_extension_xray_will_read() {
+        const ACCEPTED: [&str; 7] = ["jsonc", "json", "yml", "yaml", "toml", "pb", "protobuf"];
+        let tmp = tmp_config_path(Path::new("data/xray/config.json"), 7);
+
+        let ext = tmp
+            .extension()
+            .and_then(std::ffi::OsStr::to_str)
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        assert!(
+            ACCEPTED.contains(&ext.as_str()),
+            "xray would refuse {tmp:?}"
+        );
+        assert_eq!(
+            tmp.file_name().and_then(std::ffi::OsStr::to_str),
+            Some("config.tmp7.json")
+        );
+    }
+
+    /// The publish is a rename onto the real path, which is only atomic while
+    /// both live in one directory.
+    #[test]
+    fn the_validation_temp_file_stays_a_sibling() {
+        let real = Path::new("data/xray/config.json");
+        assert_eq!(tmp_config_path(real, 0).parent(), real.parent());
+    }
+
+    /// Two saves racing must not share a path: each failure path deletes the
+    /// file, and a shared name would delete the other writer's work.
+    #[test]
+    fn each_validation_attempt_gets_its_own_temp_path() {
+        let real = Path::new("data/xray/config.json");
+        assert_ne!(tmp_config_path(real, 0), tmp_config_path(real, 1));
     }
 
     /// The api pin routes the panel's own control inbound. A saved order that
