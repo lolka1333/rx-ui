@@ -38,6 +38,7 @@ export const FINALMASK_LABEL_KEYS: Record<FinalMask['kind'], string> = {
   noise: 'inbounds.finalmaskKindNoise',
   salamander: 'inbounds.finalmaskKindSalamander',
   xmc: 'inbounds.finalmaskKindXmc',
+  xicmp: 'inbounds.finalmaskKindXicmp',
 };
 
 function useFinalMaskSupport() {

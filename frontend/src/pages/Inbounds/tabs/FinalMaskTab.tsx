@@ -13,7 +13,7 @@
 //! understand `fm=` will fail to connect — that's intentional.
 
 import { useMemo, useState, type Key } from 'react';
-import { App, Alert, Button, Form, Input, InputNumber, Select, Typography } from 'antd';
+import { App, Alert, Button, Form, Input, InputNumber, Select, Switch, Typography } from 'antd';
 import type { FormListFieldData } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -52,9 +52,13 @@ const ASCII_OPTIONS = ASCII_MODES.map((value) => ({ value, label: value }));
 export function FinalMaskTab({
   transport,
   security,
+  side = 'inbound',
 }: {
   transport: FinalMaskTransport;
   security: string;
+  /** Which end the form configures. Every mask but XICMP reads the same on
+   *  both; XICMP has a server-only allowlist an outbound has no use for. */
+  side?: 'inbound' | 'outbound';
 }) {
   const { t } = useTranslation();
   const form = Form.useFormInstance<FormValues>();
@@ -96,6 +100,7 @@ export function FinalMaskTab({
       {kind === 'noise' && <NoiseFields />}
       {kind === 'salamander' && <SalamanderFields />}
       {kind === 'xmc' && <XmcFields />}
+      {kind === 'xicmp' && <XicmpFields side={side} />}
     </>
   );
 }
@@ -342,6 +347,63 @@ function SalamanderFields() {
           placeholder={t('inbounds.finalmaskSalamanderPasswordPlaceholder')}
           allowClear
         />
+      </Form.Item>
+    </Section>
+  );
+}
+
+/** XICMP — the UDP transport carried inside ICMP Echo, so on the wire it is
+ *  ping traffic. xray reads one `IPs` field on both ends and means opposite
+ *  things by it, hence two lists: on an inbound the first says who may connect
+ *  and the second is what clients are told to ping. An outbound is a client,
+ *  so only the second applies to it. */
+function XicmpFields({ side }: { side: 'inbound' | 'outbound' }) {
+  const { t } = useTranslation();
+  const addresses = () => (
+    <Select
+      mode="tags"
+      open={false}
+      tokenSeparators={[',', ' ']}
+      placeholder="203.0.113.9"
+      style={{ fontFamily: 'var(--font-mono)' }}
+    />
+  );
+  return (
+    <Section itemKey="finalmask-xicmp" labelKey="inbounds.finalmaskXicmpSection">
+      <Alert
+        type="warning"
+        showIcon
+        title={t('inbounds.finalmaskXicmpNotice')}
+        style={{ marginBottom: 16 }}
+      />
+      {side === 'inbound' && (
+        <Form.Item
+          name="finalmask_xicmp_allowed_client_ips"
+          label={t('inbounds.finalmaskXicmpAllowedClientIps')}
+          tooltip={t('inbounds.finalmaskXicmpAllowedClientIpsTooltip')}
+        >
+          {addresses()}
+        </Form.Item>
+      )}
+      <Form.Item
+        name="finalmask_xicmp_server_ips"
+        label={t('inbounds.finalmaskXicmpServerIps')}
+        tooltip={t(
+          side === 'inbound'
+            ? 'inbounds.finalmaskXicmpServerIpsTooltip'
+            : 'inbounds.finalmaskXicmpServerIpsTooltipOutbound',
+        )}
+      >
+        {addresses()}
+      </Form.Item>
+      <Form.Item
+        name="finalmask_xicmp_dgram"
+        label={t('inbounds.finalmaskXicmpDgram')}
+        tooltip={t('inbounds.finalmaskXicmpDgramTooltip')}
+        valuePropName="checked"
+        style={{ marginBottom: 0 }}
+      >
+        <Switch />
       </Form.Item>
     </Section>
   );

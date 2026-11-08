@@ -200,6 +200,34 @@ pub fn row_to_inbound(r: Row) -> AppResult<Inbound> {
 // Validation
 // =============================================================================
 
+/// Whether this host can SERVE XICMP. The panel and the xray it drives share a
+/// machine, so the panel's own target is the answer. A named constant rather
+/// than an inline `cfg!`, so the check below stays an ordinary expression on
+/// every target instead of folding into a literal on one of them.
+const HOST_SERVES_XICMP: bool = cfg!(target_os = "linux");
+
+/// An XICMP server has to RECEIVE Echo Requests, and only Linux passes those
+/// up to a program. Windows and the BSDs answer them in the kernel and never
+/// hand them on — measured on Windows: a second raw ICMP socket sees the
+/// kernel's Echo Reply and never the request. xray reflects the same split:
+/// the server that reads requests is `finalmask/xicmp/server_oob.go`, built
+/// for Linux only. Off Linux the inbound would save, start, and never see a
+/// packet, which is the silence `validate_finalmask` refuses for a mask on the
+/// wrong registry — so it follows the same `check_matrix` rule.
+///
+/// Inbound only. The client side works everywhere: replies ARE delivered to
+/// a raw socket, Windows included.
+fn validate_xicmp_host(finalmask: &FinalMask, check: bool) -> AppResult<()> {
+    if check && !HOST_SERVES_XICMP && matches!(finalmask, FinalMask::Xicmp(_)) {
+        return Err(AppError::BadRequest(
+            "XICMP inbounds need a Linux server: this OS answers pings in the kernel and \
+             never passes the requests on to xray"
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 /// `FinalMask` cross-checks against the transport and the security layer.
 /// Split out of `validate_layers` to keep that function readable, and shared
 /// with `api::outbounds`: both write paths feed the SAME xray process, so a
@@ -402,6 +430,10 @@ fn validate_finalmask_security(security: &SecurityConfig, finalmask: &FinalMask)
     // process can't be crashed from either — see `FinalMask::validate_noise`.
     finalmask.validate_noise().map_err(AppError::BadRequest)?;
 
+    // XICMP address lists: the server parses them with `MustParseAddr`, so a
+    // typo would not be a 400 from xray but a crashed process.
+    finalmask.validate_xicmp().map_err(AppError::BadRequest)?;
+
     // XMC profile/password invariants, mirrored from xray's own conf parser so
     // the operator gets a field-level message instead of an inbound that comes
     // up and then drops every connection.
@@ -560,6 +592,7 @@ fn validate_layers(
         // (Reality panics on Sudoku/XMC; XMC needs a TCP path; zero-length
         // fragment) — grouped in `validate_finalmask`.
         validate_finalmask(transport, security, finalmask, check_matrix)?;
+        validate_xicmp_host(finalmask, check_matrix)?;
     }
 
     // VLESS fallbacks — xray-core rejects two combos at startup:
@@ -2683,5 +2716,22 @@ mod validate_layers_tests {
             panic!("expected Reality");
         };
         assert!(r2.private_key.is_empty());
+    }
+
+    /// Serving XICMP is a property of the host, not of the form: refused off
+    /// Linux, allowed on it. `check = false` (a stored row carried forward
+    /// untouched) never refuses, so such a row stays manageable.
+    #[test]
+    fn xicmp_inbounds_are_refused_where_the_kernel_swallows_pings() {
+        use crate::transports::finalmask::XicmpParams;
+        let xicmp = FinalMask::Xicmp(XicmpParams::default());
+
+        assert_eq!(
+            validate_xicmp_host(&xicmp, true).is_err(),
+            !cfg!(target_os = "linux"),
+            "xicmp must be refused exactly where the kernel answers pings itself"
+        );
+        assert!(validate_xicmp_host(&xicmp, false).is_ok());
+        assert!(validate_xicmp_host(&FinalMask::None, true).is_ok());
     }
 }

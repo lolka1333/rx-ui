@@ -225,6 +225,9 @@ export type FinalMaskFormFields = Pick<
   | 'finalmask_xmc_hostname'
   | 'finalmask_xmc_password'
   | 'finalmask_xmc_profiles'
+  | 'finalmask_xicmp_allowed_client_ips'
+  | 'finalmask_xicmp_server_ips'
+  | 'finalmask_xicmp_dgram'
 >;
 
 /** Hydrate the flat `finalmask_*` form fields from a typed `FinalMask`. The
@@ -290,6 +293,11 @@ export function hydrateFinalMask(target: FinalMaskFormFields, fm: FinalMask): vo
     target.finalmask_xmc_profiles = fm.profiles.length
       ? fm.profiles.map((p) => ({ ...p }))
       : [{ username: '', uuid: '', textures_value: '', textures_signature: '' }];
+  } else if (fm.kind === 'xicmp') {
+    target.finalmask_kind = 'xicmp';
+    target.finalmask_xicmp_allowed_client_ips = [...fm.allowed_client_ips];
+    target.finalmask_xicmp_server_ips = [...fm.server_ips];
+    target.finalmask_xicmp_dgram = fm.dgram;
   }
 }
 
@@ -710,6 +718,17 @@ export function buildFinalMask(v: FormValues): FinalMask {
             textures_value: p.textures_value.trim(),
             textures_signature: p.textures_signature.trim(),
           })),
+      };
+    case 'xicmp':
+      return {
+        kind: 'xicmp',
+        // Trimmed with blanks dropped, so the stored row already holds what
+        // xray reads (the backend normalises the same way before sending).
+        allowed_client_ips: v.finalmask_xicmp_allowed_client_ips
+          .map((s) => s.trim())
+          .filter(Boolean),
+        server_ips: v.finalmask_xicmp_server_ips.map((s) => s.trim()).filter(Boolean),
+        dgram: v.finalmask_xicmp_dgram,
       };
   }
 }

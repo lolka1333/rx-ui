@@ -31,6 +31,10 @@ use crate::xray::proto::xray::common::serial::TypedMessage;
 ///   * `Noise`    — UDP only. Populates only `udpmasks`; ignored for
 ///     vless/reality TCP inbounds. Most useful for QUIC/Hysteria
 ///     where a noise prefix breaks fingerprinting.
+///   * `Xicmp`    — UDP only, and the one variant whose two ends are told
+///     different things: xray's single `IPs` field means "clients let in" on
+///     the server and "addresses to ping" on the client, so the params keep
+///     a list for each (see [`XicmpParams`]).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 #[ts(export, export_to = "../../frontend/src/api/types/finalmask.ts")]
@@ -67,6 +71,14 @@ pub enum FinalMask {
     /// 26.1.2 session. TCP only, and symmetric: unlike Fragment it MUST be on
     /// the server too, or nothing lines up.
     Xmc(XmcParams),
+    /// XICMP finalmask (`xray.transport.internet.finalmask.xicmp`) — carry the
+    /// UDP transport inside ICMP Echo, so on the wire it is ping traffic. The
+    /// client sends Echo Requests whose payload opens with a random 8-byte
+    /// client id; the server answers with Echo Replies reusing the request's
+    /// id and seq. Both wrappers throw away the UDP socket they are handed and
+    /// open an ICMP one instead — raw on the server, always, which needs
+    /// `CAP_NET_RAW`. UDP only.
+    Xicmp(XicmpParams),
 }
 
 /// One Minecraft account the mask can present. These are real session-server
@@ -386,6 +398,31 @@ const NOISE_MAX_BYTES: i64 = 65_507;
 const NOISE_MAX_TIME: i64 = 65_535;
 
 impl FinalMask {
+    /// XICMP address lists must hold IP addresses and nothing else. This is
+    /// not cosmetic: inbounds reach xray over gRPC, which skips the JSON
+    /// parser's `netip.ParseAddr` check, and the server then reads the list
+    /// with `netip.MustParseAddr` (`finalmask/xicmp/server_oob.go`) — one typo
+    /// panics the whole process. A no-op for every other variant.
+    pub fn validate_xicmp(&self) -> Result<(), String> {
+        let Self::Xicmp(p) = self else {
+            return Ok(());
+        };
+        for (side, list) in [
+            ("allowed client", &p.allowed_client_ips),
+            ("server", &p.server_ips),
+        ] {
+            for raw in list {
+                let addr = raw.trim();
+                if !addr.is_empty() && addr.parse::<std::net::IpAddr>().is_err() {
+                    return Err(format!(
+                        "XICMP {side} address '{addr}' is not an IP address: ICMP has no ports and no host names"
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Per-item Noise invariants that BOTH the inbound and outbound write paths
     /// must enforce before the config reaches xray — the two paths feed the
     /// SAME process, and a bad value panics or crash-loops it (`make([]byte,
@@ -472,6 +509,62 @@ pub struct SalamanderParams {
     pub password: String,
 }
 
+/// XICMP finalmask knobs.
+///
+/// xray reads one `IPs` field on both sides and means opposite things by it,
+/// which is why there are two lists here rather than one. Read in
+/// `finalmask/xicmp`: the server checks the SOURCE address of every Echo
+/// Request against it (an allowlist of clients), while the client picks the
+/// address it pings from it. Shipping the server's list in the share link
+/// would have clients pinging one another.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../frontend/src/api/types/finalmask.ts")]
+pub struct XicmpParams {
+    /// Server side: only Echo Requests from these addresses are served. Empty
+    /// lets anyone in — the usual choice, since clients sit on dynamic IPs.
+    #[serde(default)]
+    pub allowed_client_ips: Vec<String>,
+    /// Client side: the server's own addresses, which the client pings. ICMP
+    /// has neither ports nor names, so a share link that points at a domain
+    /// needs these; one that points at an IP can leave them empty.
+    #[serde(default)]
+    pub server_ips: Vec<String>,
+    /// Client side: an unprivileged ping socket instead of a raw one. Only
+    /// Linux and Darwin have those (`golang.org/x/net/icmp`); a Windows client
+    /// has to stay raw, which means running elevated. The server ignores it.
+    #[serde(default)]
+    pub dgram: bool,
+}
+
+impl XicmpParams {
+    /// The addresses a client pings, trimmed the way xray parses them. The
+    /// only one of the two lists that may leave the panel: the share link
+    /// carries exactly this.
+    pub fn client_ips(&self) -> Vec<String> {
+        trimmed_addresses(&self.server_ips)
+    }
+
+    /// The XICMP proto for one end of the connection — see the struct docs for
+    /// why the two ends read different lists.
+    fn proto_bytes(&self, client_side: bool) -> Vec<u8> {
+        use crate::xray::proto::xray::transport::internet::finalmask as fm;
+        use prost::Message as _;
+        let config = if client_side {
+            fm::xicmp::Config {
+                dgram: self.dgram,
+                i_ps: self.client_ips(),
+            }
+        } else {
+            // The server always listens raw; DGRAM is a client-only switch.
+            fm::xicmp::Config {
+                dgram: false,
+                i_ps: trimmed_addresses(&self.allowed_client_ips),
+            }
+        };
+        config.encode_to_vec()
+    }
+}
+
 /// Which socket-side(s) a variant applies to.
 ///
 /// The TCP case splits in two because the two TCP masks want opposite things.
@@ -502,6 +595,7 @@ impl FinalMask {
             Self::Noise(_) => "noise",
             Self::Salamander(_) => "salamander",
             Self::Xmc(_) => "xmc",
+            Self::Xicmp(_) => "xicmp",
         }
     }
 
@@ -537,6 +631,9 @@ impl FinalMask {
             Self::Noise(p) => p.items.iter().any(NoiseItem::is_active),
             // Salamander is active once a password is set.
             Self::Salamander(p) => !p.password.trim().is_empty(),
+            // XICMP has nothing mandatory: both lists may be empty (anyone in,
+            // ping the address the link already carries) and `dgram` defaults.
+            Self::Xicmp(_) => true,
             // XMC needs all three: a password, someone to log in as, and the
             // keypair derived from that password. The keys are checked too so
             // a half-written row can never reach xray — it would not fail
@@ -561,14 +658,19 @@ impl FinalMask {
             Self::Xmc(_) => FinalMaskScope::Tcp,
             // `None` has no socket to wrap; the value is never read for it
             // (`to_typed_message` bails on inactive masks first).
-            Self::Noise(_) | Self::Salamander(_) | Self::None => FinalMaskScope::Udp,
+            Self::Noise(_) | Self::Salamander(_) | Self::Xicmp(_) | Self::None => {
+                FinalMaskScope::Udp
+            }
         }
     }
 
     /// Wire-level `TypedMessage` for `StreamConfig.tcpmasks` / `.udpmasks`
-    /// paired with the scope the orchestrator should route it to.
-    /// Returns `None` for inactive variants — the caller drops both slots.
-    pub fn to_typed_message(&self) -> Option<(TypedMessage, FinalMaskScope)> {
+    /// paired with the scope the orchestrator should route it to, built for
+    /// one end of the connection. Every mask but XICMP builds the same message
+    /// either way; XICMP reads a different list depending on which end it is
+    /// (see [`XicmpParams`]). Returns `None` for inactive variants — the
+    /// caller drops both slots.
+    pub fn to_typed_message(&self, client_side: bool) -> Option<(TypedMessage, FinalMaskScope)> {
         use crate::xray::proto::xray::transport::internet::finalmask as fm;
         use prost::Message as _;
         if !self.is_active() {
@@ -683,6 +785,7 @@ impl FinalMask {
                 };
                 proto.encode_to_vec()
             }
+            Self::Xicmp(p) => p.proto_bytes(client_side),
             Self::None => unreachable!("filtered by is_active above"),
         };
         Some((
@@ -699,6 +802,7 @@ impl FinalMask {
     ///
     /// * Sudoku (Both) is symmetric — fills both slots either way.
     /// * Noise (Udp) → the UDP slot.
+    /// * XICMP (Udp) → the UDP slot, built from the list for this end.
     /// * Fragment (`TcpClientOnly`) → the TCP slot ON THE CLIENT (the dialer
     ///   fragments its own `ClientHello`), but NEITHER slot on the server: a
     ///   server-side fragment wrapper is pointless and, under Reality, panics
@@ -707,7 +811,7 @@ impl FinalMask {
     ///   transform: a client that speaks it to a server that doesn't gets
     ///   nothing but a stalled Minecraft login.
     pub fn masks(&self, client_side: bool) -> (Vec<TypedMessage>, Vec<TypedMessage>) {
-        match self.to_typed_message() {
+        match self.to_typed_message(client_side) {
             Some((m, FinalMaskScope::Both)) => (vec![m.clone()], vec![m]),
             Some((m, FinalMaskScope::Udp)) => (Vec::new(), vec![m]),
             Some((m, FinalMaskScope::Tcp)) => (vec![m], Vec::new()),
@@ -775,7 +879,8 @@ impl XmcParams {
 ///   TCP — header-custom, fragment, sudoku, xmc
 ///   UDP — header-custom, mkcp-legacy, noise, salamander, sudoku, xdns,
 ///         xicmp, realm
-/// Of those the panel exposes sudoku, fragment, noise, salamander and xmc.
+/// Of those the panel exposes sudoku, fragment, noise, salamander, xmc and
+/// xicmp.
 ///
 /// XHTTP is listed as TCP here. It can run over HTTP/3, where it takes the UDP
 /// path instead, but that needs ALPN pinned to exactly `h3`; the API rejects
@@ -794,7 +899,8 @@ impl XmcParams {
 ///
 /// `sudoku` and `salamander` re-encode every datagram on both sides
 /// (`sudoku/conn_udp.go`, `salamander/conn.go`), which a `WireGuard` client
-/// cannot do. `fragment` and `xmc` live in the TCP registry, which the
+/// cannot do, and `xicmp` moves the whole exchange into ICMP, which a stock
+/// client cannot speak at all. `fragment` and `xmc` live in the TCP registry, which the
 /// `WireGuard` server never consults — they would save and do nothing.
 pub fn wireguard_supported_kinds() -> Vec<&'static str> {
     vec!["noise"]
@@ -813,7 +919,7 @@ pub fn supported_kinds(
             vec!["sudoku", "fragment", "xmc"]
         }
         // Hysteria is QUIC: only the UDP registry is ever consulted.
-        TransportKind::Hysteria => vec!["sudoku", "noise", "salamander"],
+        TransportKind::Hysteria => vec!["sudoku", "noise", "salamander", "xicmp"],
     };
 
     // Reality type-asserts its underlying conn to `CloseWriteConn` without
@@ -828,6 +934,17 @@ pub fn supported_kinds(
     }
 
     kinds
+}
+
+/// Address list as xray will parse it: trimmed, blanks dropped. Go's
+/// `netip.ParseAddr` rejects surrounding whitespace, so a stray space from the
+/// form would otherwise fail on the client or, on the server, never match.
+fn trimmed_addresses(list: &[String]) -> Vec<String> {
+    list.iter()
+        .map(|a| a.trim())
+        .filter(|a| !a.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 /// The shape xray enforces on a Minecraft username (`^[A-Za-z0-9_]{3,16}$`).
@@ -972,6 +1089,7 @@ mod tests {
             rsa_private_key: "AA==".to_owned(),
             rsa_public_key: "AA==".to_owned(),
         });
+        let xicmp = FinalMask::Xicmp(XicmpParams::default());
 
         // (mask, scope, server-side (tcp, udp), client-side (tcp, udp))
         let table = [
@@ -980,6 +1098,7 @@ mod tests {
             (&noise, FinalMaskScope::Udp, (0, 1), (0, 1)),
             (&salamander, FinalMaskScope::Udp, (0, 1), (0, 1)),
             (&xmc, FinalMaskScope::Tcp, (1, 0), (1, 0)),
+            (&xicmp, FinalMaskScope::Udp, (0, 1), (0, 1)),
         ];
         for (mask, scope, server, client) in table {
             let kind = mask.kind();
@@ -996,6 +1115,126 @@ mod tests {
         assert_eq!(FinalMask::None.masks(true), (Vec::new(), Vec::new()));
     }
 
+    fn xicmp_fixture() -> FinalMask {
+        FinalMask::Xicmp(XicmpParams {
+            allowed_client_ips: vec!["198.51.100.7".to_owned()],
+            server_ips: vec!["203.0.113.9".to_owned(), "2001:db8::9".to_owned()],
+            dgram: true,
+        })
+    }
+
+    fn decode_xicmp(mask: &FinalMask, client_side: bool) -> fm::xicmp::Config {
+        let (msg, scope) = mask.to_typed_message(client_side).expect("xicmp is active");
+        assert_eq!(scope, FinalMaskScope::Udp);
+        assert_eq!(msg.r#type, "xray.transport.internet.finalmask.xicmp.Config");
+        fm::xicmp::Config::decode(msg.value.as_slice()).expect("decodes")
+    }
+
+    /// The reason the params carry two lists. xray reads one `IPs` field on
+    /// both ends: the server matches it against the SOURCE of each Echo
+    /// Request, the client picks the address to ping from it. Each end must
+    /// get its own list, and the server must not be handed `DGRAM` — it is a
+    /// client-only switch and the server always listens raw.
+    #[test]
+    fn xicmp_hands_each_end_its_own_list() {
+        let mask = xicmp_fixture();
+
+        let server = decode_xicmp(&mask, false);
+        assert_eq!(
+            server.i_ps,
+            ["198.51.100.7"],
+            "server gets the client allowlist"
+        );
+        assert!(!server.dgram, "the server always listens raw");
+
+        let client = decode_xicmp(&mask, true);
+        assert_eq!(
+            client.i_ps,
+            ["203.0.113.9", "2001:db8::9"],
+            "client gets the addresses to ping"
+        );
+        assert!(client.dgram, "the client keeps its socket choice");
+    }
+
+    /// Nothing about XICMP is mandatory: no allowlist lets anyone in, and no
+    /// ping list means the client pings the address its link already names.
+    #[test]
+    fn xicmp_with_nothing_filled_in_is_still_a_working_mask() {
+        let mask = FinalMask::Xicmp(XicmpParams::default());
+        assert!(mask.is_configured() && mask.is_active());
+        assert!(decode_xicmp(&mask, false).i_ps.is_empty());
+        assert!(decode_xicmp(&mask, true).i_ps.is_empty());
+    }
+
+    /// Go's `netip.ParseAddr` rejects surrounding whitespace, so what the
+    /// form sends has to be trimmed before it reaches xray, and a blank row
+    /// must not turn into an empty string the parser chokes on.
+    #[test]
+    fn xicmp_addresses_reach_xray_trimmed_and_without_blanks() {
+        let mask = FinalMask::Xicmp(XicmpParams {
+            allowed_client_ips: vec!["  198.51.100.7 ".to_owned(), "   ".to_owned()],
+            server_ips: vec![String::new(), " 203.0.113.9".to_owned()],
+            dgram: false,
+        });
+        assert_eq!(decode_xicmp(&mask, false).i_ps, ["198.51.100.7"]);
+        assert_eq!(decode_xicmp(&mask, true).i_ps, ["203.0.113.9"]);
+    }
+
+    /// Not a nicety. Inbounds go to xray over gRPC, past the JSON parser's
+    /// `netip.ParseAddr`, and the server reads the list with
+    /// `netip.MustParseAddr` — a bad entry is a panic, not an error.
+    #[test]
+    fn xicmp_refuses_anything_that_is_not_an_ip_address() {
+        let with = |allowed: &str, server: &str| {
+            FinalMask::Xicmp(XicmpParams {
+                allowed_client_ips: vec![allowed.to_owned()],
+                server_ips: vec![server.to_owned()],
+                dgram: false,
+            })
+            .validate_xicmp()
+        };
+
+        assert!(with("198.51.100.7", "2001:db8::9").is_ok());
+        assert!(
+            with(" 198.51.100.7 ", "").is_ok(),
+            "trimmed and blank are fine"
+        );
+
+        for bad in [
+            "example.com",
+            "203.0.113.9:443",
+            "203.0.113.0/24",
+            "1.2.3",
+            "nope",
+        ] {
+            let err = with("", bad).expect_err(bad);
+            assert!(err.contains("server") && err.contains(bad), "{err}");
+            let err = with(bad, "").expect_err(bad);
+            assert!(err.contains("allowed client") && err.contains(bad), "{err}");
+        }
+
+        // Every other variant passes straight through.
+        assert!(FinalMask::None.validate_xicmp().is_ok());
+    }
+
+    /// ICMP only exists on the UDP path, and only where the far end is xray.
+    /// A TCP transport never consults the UDP registry, and a stock
+    /// `WireGuard` client cannot speak ICMP at all, so neither may offer it.
+    #[test]
+    fn xicmp_is_offered_only_where_it_can_carry_traffic() {
+        use crate::security::SecurityKind;
+        use crate::transports::TransportKind;
+
+        assert!(supported_kinds(TransportKind::Hysteria, SecurityKind::None).contains(&"xicmp"));
+        for tcp in [TransportKind::Tcp, TransportKind::Ws, TransportKind::Xhttp] {
+            assert!(
+                !supported_kinds(tcp, SecurityKind::None).contains(&"xicmp"),
+                "{tcp:?} must not offer xicmp"
+            );
+        }
+        assert!(!wireguard_supported_kinds().contains(&"xicmp"));
+    }
+
     /// The server-side noise proto must carry the full 0..255 byte-value
     /// range (xray's conf default), not the proto's 0..0 — otherwise the
     /// server's "random" prefix is all zeros, which is both a fingerprint
@@ -1010,7 +1249,7 @@ mod tests {
             }],
             ..NoiseParams::default()
         })
-        .to_typed_message()
+        .to_typed_message(false)
         .expect("noise with a non-zero rand count is active");
         assert_eq!(scope, FinalMaskScope::Udp);
         let cfg = fm::noise::Config::decode(msg.value.as_slice()).expect("decode noise config");
@@ -1045,7 +1284,7 @@ mod tests {
             ],
             ..NoiseParams::default()
         })
-        .to_typed_message()
+        .to_typed_message(false)
         .expect("noise with an active item is active");
         let cfg = fm::noise::Config::decode(msg.value.as_slice()).expect("decode noise config");
         assert_eq!(
@@ -1159,7 +1398,7 @@ mod tests {
             }],
             ..NoiseParams::default()
         })
-        .to_typed_message()
+        .to_typed_message(false)
         .expect("active");
         let cfg = fm::noise::Config::decode(msg.value.as_slice()).expect("decode");
         assert_eq!(cfg.items[0].rand_min, 0, "sorted lo");
@@ -1281,7 +1520,7 @@ mod tests {
             r#"{"kind":"noise","packet_hex":"","rand_min":-5,"rand_max":5000000000}"#,
         )
         .expect("legacy poison blob deserializes");
-        let (msg, _) = fm.to_typed_message().expect("active");
+        let (msg, _) = fm.to_typed_message(false).expect("active");
         let cfg = fm::noise::Config::decode(msg.value.as_slice()).expect("decode");
         assert_eq!(cfg.items.len(), 1);
         assert_eq!(cfg.items[0].rand_min, 0, "negative clamped to 0");

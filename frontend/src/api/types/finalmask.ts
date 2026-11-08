@@ -18,8 +18,12 @@
  *   * `Noise`    — UDP only. Populates only `udpmasks`; ignored for
  *     vless/reality TCP inbounds. Most useful for QUIC/Hysteria
  *     where a noise prefix breaks fingerprinting.
+ *   * `Xicmp`    — UDP only, and the one variant whose two ends are told
+ *     different things: xray's single `IPs` field means "clients let in" on
+ *     the server and "addresses to ping" on the client, so the params keep
+ *     a list for each (see [`XicmpParams`]).
  */
-export type FinalMask = { "kind": "none" } | { "kind": "sudoku" } & SudokuParams | { "kind": "fragment" } & FragmentParams | { "kind": "noise" } & NoiseParams | { "kind": "salamander" } & SalamanderParams | { "kind": "xmc" } & XmcParams;
+export type FinalMask = { "kind": "none" } | { "kind": "sudoku" } & SudokuParams | { "kind": "fragment" } & FragmentParams | { "kind": "noise" } & NoiseParams | { "kind": "salamander" } & SalamanderParams | { "kind": "xmc" } & XmcParams | { "kind": "xicmp" } & XicmpParams;
 
 /**
  * Fragment finalmask knobs (xray-core v26.6.22 #6334). `lengths`/`delays`
@@ -136,6 +140,35 @@ padding_max: number | null,
  * Optional list of additional lookup tables (advanced).
  */
 custom_tables: Array<string>, };
+
+/**
+ * XICMP finalmask knobs.
+ *
+ * xray reads one `IPs` field on both sides and means opposite things by it,
+ * which is why there are two lists here rather than one. Read in
+ * `finalmask/xicmp`: the server checks the SOURCE address of every Echo
+ * Request against it (an allowlist of clients), while the client picks the
+ * address it pings from it. Shipping the server's list in the share link
+ * would have clients pinging one another.
+ */
+export type XicmpParams = { 
+/**
+ * Server side: only Echo Requests from these addresses are served. Empty
+ * lets anyone in — the usual choice, since clients sit on dynamic IPs.
+ */
+allowed_client_ips: Array<string>, 
+/**
+ * Client side: the server's own addresses, which the client pings. ICMP
+ * has neither ports nor names, so a share link that points at a domain
+ * needs these; one that points at an IP can leave them empty.
+ */
+server_ips: Array<string>, 
+/**
+ * Client side: an unprivileged ping socket instead of a raw one. Only
+ * Linux and Darwin have those (`golang.org/x/net/icmp`); a Windows client
+ * has to stay raw, which means running elevated. The server ignores it.
+ */
+dgram: boolean, };
 
 /**
  * XMC knobs. `hostname` and `password` are operator-facing; the keypair is

@@ -417,6 +417,14 @@ fn finalmask_share_link_param(fm: &FinalMask) -> Option<(String, String)> {
         // this password (`XMC.Build` → `DeriveRSAKey`), which is the same
         // function that produced the server's copy — so both ends land on the
         // same key without the private half ever crossing the wire.
+        // XICMP ships the CLIENT half only. In xray's conf `ips` is the list
+        // the client pings, i.e. `server_ips`; the server's allowlist of
+        // client addresses never leaves the panel — read as a ping list it
+        // would point every client at the others.
+        FinalMask::Xicmp(p) => serde_json::json!({
+            "dgram": p.dgram,
+            "ips":   p.client_ips(),
+        }),
         FinalMask::Xmc(p) => serde_json::json!({
             "hostname": p.hostname,
             "password": p.password,
@@ -429,7 +437,8 @@ fn finalmask_share_link_param(fm: &FinalMask) -> Option<(String, String)> {
         }),
     };
     let layer = serde_json::json!({ "type": fm.kind(), "settings": settings });
-    // Sudoku applies to both sockets; Fragment is TCP-only; Noise is UDP-only.
+    // Sudoku applies to both sockets; Fragment is TCP-only; Noise and XICMP
+    // are UDP-only.
     // Empty arrays for the other side keep the JSON shape stable so the
     // client-side parser doesn't choke on a missing key.
     let body = match fm {
@@ -442,7 +451,7 @@ fn finalmask_share_link_param(fm: &FinalMask) -> Option<(String, String)> {
         FinalMask::Fragment(_) | FinalMask::Xmc(_) => {
             serde_json::json!({ "tcp": [layer], "udp": [] })
         }
-        FinalMask::Noise(_) | FinalMask::Salamander(_) => {
+        FinalMask::Noise(_) | FinalMask::Salamander(_) | FinalMask::Xicmp(_) => {
             serde_json::json!({ "tcp": [], "udp": [layer] })
         }
         FinalMask::None => unreachable!("filtered by is_active above"),
@@ -1099,6 +1108,33 @@ mod tests {
         // Non-salamander masks stay xray-specific → `fm=`, no `obfs=`.
         assert!(link.contains("fm="), "got: {link}");
         assert!(!link.contains("obfs=salamander"), "got: {link}");
+    }
+
+    /// The share link describes the client, and for XICMP the client's `ips`
+    /// is the list it PINGS. The server's allowlist of client addresses must
+    /// never reach it: read as a ping list it would aim every client at the
+    /// others, and it would hand out who is allowed in to anyone with a link.
+    #[test]
+    fn hysteria2_xicmp_ships_only_the_client_half() {
+        use crate::transports::finalmask::XicmpParams;
+        let mut inb = hy_inbound(tls_with_sni("hy.example.com"));
+        inb.finalmask = FinalMask::Xicmp(XicmpParams {
+            allowed_client_ips: vec!["198.51.100.7".to_owned()],
+            server_ips: vec![" 203.0.113.9 ".to_owned()],
+            dgram: true,
+        });
+        let link = build_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
+        assert!(
+            !link.contains("198.51.100.7"),
+            "server allowlist leaked: {link}"
+        );
+
+        let fm = extract_fm(&link);
+        assert_eq!(fm["tcp"], serde_json::json!([]));
+        let layer = &fm["udp"][0];
+        assert_eq!(layer["type"], "xicmp");
+        assert_eq!(layer["settings"]["ips"], serde_json::json!(["203.0.113.9"]));
+        assert_eq!(layer["settings"]["dgram"], true);
     }
 
     /// `mport=` went with the server-side hopping that fed it. xray v26.9.9

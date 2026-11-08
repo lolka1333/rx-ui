@@ -221,6 +221,9 @@ export const OUTBOUND_DEFAULTS: OutboundFormValues = {
   finalmask_xmc_password: INB_DEFAULTS.finalmask_xmc_password,
   // Cloned for the same reason as the noise items above.
   finalmask_xmc_profiles: INB_DEFAULTS.finalmask_xmc_profiles.map((p) => ({ ...p })),
+  finalmask_xicmp_allowed_client_ips: [...INB_DEFAULTS.finalmask_xicmp_allowed_client_ips],
+  finalmask_xicmp_server_ips: [...INB_DEFAULTS.finalmask_xicmp_server_ips],
+  finalmask_xicmp_dgram: INB_DEFAULTS.finalmask_xicmp_dgram,
 };
 
 /** The XHTTP knobs the outbound form does NOT expose — the tuning/sizing

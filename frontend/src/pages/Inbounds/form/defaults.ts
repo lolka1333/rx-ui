@@ -187,6 +187,9 @@ export const DEFAULTS: FormValues = {
   finalmask_xmc_profiles: [
     { username: '', uuid: '', textures_value: '', textures_signature: '' },
   ],
+  finalmask_xicmp_allowed_client_ips: [],
+  finalmask_xicmp_server_ips: [],
+  finalmask_xicmp_dgram: false,
   // Sockopt off by default — empty trusted list + null keepalive + no
   // mptcp means `buildSockopt` returns an all-empty SocketOpt, the
   // backend's `is_active` skips it, and xray gets no sockopt block.

@@ -334,6 +334,12 @@ function applyFinalMask(out: Partial<OutboundFormValues>, fmRaw: string): void {
     out.finalmask_xmc_profiles = profiles.length
       ? profiles
       : [{ username: '', uuid: '', textures_value: '', textures_signature: '' }];
+  } else if (item.type === 'xicmp') {
+    // A link only ever carries the client half: `ips` is what to ping. It is
+    // never an allowlist, so it must not land in the server-side field.
+    out.finalmask_kind = 'xicmp';
+    out.finalmask_xicmp_server_ips = arr('ips').filter((x): x is string => typeof x === 'string');
+    out.finalmask_xicmp_dgram = st.dgram === true;
   }
 }
 

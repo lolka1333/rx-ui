@@ -761,6 +761,7 @@ export const OutboundForm = memo(function OutboundForm({
           // 'tcp' for it.
           transport={isHysteria ? 'hysteria' : (network ?? 'tcp')}
           security={security ?? 'none'}
+          side="outbound"
         />
       </Section>
 

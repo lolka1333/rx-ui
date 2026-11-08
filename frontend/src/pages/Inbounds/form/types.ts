@@ -293,6 +293,13 @@ export interface FormValues {
   finalmask_xmc_hostname: string;
   finalmask_xmc_password: string;
   finalmask_xmc_profiles: XmcProfile[];
+  // xicmp — the UDP transport carried in ICMP Echo. Two address lists because
+  // xray reads one `IPs` field on both ends and means opposite things by it:
+  // the server lets in only these client addresses, the client pings these
+  // server addresses. Only the second ever reaches a share link.
+  finalmask_xicmp_allowed_client_ips: string[];
+  finalmask_xicmp_server_ips: string[];
+  finalmask_xicmp_dgram: boolean;
   sniffing_enabled: boolean;
   sniffing_dest_override: string[];
   // routeOnly — use the sniffed domain for routing only, without
