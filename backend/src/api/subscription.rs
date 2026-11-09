@@ -56,48 +56,176 @@ pub fn generate_token() -> String {
     hex_lower(&os_random_bytes::<16>())
 }
 
-/// Generate a `sub_token` verified not to collide with any existing row, on a
-/// connection of its own.
-pub async fn generate_unique_token(db: &SqlitePool) -> AppResult<String> {
-    let mut conn = db.acquire().await?;
-    generate_unique_token_on(&mut conn).await
-}
-
-/// Same, on a connection the caller already holds — the form a transaction
-/// takes. Pulling a second connection out of the pool while a write tx is open
-/// competes with that same small pool for no reason, and under concurrent
-/// writers it waits out the acquire timeout instead of proceeding on the
-/// connection already in hand.
+/// Generate a `sub_token` nobody has, on a connection the caller already holds
+/// — every caller is inside a write transaction, and pulling a second
+/// connection out of the pool while it is open competes with that same small
+/// pool for no reason.
 ///
-/// The pre-check exists because `sub_token` carries a UNIQUE index: a
-/// one-in-2^128 collision would otherwise surface as the INSERT's
-/// unique-violation mapper firing with its `(email, inbound_id)` message —
-/// the wrong sentence entirely. Three attempts is far more than statistically
-/// necessary; if it ever runs out, the DB is in trouble and `Internal` is the
-/// right outcome.
+/// A token is one email's: every row of that email shares it (migration 0054),
+/// so it repeats inside `clients` by design. What it must never be is another
+/// email's, or one an email used to have (`sub_token_aliases`) — either would
+/// hand one user's subscription to someone else. The pre-check covers both
+/// tables. Three attempts is far more than a 128-bit space needs; if it ever
+/// runs out, the DB is in trouble and `Internal` is the right outcome.
 ///
-/// Every client INSERT must call this and bind the result. The column's
-/// `DEFAULT ''` is an artifact of the `ALTER TABLE ... NOT NULL` that added it
-/// (migration 0022) and is not a usable value: it is unique like any other, so
-/// the first row that omits a token takes `''` and gets a subscription URL that
-/// resolves to nothing, and the second one fails the index.
+/// A client INSERT does not call this directly: it binds
+/// [`token_for_email_on`], which falls back to it for an email that has no
+/// token yet.
 pub async fn generate_unique_token_on(conn: &mut sqlx::SqliteConnection) -> AppResult<String> {
     for _ in 0..3 {
         let candidate = generate_token();
-        let exists = sqlx::query_scalar!(
+        let in_clients = sqlx::query_scalar!(
             "SELECT 1 AS \"exists!: i64\" FROM clients WHERE sub_token = ?",
             candidate
         )
         .fetch_optional(&mut *conn)
         .await?
         .is_some();
-        if !exists {
+        if in_clients {
+            continue;
+        }
+        let retired: Option<i64> =
+            sqlx::query_scalar("SELECT 1 FROM sub_token_aliases WHERE token = ?")
+                .bind(&candidate)
+                .fetch_optional(&mut *conn)
+                .await?;
+        if retired.is_none() {
             return Ok(candidate);
         }
     }
     Err(AppError::Internal(anyhow::anyhow!(
         "could not generate a unique sub_token after 3 attempts"
     )))
+}
+
+/// The subscription token for `email`: the one its rows already share, or a
+/// fresh one for an email with no rows yet. Every client INSERT binds this —
+/// that is what keeps a user on one URL however many inbounds they are added
+/// to or removed from.
+///
+/// Oldest row first, the same pick migration 0054 unified on, so an email is
+/// always read the same way. `''` is the column default from migration 0022,
+/// not a token: an INSERT that omitted one would have a URL that resolves to
+/// nothing, so it is skipped rather than inherited.
+pub async fn token_for_email_on(
+    conn: &mut sqlx::SqliteConnection,
+    email: &str,
+) -> AppResult<String> {
+    let current: Option<String> = sqlx::query_scalar(
+        "SELECT sub_token FROM clients WHERE email = ? AND sub_token <> '' \
+         ORDER BY created_at ASC, id ASC LIMIT 1",
+    )
+    .bind(email)
+    .fetch_optional(&mut *conn)
+    .await?;
+    match current {
+        Some(token) => Ok(token),
+        None => generate_unique_token_on(conn).await,
+    }
+}
+
+/// Give `email` a new token on every one of its rows and forget the tokens it
+/// had before, its retired ones included. The URL an operator resets because it
+/// leaked may be any of those, so all of them stop resolving together, the
+/// moment the caller's transaction commits. Returns the new token.
+pub async fn rotate_token_for_email_on(
+    conn: &mut sqlx::SqliteConnection,
+    email: &str,
+) -> AppResult<String> {
+    let token = generate_unique_token_on(conn).await?;
+    sqlx::query("UPDATE clients SET sub_token = ?, updated_at = datetime('now') WHERE email = ?")
+        .bind(&token)
+        .bind(email)
+        .execute(&mut *conn)
+        .await?;
+    sqlx::query("DELETE FROM sub_token_aliases WHERE email = ?")
+        .bind(email)
+        .execute(&mut *conn)
+        .await?;
+    Ok(token)
+}
+
+/// Keep one URL per user when a single row is moved to another email — the
+/// per-row PATCH can do that. Call it before the row's email is rewritten, in
+/// the same transaction.
+///
+/// * The row was its user's last and nobody has the new email yet: the user
+///   was renamed. The row keeps its token and the retired ones follow it, so
+///   every URL the user was given keeps working.
+/// * Otherwise the row joins the new email: it takes that email's token, or a
+///   fresh one if the email is new. Keeping its old token would leave two users
+///   on one URL, and the subscription endpoint would serve whichever row it
+///   found first. If the row was its old user's last, that user is gone, and so
+///   are their retired URLs — left behind, they would open the subscription of
+///   whoever is created under that email next.
+pub async fn follow_email_change_on(
+    conn: &mut sqlx::SqliteConnection,
+    id: &str,
+    new_email: &str,
+) -> AppResult<()> {
+    let old_email: Option<String> = sqlx::query_scalar("SELECT email FROM clients WHERE id = ?")
+        .bind(id)
+        .fetch_optional(&mut *conn)
+        .await?;
+    // A row that is gone makes the caller's UPDATE a no-op; nothing to follow.
+    let Some(old_email) = old_email.filter(|old| old != new_email) else {
+        return Ok(());
+    };
+    let old_keeps_rows =
+        sqlx::query_scalar::<_, i64>("SELECT 1 FROM clients WHERE email = ? AND id <> ? LIMIT 1")
+            .bind(&old_email)
+            .bind(id)
+            .fetch_optional(&mut *conn)
+            .await?
+            .is_some();
+    let new_has_rows =
+        sqlx::query_scalar::<_, i64>("SELECT 1 FROM clients WHERE email = ? LIMIT 1")
+            .bind(new_email)
+            .fetch_optional(&mut *conn)
+            .await?
+            .is_some();
+
+    if !old_keeps_rows && !new_has_rows {
+        sqlx::query("UPDATE sub_token_aliases SET email = ? WHERE email = ?")
+            .bind(new_email)
+            .bind(&old_email)
+            .execute(&mut *conn)
+            .await?;
+        return Ok(());
+    }
+    let token = token_for_email_on(conn, new_email).await?;
+    sqlx::query("UPDATE clients SET sub_token = ? WHERE id = ?")
+        .bind(&token)
+        .bind(id)
+        .execute(&mut *conn)
+        .await?;
+    if !old_keeps_rows {
+        sqlx::query("DELETE FROM sub_token_aliases WHERE email = ?")
+            .bind(&old_email)
+            .execute(&mut *conn)
+            .await?;
+    }
+    Ok(())
+}
+
+/// The email a subscription token belongs to: the one whose rows carry it now,
+/// or failing that the one it was retired from. `sub_token_aliases` holds the
+/// per-attachment tokens from before they were unified (migration 0054); any of
+/// them may be in a user's app, and they keep working as long as the email has
+/// a row.
+pub async fn owner_of_token(db: &SqlitePool, token: &str) -> AppResult<Option<String>> {
+    if let Some(row) = sqlx::query!("SELECT email FROM clients WHERE sub_token = ?", token)
+        .fetch_optional(db)
+        .await?
+    {
+        return Ok(Some(row.email));
+    }
+    let retired: Option<String> =
+        sqlx::query_scalar("SELECT email FROM sub_token_aliases WHERE token = ?")
+            .bind(token)
+            .fetch_optional(db)
+            .await?;
+    Ok(retired)
 }
 
 /// Root-level router. Mounted at `/sub` (not `/api/sub`) so subscription
@@ -161,10 +289,7 @@ async fn subscription(
     // Resolve the token to a client row. 404 is intentional — we want
     // an attacker probing random tokens to see the same "no such URL"
     // response a typo would produce, not a "valid format but not found".
-    let owner = sqlx::query!("SELECT email FROM clients WHERE sub_token = ?", token)
-        .fetch_optional(&state.db)
-        .await?;
-    let Some(owner) = owner else {
+    let Some(owner_email) = owner_of_token(&state.db, &token).await? else {
         return Ok(StatusCode::NOT_FOUND.into_response());
     };
 
@@ -178,7 +303,7 @@ async fn subscription(
            FROM clients
            WHERE email = ?
            ORDER BY inbound_id, created_at"#,
-        owner.email,
+        owner_email,
     )
     .fetch_all(&state.db)
     .await?;
@@ -232,7 +357,7 @@ async fn subscription(
     };
     let bundle = build_bundle(&rows, &inbounds, &host);
     let mut headers = build_response_headers(
-        &owner.email,
+        &owner_email,
         &token,
         &bundle,
         subscription_cfg.update_interval,
@@ -596,5 +721,289 @@ mod token_tests {
             "{t}"
         );
         assert_ne!(t, super::generate_token(), "tokens must not repeat");
+    }
+}
+
+/// One subscription URL per user (migration 0054): the token is shared by
+/// every attachment of an email, the URLs handed out before that keep working
+/// for as long as the user exists, and a reset revokes all of them.
+#[cfg(test)]
+mod shared_token_tests {
+    use super::{owner_of_token, rotate_token_for_email_on, token_for_email_on};
+    use sqlx::SqlitePool;
+
+    /// The last migration before tokens were shared.
+    const BEFORE_SHARED_TOKENS: i64 = 53;
+
+    async fn pool() -> SqlitePool {
+        // One connection: each `sqlite::memory:` connection is its own DB.
+        sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("connect in-memory sqlite")
+    }
+
+    async fn add_inbound(pool: &SqlitePool, id: &str, port: i64) {
+        sqlx::query("INSERT INTO inbounds (id, tag, port, protocol_config) VALUES (?, ?, ?, ?)")
+            .bind(id)
+            .bind(id)
+            .bind(port)
+            .bind(r#"{"kind":"vless"}"#)
+            .execute(pool)
+            .await
+            .expect("insert inbound");
+    }
+
+    async fn add_client(
+        pool: &SqlitePool,
+        id: &str,
+        inbound: &str,
+        email: &str,
+        token: &str,
+        at: &str,
+    ) {
+        sqlx::query(
+            "INSERT INTO clients (id, inbound_id, email, uuid, sub_token, created_at) \
+             VALUES (?, ?, ?, 'u', ?, ?)",
+        )
+        .bind(id)
+        .bind(inbound)
+        .bind(email)
+        .bind(token)
+        .bind(at)
+        .execute(pool)
+        .await
+        .expect("insert client");
+    }
+
+    async fn tokens_of(pool: &SqlitePool, email: &str) -> Vec<String> {
+        sqlx::query_scalar("SELECT sub_token FROM clients WHERE email = ? ORDER BY created_at")
+            .bind(email)
+            .fetch_all(pool)
+            .await
+            .expect("select tokens")
+    }
+
+    async fn owner(pool: &SqlitePool, token: &str) -> Option<String> {
+        owner_of_token(pool, token).await.expect("resolve token")
+    }
+
+    /// A database as the panel left it before 0054: alice in three inbounds
+    /// with a token per attachment (the newest is the one the panel showed),
+    /// bob in one. Then the migration runs.
+    async fn legacy_then_migrated() -> SqlitePool {
+        let pool = pool().await;
+        let migrator = sqlx::migrate!("./migrations");
+        migrator
+            .run_to(BEFORE_SHARED_TOKENS, &pool)
+            .await
+            .expect("migrate to the per-row token schema");
+        for (id, port) in [("A", 1001), ("B", 1002), ("C", 1003)] {
+            add_inbound(&pool, id, port).await;
+        }
+        add_client(&pool, "a1", "A", "alice", "tok-a1", "2026-01-01 00:00:00").await;
+        add_client(&pool, "a2", "B", "alice", "tok-a2", "2026-02-01 00:00:00").await;
+        add_client(&pool, "a3", "C", "alice", "tok-a3", "2026-03-01 00:00:00").await;
+        add_client(&pool, "b1", "A", "bob", "tok-b1", "2026-01-05 00:00:00").await;
+        migrator.run(&pool).await.expect("apply 0054");
+        pool
+    }
+
+    #[tokio::test]
+    async fn migration_unifies_each_user_on_the_oldest_token_and_keeps_the_rest() {
+        let pool = legacy_then_migrated().await;
+        assert_eq!(
+            tokens_of(&pool, "alice").await,
+            ["tok-a1"; 3],
+            "one token per user"
+        );
+        assert_eq!(
+            tokens_of(&pool, "bob").await,
+            ["tok-b1"],
+            "a single row is left alone"
+        );
+        // Every URL ever shown still opens the same user's subscription.
+        for token in ["tok-a1", "tok-a2", "tok-a3"] {
+            assert_eq!(
+                owner(&pool, token).await.as_deref(),
+                Some("alice"),
+                "{token}"
+            );
+        }
+        assert_eq!(owner(&pool, "tok-b1").await.as_deref(), Some("bob"));
+        assert_eq!(owner(&pool, "never-issued").await, None);
+    }
+
+    #[tokio::test]
+    async fn retired_urls_last_exactly_as_long_as_the_user() {
+        let pool = legacy_then_migrated().await;
+        // Removing an attachment, even the one whose token survived, is not
+        // removing the user: every URL keeps working.
+        sqlx::query("DELETE FROM clients WHERE id = 'a1'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        for token in ["tok-a1", "tok-a2", "tok-a3"] {
+            assert_eq!(
+                owner(&pool, token).await.as_deref(),
+                Some("alice"),
+                "{token}"
+            );
+        }
+        // Her last rows go by cascade with their inbounds: now she is gone,
+        // and so are her retired URLs. bob, in A, is untouched.
+        sqlx::query("DELETE FROM inbounds WHERE id IN ('B', 'C')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        for token in ["tok-a1", "tok-a2", "tok-a3"] {
+            assert_eq!(
+                owner(&pool, token).await,
+                None,
+                "{token} must die with alice"
+            );
+        }
+        assert_eq!(owner(&pool, "tok-b1").await.as_deref(), Some("bob"));
+
+        // A new alice is a new user: a fresh URL, none of the old ones.
+        let mut conn = pool.acquire().await.unwrap();
+        let fresh = token_for_email_on(&mut conn, "alice").await.unwrap();
+        drop(conn);
+        assert!(!fresh.starts_with("tok-"), "{fresh}");
+    }
+
+    #[tokio::test]
+    async fn new_attachments_inherit_the_url_and_a_reset_replaces_it_everywhere() {
+        let pool = pool().await;
+        sqlx::migrate!("./migrations")
+            .run(&pool)
+            .await
+            .expect("migrate");
+        for (id, port) in [("A", 1001), ("B", 1002), ("D", 1004)] {
+            add_inbound(&pool, id, port).await;
+        }
+
+        // carol's first attachment mints; her second inherits it.
+        let mut conn = pool.acquire().await.unwrap();
+        let first = token_for_email_on(&mut conn, "carol").await.unwrap();
+        drop(conn);
+        add_client(&pool, "c1", "A", "carol", &first, "2026-01-01 00:00:00").await;
+        let mut conn = pool.acquire().await.unwrap();
+        let second = token_for_email_on(&mut conn, "carol").await.unwrap();
+        drop(conn);
+        assert_eq!(second, first, "adding an inbound must not change the URL");
+        add_client(&pool, "c2", "B", "carol", &second, "2026-02-01 00:00:00").await;
+        add_client(&pool, "d1", "D", "dave", "tok-dave", "2026-01-01 00:00:00").await;
+        sqlx::query(
+            "INSERT INTO sub_token_aliases (token, email) VALUES ('tok-carol-old', 'carol')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // A reset revokes every URL carol ever had, on every attachment.
+        let mut conn = pool.acquire().await.unwrap();
+        let rotated = rotate_token_for_email_on(&mut conn, "carol").await.unwrap();
+        drop(conn);
+        assert_ne!(rotated, first);
+        assert_eq!(
+            tokens_of(&pool, "carol").await,
+            [rotated.clone(), rotated.clone()]
+        );
+        assert_eq!(owner(&pool, &rotated).await.as_deref(), Some("carol"));
+        assert_eq!(
+            owner(&pool, &first).await,
+            None,
+            "the old URL must stop working"
+        );
+        assert_eq!(
+            owner(&pool, "tok-carol-old").await,
+            None,
+            "so must a retired one"
+        );
+        // Nobody else's URL moves.
+        assert_eq!(tokens_of(&pool, "dave").await, ["tok-dave"]);
+    }
+
+    /// A row moved to another email through the per-row PATCH, the way
+    /// `write_client_update_tx` does it: follow, then rewrite the email.
+    async fn move_row(pool: &SqlitePool, id: &str, email: &str) {
+        let mut tx = pool.begin().await.unwrap();
+        super::follow_email_change_on(&mut tx, id, email)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE clients SET email = ? WHERE id = ?")
+            .bind(email)
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_row_that_changes_email_never_shares_a_url_with_another_user() {
+        // alice: a1 (A), a2 (B), a3 (C) on tok-a1, with tok-a2/tok-a3 retired.
+        // bob: b1 (A) on tok-b1.
+        let pool = legacy_then_migrated().await;
+
+        // Same email: nothing moves.
+        move_row(&pool, "a1", "alice").await;
+        assert_eq!(tokens_of(&pool, "alice").await, ["tok-a1"; 3]);
+
+        // Split one attachment off alice into a new user: it gets its own URL,
+        // and alice keeps hers, retired ones included.
+        move_row(&pool, "a3", "carol").await;
+        let carol = tokens_of(&pool, "carol").await;
+        assert_eq!(carol.len(), 1);
+        assert!(
+            !carol[0].starts_with("tok-"),
+            "a split-off row must not keep alice's URL"
+        );
+        assert_eq!(owner(&pool, &carol[0]).await.as_deref(), Some("carol"));
+        assert_eq!(tokens_of(&pool, "alice").await, ["tok-a1"; 2]);
+        for token in ["tok-a1", "tok-a2", "tok-a3"] {
+            assert_eq!(
+                owner(&pool, token).await.as_deref(),
+                Some("alice"),
+                "{token}"
+            );
+        }
+
+        // Move a row into an existing user (a2 in B, bob only in A): it takes
+        // that user's URL.
+        move_row(&pool, "a2", "bob").await;
+        assert_eq!(tokens_of(&pool, "bob").await, ["tok-b1", "tok-b1"]);
+        assert_eq!(owner(&pool, "tok-a1").await.as_deref(), Some("alice"));
+
+        // alice's last row (a1 in A) into carol (only in C): alice is gone,
+        // and so is every URL she had — none of them may open carol's.
+        move_row(&pool, "a1", "carol").await;
+        assert_eq!(
+            tokens_of(&pool, "carol").await,
+            [carol[0].clone(), carol[0].clone()]
+        );
+        for token in ["tok-a1", "tok-a2", "tok-a3"] {
+            assert_eq!(
+                owner(&pool, token).await,
+                None,
+                "{token} must die with alice"
+            );
+        }
+
+        // A whole user renamed (their only row, to an unused email): the URL
+        // and the retired ones go with them.
+        add_inbound(&pool, "D", 1004).await;
+        add_client(&pool, "e1", "D", "erin", "tok-e1", "2026-04-01 00:00:00").await;
+        sqlx::query("INSERT INTO sub_token_aliases (token, email) VALUES ('tok-erin-old', 'erin')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        move_row(&pool, "e1", "fay").await;
+        assert_eq!(tokens_of(&pool, "fay").await, ["tok-e1"]);
+        assert_eq!(owner(&pool, "tok-e1").await.as_deref(), Some("fay"));
+        assert_eq!(owner(&pool, "tok-erin-old").await.as_deref(), Some("fay"));
+        assert_eq!(tokens_of(&pool, "erin").await, Vec::<String>::new());
     }
 }

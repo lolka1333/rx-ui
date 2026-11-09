@@ -62,11 +62,13 @@ pub struct Client {
     /// `disabled_reason = "expired"` and tells xray to drop the user;
     /// clearing or extending it re-enables the row.
     pub expires_at: Option<String>,
-    /// Per-row subscription token. The public `GET /sub/{token}` endpoint
-    /// resolves it to the client, then aggregates every share-link for
-    /// rows with the same `email` across all inbounds — that's how one
-    /// URL maps to "all my configs" in v2rayN / Hiddify / sing-box.
-    /// 32 lowercase hex chars (16 random bytes). Rotated via
+    /// Subscription token, one per user: every row with the same `email`
+    /// carries the same value, so adding or removing an inbound never
+    /// changes the user's URL. The public `GET /sub/{token}` endpoint
+    /// resolves it to that email, then aggregates every share-link for its
+    /// rows across all inbounds — that's how one URL maps to "all my
+    /// configs" in v2rayN / Hiddify / sing-box. 32 lowercase hex chars
+    /// (16 random bytes). Rotated for the whole email via
     /// `POST /api/clients/{id}/rotate-sub-token`.
     pub sub_token: String,
     /// The peer's private key on a `WireGuard` inbound. `None` for every other

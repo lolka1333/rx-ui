@@ -457,8 +457,8 @@ export function Clients() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Client | null>(null);
   // Share modal state. `group` is the whole email-aggregate so the
-  // Subscription tab can use any row's sub_token (all resolve to the
-  // same bundle), and the Share-link tab can offer a Select to switch
+  // Subscription tab can use any row's sub_token (every row of an email
+  // carries the same one), and the Share-link tab can offer a Select to switch
   // between the per-inbound vless:// / hysteria2:// URLs without
   // closing the modal. `currentClientId` tracks which row's share-link
   // is currently rendered — refetching on change.
@@ -914,11 +914,15 @@ export function Clients() {
       (await apiClient.post<Client>(`/clients/${clientId}/rotate-sub-token`)).data,
     onSuccess: (updated) => {
       qc.invalidateQueries({ queryKey: ['clients-global'] });
-      // Patch the open group's row in place so the QR re-renders with
-      // the new token without waiting for the cache refetch.
+      // Patch the open group in place so the QR re-renders with the new
+      // token without waiting for the cache refetch. The token is the
+      // email's — the backend replaced it on every attachment — so every
+      // row of the group takes it, not just the one the call named.
       setShareOpen((cur) => {
         if (!cur) return cur;
-        const rows = cur.group.rows.map((r) => (r.id === updated.id ? updated : r));
+        const rows = cur.group.rows.map((r) =>
+          r.id === updated.id ? updated : { ...r, sub_token: updated.sub_token },
+        );
         return { ...cur, group: { ...cur.group, rows } };
       });
       message.success(t('clients.subRotated'));

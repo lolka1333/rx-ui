@@ -371,11 +371,11 @@ async fn resolve_shared_credentials(
     })
 }
 
-/// Apply the set math under one transaction. For UPDATE we keep the
-/// existing `sub_token` (rotating it on every save would silently break
-/// installed subscription URLs); INSERT mints a fresh one. Returns
-/// `(inbound_id, was_update)` so the caller's gRPC sync knows whether
-/// to issue a remove-then-add (UPDATE) or just an add (INSERT).
+/// Apply the set math under one transaction. The subscription token is the
+/// email's, not the row's: UPDATE leaves it alone and INSERT takes the one the
+/// email already has, so adding or removing inbounds never changes the URL the
+/// user was given. Returns `(inbound_id, was_update)` so the caller's gRPC sync
+/// knows whether to issue a remove-then-add (UPDATE) or just an add (INSERT).
 async fn commit_bulk_assign_tx(
     state: &AppState,
     body: &ClientBulkAssign,
@@ -393,6 +393,10 @@ async fn commit_bulk_assign_tx(
     // VLESS Reverse Proxy portal tag — normalised + validated (empty → NULL ≡
     // not a portal). Shared with create/patch so a stored tag is always valid.
     let reverse_tag = normalize_reverse_tag(state, body.reverse_tag.as_deref()).await?;
+    // Read once, before any row of the email is deleted below: when every
+    // existing attachment is swapped for new ones, the new rows still have to
+    // carry the token the user already has.
+    let sub_token = crate::api::subscription::token_for_email_on(&mut tx, email).await?;
     for inbound_id in target {
         // Stamp the shared hysteria auth onto EVERY row of this email,
         // vless included. The auth is per-email identity, so it has to
@@ -433,7 +437,6 @@ async fn commit_bulk_assign_tx(
             applied.push((inbound_id.clone(), true));
         } else {
             let new_id = Uuid::new_v4().to_string();
-            let sub_token = crate::api::subscription::generate_unique_token_on(&mut tx).await?;
             // Per attachment, not per email: each WireGuard inbound hands out
             // addresses from its own subnet, and the address is the peer's
             // identity there.
@@ -640,23 +643,25 @@ async fn sync_xray_applied(
 }
 
 /// Replace the client's subscription token with a freshly-rolled value
-/// and return the updated row. The previous URL stops resolving the
-/// moment the UPDATE commits, so this doubles as a revocation primitive
-/// when an operator suspects a URL has leaked.
+/// and return the updated row. The token belongs to the email, so it is
+/// replaced on every attachment at once and the email's retired tokens go
+/// with it — the URL that leaked may be any of them. Every previous URL
+/// stops resolving the moment the transaction commits, which is what makes
+/// this a revocation primitive.
 async fn rotate_sub_token(
     _user: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> AppResult<Json<Client>> {
     let inbound_id = inbound_id_for_client(&state, &id).await?;
-    let token = crate::api::subscription::generate_unique_token(&state.db).await?;
-    sqlx::query!(
-        "UPDATE clients SET sub_token = ?, updated_at = datetime('now') WHERE id = ?",
-        token,
-        id,
-    )
-    .execute(&state.db)
-    .await?;
+    let mut tx = state.db.begin().await?;
+    let email: String = sqlx::query_scalar("SELECT email FROM clients WHERE id = ?")
+        .bind(&id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    crate::api::subscription::rotate_token_for_email_on(&mut tx, &email).await?;
+    tx.commit().await?;
     let row = read_row(&state, &inbound_id, &id).await?;
     Ok(Json(row_to_client(row)))
 }
@@ -1185,10 +1190,6 @@ async fn create(
 
     let reverse_tag = normalize_reverse_tag(&state, body.reverse_tag.as_deref()).await?;
     let id = Uuid::new_v4().to_string();
-    // Unique-checked token, matching bulk_assign / rotate_sub_token — a plain
-    // random token could (astronomically) collide with the sub_token UNIQUE
-    // index and surface as the misleading "email already exists" error below.
-    let sub_token = crate::api::subscription::generate_unique_token(&state.db).await?;
     let expires_at = normalize_expiry(body.expires_at.clone())?;
     // Seed the lifetime counters from the email's current total (xray accounts
     // per email, so every attachment shares one usage figure) — otherwise a new
@@ -1202,6 +1203,9 @@ async fn create(
     // half-applied. This is what makes a later per-inbound delete lossless even
     // for an email whose first hysteria attachment is created through this path.
     let mut tx = state.db.begin().await?;
+    // The email's token, as bulk-assign takes it: one subscription URL per
+    // user, whichever path adds the attachment.
+    let sub_token = crate::api::subscription::token_for_email_on(&mut tx, &email).await?;
     let wg = wireguard_peer_for(&mut tx, &inbound.id, &inbound.tag, &inbound.protocol).await?;
     sqlx::query!(
         r#"INSERT INTO clients (id, inbound_id, email, uuid, auth, flow, reverse_tag, enabled, note,
@@ -1309,6 +1313,10 @@ async fn write_client_update_tx(state: &AppState, id: &str, body: &ClientUpdate)
         // Trimmed for the same reason as create/bulk_assign: this column is the
         // identity other rows and xray's stats are matched on.
         let email = raw_email.trim();
+        // The subscription token is the email's, so a row that changes email
+        // has to change token with it — before the rewrite, while the row can
+        // still be told apart from the user it is leaving.
+        crate::api::subscription::follow_email_change_on(&mut tx, id, email).await?;
         sqlx::query!(
             "UPDATE clients SET email = ?, updated_at = datetime('now') WHERE id = ?",
             email,
