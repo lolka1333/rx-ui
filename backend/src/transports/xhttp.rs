@@ -489,6 +489,20 @@ mod tests {
         assert_eq!(v["PingTimeout"], 10_000_000_000_i64);
     }
 
+    /// The presets are pretty-printed, and an operator may well paste a
+    /// formatted document too. Whitespace is JSON's business; what reaches
+    /// xray is the same compact object either way.
+    #[test]
+    fn pretty_printed_json_is_accepted_and_sent_compact() {
+        let raw = "{\n  \"SendPingTimeout\": \"30s\",\n  \"WriteByteTimeout\": \"30s\"\n}";
+        let bytes = with_h2(raw).build_h2_params().expect("accepted");
+        let text = String::from_utf8(bytes).expect("utf-8");
+        assert!(!text.contains('\n') && !text.contains(' '), "{text}");
+        let v: serde_json::Value = serde_json::from_str(&text).expect("JSON");
+        assert_eq!(v["SendPingTimeout"], 30_000_000_000_i64);
+        assert_eq!(v["WriteByteTimeout"], 30_000_000_000_i64);
+    }
+
     #[test]
     fn every_unit_scales() {
         for (text, nanos) in [

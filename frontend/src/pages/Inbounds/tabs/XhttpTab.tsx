@@ -45,24 +45,49 @@ const SESSION_ID_TABLE_OPTIONS = [
 // spare the operator from remembering Go struct field names and the fact that
 // durations have to carry a unit. Kept whole rather than per-key: the value is
 // one JSON document, so a half-typed object is never a useful suggestion.
+// Pretty-printed so they read well in the growing box; the backend compacts
+// them before they reach xray.
+//
+// The two timeouts cover opposite halves of a half-open connection. The ping
+// catches a peer that stopped SENDING (nothing read for SendPingTimeout, then
+// no answer within PingTimeout); WriteByteTimeout catches one that stopped
+// READING (nothing could be written for that long). A bridge that wedges with
+// one direction dead is caught by one or the other, so the first preset sets
+// both.
+const h2Preset = (label: string, params: Record<string, string | number>) => ({
+  value: JSON.stringify(params, null, 2),
+  label,
+});
 const H2_PARAMS_PRESETS = [
-  {
-    value: '{"SendPingTimeout":"30s","PingTimeout":"10s"}',
-    label: 'Liveness ping - 30s idle, give up after 10s',
-  },
-  {
-    value: '{"SendPingTimeout":"15s","PingTimeout":"5s"}',
-    label: 'Liveness ping - 15s idle, give up after 5s',
-  },
-  {
-    value: '{"MaxReceiveBufferPerStream":4194304,"MaxReceiveBufferPerConnection":8388608}',
-    label: 'Receive windows - 4 MB per stream, 8 MB per connection',
-  },
-  {
-    value:
-      '{"SendPingTimeout":"30s","PingTimeout":"10s","MaxReceiveBufferPerStream":4194304}',
-    label: 'Liveness ping plus a 4 MB stream window',
-  },
+  h2Preset('Dead peer either way - ping 30s/10s, write stall 30s', {
+    SendPingTimeout: '30s',
+    PingTimeout: '10s',
+    WriteByteTimeout: '30s',
+  }),
+  h2Preset('Liveness ping - 30s idle, give up after 10s', {
+    SendPingTimeout: '30s',
+    PingTimeout: '10s',
+  }),
+  h2Preset('Liveness ping - 15s idle, give up after 5s', {
+    SendPingTimeout: '15s',
+    PingTimeout: '5s',
+  }),
+  h2Preset('Liveness ping - 60s idle, give up after 15s', {
+    SendPingTimeout: '60s',
+    PingTimeout: '15s',
+  }),
+  h2Preset('Write stall - drop a peer that stops reading for 30s', {
+    WriteByteTimeout: '30s',
+  }),
+  h2Preset('Receive windows - 4 MB per stream, 8 MB per connection', {
+    MaxReceiveBufferPerStream: 4194304,
+    MaxReceiveBufferPerConnection: 8388608,
+  }),
+  h2Preset('Liveness ping plus a 4 MB stream window', {
+    SendPingTimeout: '30s',
+    PingTimeout: '10s',
+    MaxReceiveBufferPerStream: 4194304,
+  }),
 ];
 
 // The four placement sets are NOT interchangeable — they're separate by
@@ -401,6 +426,7 @@ function XhttpAdvanced() {
                 labelKey="inbounds.xhttpH2Params"
                 tooltipKey="inbounds.xhttpH2ParamsTip"
                 options={H2_PARAMS_PRESETS}
+                multiline
                 placeholderKey="inbounds.xhttpH2ParamsPlaceholder"
                 rules={[
                   {
