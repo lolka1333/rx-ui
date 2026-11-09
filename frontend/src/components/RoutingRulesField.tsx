@@ -2,23 +2,24 @@
 //!
 //! Renders below the "Basic connections" block as an ordered list of
 //! user rules (first-match-wins, evaluated top-to-bottom *after* the
-//! built-in api/block/ipv4 rules). Each rule is a compact surface row:
-//! a numbered spine — the list is the evaluation order, first match wins — with
-//! each rule as name + condition tags beneath, then target tag · switch · ⋮.
-//! Edits flow through the parent Xray form (value/onChange), so the
-//! page-level dirty bar + save/restart path pick the rules up for free.
+//! built-in api/block/ipv4 rules). The rows are laid out the way the inbound
+//! and outbound lists are — switch · name · what it matches · where it goes ·
+//! actions — with a numbered column after the switch, because here the order
+//! of the list is the evaluation order. Edits flow through the parent Xray
+//! form (value/onChange), so the page-level dirty bar + save/restart path pick
+//! the rules up for free.
 //!
 //! v1 scope: single `outboundTag` target (direct / blocked / direct-ipv4),
-//! the common matchers, reorder via the row menu. No balancers.
+//! the common matchers, reorder by drag or the row's arrows. No balancers.
 
 import {
   App,
   Button,
-  Dropdown,
   Form,
   Grid,
   Input,
   Modal,
+  Popconfirm,
   Popover,
   Select,
   Space,
@@ -26,9 +27,9 @@ import {
   Table,
   Tag,
   Tooltip,
+  Typography,
   theme,
 } from 'antd';
-import type { MenuProps } from 'antd';
 import {
   ArrowDownOutlined,
   ArrowUpOutlined,
@@ -36,10 +37,7 @@ import {
   DeleteOutlined,
   EditOutlined,
   FilterOutlined,
-  FlagOutlined,
   HolderOutlined,
-  LockOutlined,
-  MoreOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
 import {
@@ -755,34 +753,30 @@ export function RoutingRulesField({
     );
   };
 
-  const menuFor = (i: number): MenuProps['items'] => [
-    { key: 'edit', icon: <EditOutlined />, label: t('settings.rulesEdit') },
-    {
-      key: 'up',
-      icon: <ArrowUpOutlined />,
-      label: t('settings.rulesMoveUp'),
-      // Not across the api pin: the backend hoists it back to the front, so the
-      // move would only desync this list from what xray evaluates.
-      disabled: i === 0 || order[i - 1] === 'api',
-    },
-    {
-      key: 'down',
-      icon: <ArrowDownOutlined />,
-      label: t('settings.rulesMoveDown'),
-      disabled: i === order.length - 1,
-    },
-    { type: 'divider' },
-    { key: 'delete', icon: <DeleteOutlined />, label: t('settings.rulesDelete'), danger: true },
-  ];
-
-  const onMenuFor =
-    (id: string, i: number): MenuProps['onClick'] =>
-    ({ key }) => {
-      if (key === 'edit') openEditId(id);
-      else if (key === 'up') moveToken(i, i - 1);
-      else if (key === 'down') moveToken(i, i + 1);
-      else if (key === 'delete') deleteId(id);
-    };
+  /** The row's own up/down buttons. Drag does the same on a desktop, but a
+   *  phone has no drag, so the arrows are the one way to reorder there. */
+  const moveButtons = (i: number) => (
+    <>
+      <Button
+        type="text"
+        size="small"
+        icon={<ArrowUpOutlined />}
+        title={t('settings.rulesMoveUp')}
+        // Not across the api pin: the backend hoists it back to the front, so
+        // the move would only desync this list from what xray evaluates.
+        disabled={i === 0 || order[i - 1] === 'api'}
+        onClick={() => moveToken(i, i - 1)}
+      />
+      <Button
+        type="text"
+        size="small"
+        icon={<ArrowDownOutlined />}
+        title={t('settings.rulesMoveDown')}
+        disabled={i === order.length - 1}
+        onClick={() => moveToken(i, i + 1)}
+      />
+    </>
+  );
 
   /** One line of the evaluation order. The two kinds are read-only in
    *  different ways — a system row is edited in the settings tab that produces
@@ -845,7 +839,6 @@ export function RoutingRulesField({
           ...(draggable(r) && r.kind !== 'tail' ? rowDnd(r.i) : {}),
           className: [
             draggable(r) ? 'app-rt-row' : '',
-            r.kind === 'sys' || r.kind === 'tail' ? 'is-sys' : '',
             r.kind === 'rule' && !r.rule.enabled ? 'is-off' : '',
             r.kind !== 'tail' && dragIndex === r.i ? 'is-drag' : '',
             r.kind !== 'tail' && overIndex === r.i && dragIndex !== null && dragIndex !== r.i
@@ -857,9 +850,27 @@ export function RoutingRulesField({
         })}
         columns={[
           {
+            // First, as on the inbound and outbound lists. A system row and the
+            // tail are always on — they are switched by what produces them —
+            // so they show the same locked switch a built-in outbound does.
+            title: '',
+            key: 'enabled',
+            width: 60,
+            render: (_, r) =>
+              r.kind === 'rule' ? (
+                <Switch
+                  size="small"
+                  checked={r.rule.enabled}
+                  onChange={() => toggleId(r.rule.id)}
+                />
+              ) : (
+                <Switch size="small" checked disabled />
+              ),
+          },
+          {
             title: '№',
             key: 'ord',
-            width: 64,
+            width: 56,
             render: (_, r) =>
               r.kind === 'tail' ? null : (
                 <span className="app-rt-num">
@@ -873,27 +884,23 @@ export function RoutingRulesField({
           {
             title: t('settings.rulesColRule'),
             key: 'name',
+            // Name in bold, and a "built-in" chip on the rows the panel makes
+            // itself — the way the outbound list marks `direct` and `blocked`.
             render: (_, r) => {
-              if (r.kind === 'tail') {
-                return (
-                  <span className="app-rt-name">
-                    <FlagOutlined className="app-rt-icon" />
-                    <span className="app-rt-label">{t('settings.rulesDefaultLabel')}</span>
-                  </span>
-                );
-              }
-              if (r.kind === 'sys') {
-                return (
-                  <span className="app-rt-name">
-                    <LockOutlined className="app-rt-icon" />
-                    <span className="app-rt-label">{sysInfo[r.tok].label}</span>
-                  </span>
+              if (r.kind === 'rule') {
+                return r.rule.name ? (
+                  <Typography.Text strong>{r.rule.name}</Typography.Text>
+                ) : (
+                  <Typography.Text type="secondary">{t('settings.rulesUnnamed')}</Typography.Text>
                 );
               }
               return (
-                <span className={r.rule.name ? 'app-rt-label' : 'app-rt-label app-rt-muted'}>
-                  {r.rule.name || t('settings.rulesUnnamed')}
-                </span>
+                <Space size={6}>
+                  <Typography.Text strong>
+                    {r.kind === 'tail' ? t('settings.rulesDefaultLabel') : sysInfo[r.tok].label}
+                  </Typography.Text>
+                  <Tag color="default">{t('settings.rulesBuiltin')}</Tag>
+                </Space>
               );
             },
           },
@@ -929,7 +936,6 @@ export function RoutingRulesField({
           {
             title: t('settings.rulesColTarget'),
             key: 'target',
-            align: 'right',
             render: (_, r) => {
               const tag =
                 r.kind === 'tail' ? 'direct' : r.kind === 'sys' ? sysInfo[r.tok].target : r.rule.outbound_tag;
@@ -941,26 +947,45 @@ export function RoutingRulesField({
             },
           },
           {
-            title: '',
+            title: t('settings.rulesColActions'),
             key: 'actions',
-            width: 92,
+            width: 150,
             align: 'right',
-            render: (_, r) =>
-              r.kind !== 'rule' ? null : (
-                <span className="app-rt-tail">
-                  <Switch
+            // A system row is edited in the settings that produce it, so it
+            // only moves; the api row and the tail do not even do that.
+            render: (_, r) => {
+              if (r.kind === 'tail' || !draggable(r)) return null;
+              if (r.kind === 'sys') return <Space size={4}>{moveButtons(r.i)}</Space>;
+              return (
+                <Space size={4}>
+                  {moveButtons(r.i)}
+                  <Button
+                    type="text"
                     size="small"
-                    checked={r.rule.enabled}
-                    onChange={() => toggleId(r.rule.id)}
+                    icon={<EditOutlined />}
+                    title={t('settings.rulesEdit')}
+                    onClick={() => openEditId(r.rule.id)}
                   />
-                  <Dropdown
-                    menu={{ items: menuFor(r.i), onClick: onMenuFor(r.rule.id, r.i) }}
-                    trigger={['click']}
+                  {/* Asked like a delete on the other lists, even though it is
+                      only an unsaved edit until the dirty bar is saved. */}
+                  <Popconfirm
+                    title={t('settings.rulesDeleteConfirm')}
+                    okType="danger"
+                    okText={t('common.delete')}
+                    cancelText={t('common.cancel')}
+                    onConfirm={() => deleteId(r.rule.id)}
                   >
-                    <MoreOutlined className="app-rt-more" />
-                  </Dropdown>
-                </span>
-              ),
+                    <Button
+                      type="text"
+                      danger
+                      size="small"
+                      icon={<DeleteOutlined />}
+                      title={t('settings.rulesDelete')}
+                    />
+                  </Popconfirm>
+                </Space>
+              );
+            },
           },
         ]}
       />
