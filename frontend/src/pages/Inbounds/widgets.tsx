@@ -288,9 +288,6 @@ export function InputField({ name, labelKey, tooltipKey, last, rules, disabled }
 interface AutoCompleteFieldProps extends FieldProps {
   options: { value: string; label?: string }[];
   placeholderKey?: string;
-  /** Structured text such as JSON: a monospace box that grows with its
-   *  content instead of one line the operator has to scroll sideways. */
-  multiline?: boolean;
 }
 
 export function AutoCompleteField({
@@ -301,10 +298,8 @@ export function AutoCompleteField({
   placeholderKey,
   last,
   rules,
-  multiline,
 }: AutoCompleteFieldProps) {
   const { t } = useTranslation();
-  const placeholder = placeholderKey ? t(placeholderKey) : undefined;
   return (
     <Form.Item
       name={name}
@@ -326,19 +321,11 @@ export function AutoCompleteField({
         {/* Its own input: the one rc-select builds carries
             `autocomplete="new-password"`, which Chrome reads as a password box
             and answers with saved passwords on top of the suggestions. */}
-        {multiline ? (
-          <Input.TextArea
-            allowClear
-            autoComplete="off"
-            autoSize={{ minRows: 1, maxRows: 12 }}
-            placeholder={placeholder}
-            // `styles.textarea`, not `style`: with `allowClear` antd wraps the
-            // box, and a plain `style` lands on the wrapper instead.
-            styles={{ textarea: { fontFamily: 'var(--font-mono)' } }}
-          />
-        ) : (
-          <Input allowClear autoComplete="off" placeholder={placeholder} />
-        )}
+        <Input
+          allowClear
+          autoComplete="off"
+          placeholder={placeholderKey ? t(placeholderKey) : undefined}
+        />
       </AutoComplete>
     </Form.Item>
   );

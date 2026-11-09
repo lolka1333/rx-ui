@@ -4,9 +4,10 @@
 //! renders the shared `QuicTuning` panel since both use
 //! `StreamConfig.quic_params` under the hood.
 
-import { Collapse, Form, Input, InputNumber, Select, Typography } from 'antd';
+import { Collapse, Form, Input, InputNumber, Select, Tag, Tooltip, Typography } from 'antd';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { H2_PRESETS, parseH2, presetActive, togglePreset } from '@/lib/h2Params';
 import {
   AutoCompleteField,
   HeaderListField,
@@ -41,54 +42,58 @@ const SESSION_ID_TABLE_OPTIONS = [
   'number',
 ].map((value) => ({ value }));
 
-// Ready-made h2Params documents. The field still takes free text — these just
-// spare the operator from remembering Go struct field names and the fact that
-// durations have to carry a unit. Kept whole rather than per-key: the value is
-// one JSON document, so a half-typed object is never a useful suggestion.
-// Pretty-printed so they read well in the growing box; the backend compacts
-// them before they reach xray.
-//
-// The two timeouts cover opposite halves of a half-open connection. The ping
-// catches a peer that stopped SENDING (nothing read for SendPingTimeout, then
-// no answer within PingTimeout); WriteByteTimeout catches one that stopped
-// READING (nothing could be written for that long). A bridge that wedges with
-// one direction dead is caught by one or the other, so the first preset sets
-// both.
-const h2Preset = (label: string, params: Record<string, string | number>) => ({
-  value: JSON.stringify(params, null, 2),
-  label,
-});
-const H2_PARAMS_PRESETS = [
-  h2Preset('Dead peer either way - ping 30s/10s, write stall 30s', {
-    SendPingTimeout: '30s',
-    PingTimeout: '10s',
-    WriteByteTimeout: '30s',
-  }),
-  h2Preset('Liveness ping - 30s idle, give up after 10s', {
-    SendPingTimeout: '30s',
-    PingTimeout: '10s',
-  }),
-  h2Preset('Liveness ping - 15s idle, give up after 5s', {
-    SendPingTimeout: '15s',
-    PingTimeout: '5s',
-  }),
-  h2Preset('Liveness ping - 60s idle, give up after 15s', {
-    SendPingTimeout: '60s',
-    PingTimeout: '15s',
-  }),
-  h2Preset('Write stall - drop a peer that stops reading for 30s', {
-    WriteByteTimeout: '30s',
-  }),
-  h2Preset('Receive windows - 4 MB per stream, 8 MB per connection', {
-    MaxReceiveBufferPerStream: 4194304,
-    MaxReceiveBufferPerConnection: 8388608,
-  }),
-  h2Preset('Liveness ping plus a 4 MB stream window', {
-    SendPingTimeout: '30s',
-    PingTimeout: '10s',
-    MaxReceiveBufferPerStream: 4194304,
-  }),
-];
+/** The h2Params box: free JSON that grows with its content, and the presets
+ *  as switches under it. They add up rather than replace one another — see
+ *  `@/lib/h2Params`. While the text is not a JSON object the switches are off
+ *  and inert: writing a preset over half-typed JSON would discard the typing.
+ *  The JSON is pretty-printed so it reads well here; the backend compacts it
+ *  before it reaches xray. `Form.Item` supplies `id`, `value` and `onChange`;
+ *  the `id` has to reach the box itself, or the label no longer focuses it and
+ *  a failed validation cannot scroll to it. */
+function H2ParamsInput({
+  id,
+  value,
+  onChange,
+  placeholder,
+}: {
+  id?: string;
+  value?: string;
+  onChange?: (value: string) => void;
+  placeholder?: string;
+}) {
+  const doc = parseH2(value);
+  return (
+    <>
+      <Input.TextArea
+        id={id}
+        value={value}
+        onChange={(e) => onChange?.(e.target.value)}
+        allowClear
+        autoComplete="off"
+        autoSize={{ minRows: 1, maxRows: 12 }}
+        placeholder={placeholder}
+        // `styles.textarea`, not `style`: with `allowClear` antd wraps the
+        // box, and a plain `style` lands on the wrapper instead.
+        styles={{ textarea: { fontFamily: 'var(--font-mono)' } }}
+      />
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+        {H2_PRESETS.map((preset) => (
+          <Tooltip key={preset.label} title={preset.hint}>
+            <Tag.CheckableTag
+              checked={presetActive(doc, preset)}
+              disabled={doc === null}
+              onChange={(on) => {
+                if (doc) onChange?.(togglePreset(doc, preset, on));
+              }}
+            >
+              {preset.label}
+            </Tag.CheckableTag>
+          </Tooltip>
+        ))}
+      </div>
+    </>
+  );
+}
 
 // The four placement sets are NOT interchangeable — they're separate by
 // design in xray-core. Source of truth:
@@ -421,35 +426,26 @@ function XhttpAdvanced() {
                 labelKey="inbounds.xhttpServerMaxHeaderBytes"
                 tooltipKey="inbounds.xhttpServerMaxHeaderBytesTip"
               />
-              <AutoCompleteField
+              <Form.Item
                 name="xhttp_h2_params"
-                labelKey="inbounds.xhttpH2Params"
-                tooltipKey="inbounds.xhttpH2ParamsTip"
-                options={H2_PARAMS_PRESETS}
-                multiline
-                placeholderKey="inbounds.xhttpH2ParamsPlaceholder"
+                label={t('inbounds.xhttpH2Params')}
+                tooltip={t('inbounds.xhttpH2ParamsTip')}
                 rules={[
                   {
                     // Only the shape is checked here. Which keys exist and how
                     // durations are spelled is the backend's call, and it
                     // answers with a precise message — two validators drifting
                     // apart would be worse than one round trip.
-                    validator: (_, value: string) => {
-                      if (!value?.trim()) return Promise.resolve();
-                      try {
-                        const parsed: unknown = JSON.parse(value);
-                        if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-                          return Promise.reject(new Error(t('inbounds.xhttpH2ParamsInvalid')));
-                        }
-                      } catch {
-                        return Promise.reject(new Error(t('inbounds.xhttpH2ParamsInvalid')));
-                      }
-                      return Promise.resolve();
-                    },
+                    validator: (_, value: string) =>
+                      parseH2(value) === null
+                        ? Promise.reject(new Error(t('inbounds.xhttpH2ParamsInvalid')))
+                        : Promise.resolve(),
                   },
                 ]}
-                last
-              />
+                style={{ marginBottom: 0 }}
+              >
+                <H2ParamsInput placeholder={t('inbounds.xhttpH2ParamsPlaceholder')} />
+              </Form.Item>
             </>
           ),
         },
