@@ -6,7 +6,7 @@
 //! * `validate` — the cross-layer gate every create and update passes before
 //!   anything is written.
 //! * `keys` — server-managed key material: completed on create, carried
-//!   forward on update, minted afresh by the rotate endpoints.
+//!   forward on update, minted afresh by the Reality rotate endpoint.
 //! * `stats` — per-inbound traffic totals.
 //!
 //! Every write here runs in the same order: validate, build the xray handler
@@ -24,8 +24,8 @@ pub use validate::validate_finalmask;
 
 use self::{
     keys::{
-        complete_server_managed_fields, preserve_reality_keypair,
-        regenerate_vless_encryption_keypair, rotate_reality_keypair, settle_wireguard_keys,
+        complete_server_managed_fields, preserve_reality_keypair, rotate_reality_keypair,
+        settle_wireguard_keys,
     },
     stats::stats,
     store::{ensure_port_free, read_row, write_inbound_update_tx},
@@ -52,10 +52,6 @@ pub fn routes() -> Router<AppState> {
         .route("/finalmask-support", get(finalmask_support))
         .route("/{id}", get(get_one).patch(update).delete(delete))
         .route("/{id}/rotate-reality-keypair", post(rotate_reality_keypair))
-        .route(
-            "/{id}/regenerate-vless-encryption-keypair",
-            post(regenerate_vless_encryption_keypair),
-        )
 }
 
 async fn list(_user: AuthUser, State(state): State<AppState>) -> AppResult<Json<Vec<Inbound>>> {
@@ -361,9 +357,9 @@ async fn delete(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Re-push an inbound to xray after an in-place key change (Reality / VLESS-
-/// encryption rotation): drop the old handler and re-add it with the current
-/// enabled clients. `what` names the change for the log / error text. Callers
+/// Re-push an inbound to xray after an in-place key change (a Reality key
+/// rotation): drop the old handler and re-add it with the current enabled
+/// clients. `what` names the change for the log / error text. Callers
 /// invoke this only when the inbound is enabled.
 async fn reapply_inbound_to_xray(state: &AppState, after: &Inbound, what: &str) -> AppResult<()> {
     let clients = crate::api::clients::load_enabled_clients(&state.db, &after.id).await?;

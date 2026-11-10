@@ -2,7 +2,7 @@
 //! pair and the `WireGuard` device pair. One rule on every path — a blank
 //! private key means "unchanged", and any key that arrives has its public half
 //! re-derived from it, so a stored pair always matches. Create completes what
-//! the body left out; the rotate endpoints mint fresh ones.
+//! the body left out; the rotate endpoint mints a fresh Reality pair.
 
 use super::{
     reapply_inbound_to_xray,
@@ -273,57 +273,6 @@ pub(super) async fn rotate_reality_keypair(
         reapply_inbound_to_xray(&state, &after, "reality key rotated").await?;
     }
 
-    Ok(Json(after))
-}
-
-/// Generate a fresh VLESS-encryption keypair. Auth defaults to ML-KEM-
-/// 768 when the inbound isn't yet configured for PQ; calling this
-/// endpoint also flips mode to `mlkem768x25519plus` if it was None
-/// (operator's signal that they want it enabled). Same share-link
-/// invalidation caveat as `rotate_reality_keypair`.
-pub(super) async fn regenerate_vless_encryption_keypair(
-    _user: AuthUser,
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> AppResult<Json<Inbound>> {
-    let mut inbound = row_to_inbound(read_row(&state, &id).await?)?;
-    // This endpoint is VLESS-specific (regenerates VLESS-encryption keys).
-    // For non-VLESS inbounds reject with a clear 4xx rather than panic.
-    let ProtocolConfig::Vless(ref mut vless) = inbound.protocol else {
-        return Err(AppError::BadRequest(
-            "this endpoint only applies to VLESS inbounds".to_owned(),
-        ));
-    };
-
-    let auth = vless
-        .encryption_auth
-        .unwrap_or(VlessEncryptionAuth::Mlkem768);
-    let kp = keygen::generate_vless_encryption_keypair(&state.xray.binary, auth)
-        .await
-        .map_err(AppError::Internal)?;
-
-    vless.encryption_mode = VlessEncryptionMode::Mlkem768x25519Plus;
-    vless.encryption_auth = Some(auth);
-    vless
-        .encryption_xor_mode
-        .get_or_insert_with(VlessXorMode::default);
-    vless.encryption_seconds_from.get_or_insert(600);
-    vless.encryption_server_key = Some(kp.server_key);
-    vless.encryption_client_key = Some(kp.client_key);
-
-    let j = serde_json::to_string(&inbound.protocol)?;
-    sqlx::query!(
-        "UPDATE inbounds SET protocol_config = ?, updated_at = datetime('now') WHERE id = ?",
-        j,
-        id
-    )
-    .execute(&state.db)
-    .await?;
-
-    let after = row_to_inbound(read_row(&state, &id).await?)?;
-    if after.enabled {
-        reapply_inbound_to_xray(&state, &after, "vless-encryption regenerated").await?;
-    }
     Ok(Json(after))
 }
 

@@ -26,8 +26,8 @@ pub fn router(state: AppState) -> Router {
         .nest("/api/keygen", keygen::routes())
         // Two parallel mounts for clients — same DB rows, two URL styles:
         //   * `/api/inbounds/{inbound_id}/clients` — nested, inbound is
-        //     context. Used by the inbound-modal Clients tab where the
-        //     operator is already focused on one inbound.
+        //     context. The UI only creates through it (the reverse-proxy
+        //     wizard); the global handlers below delegate to these.
         //   * `/api/clients` — global, inbound_id passed in query or body.
         //     Used by the top-level Clients page for cross-inbound list,
         //     filter, and bulk operations.

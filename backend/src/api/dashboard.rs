@@ -1,16 +1,8 @@
-use crate::{
-    AppState,
-    auth::AuthUser,
-    error::AppResult,
-    models::{DashboardOverview, SystemStats, XrayStatus},
-};
+use crate::{AppState, auth::AuthUser, error::AppResult, models::DashboardOverview};
 use axum::{Json, Router, extract::State, routing::get};
 
 pub fn routes() -> Router<AppState> {
-    Router::new()
-        .route("/overview", get(overview))
-        .route("/system", get(system))
-        .route("/xray", get(xray_status))
+    Router::new().route("/overview", get(overview))
 }
 
 async fn overview(
@@ -35,12 +27,4 @@ async fn overview(
         inbounds_total: u32::try_from(inb.total).unwrap_or(0),
         inbounds_enabled: u32::try_from(inb.enabled).unwrap_or(0),
     }))
-}
-
-async fn system(_user: AuthUser, State(state): State<AppState>) -> Json<SystemStats> {
-    Json(state.host.snapshot().await)
-}
-
-async fn xray_status(_user: AuthUser, State(state): State<AppState>) -> Json<XrayStatus> {
-    Json(state.xray.status().await)
 }
