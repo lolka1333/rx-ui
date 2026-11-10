@@ -8,6 +8,21 @@ use std::time::Duration;
 
 pub type DbPool = SqlitePool;
 
+/// Begin a transaction that holds the write lock from its first statement
+/// (`BEGIN IMMEDIATE`). Use it for any transaction that reads before it writes.
+///
+/// A plain `begin()` is deferred: it reads on a snapshot and only asks for the
+/// write lock at its first write. In WAL mode that upgrade cannot wait — if
+/// another writer committed after the snapshot was taken, it fails at once
+/// with `SQLITE_BUSY` / `SQLITE_BUSY_SNAPSHOT` and `busy_timeout` never
+/// applies. The traffic poller writes every few seconds and the UI fires
+/// requests in parallel, so a read-then-write transaction on a deferred begin
+/// is a 500 waiting to happen. Taking the lock up front makes concurrent
+/// writers queue on `busy_timeout` instead.
+pub async fn begin_write(db: &DbPool) -> sqlx::Result<sqlx::Transaction<'static, sqlx::Sqlite>> {
+    db.begin_with("BEGIN IMMEDIATE").await
+}
+
 /// Open the `SQLite` pool, creating the file (and its parent directory) if
 /// missing, then run embedded migrations. Works identically on Windows and
 /// Linux — no manual `sqlx database create`, no `?mode=rwc` URL hack.

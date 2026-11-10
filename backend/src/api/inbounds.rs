@@ -1109,7 +1109,7 @@ async fn write_inbound_update_tx(
     id: &str,
     body: &InboundUpdate,
 ) -> AppResult<()> {
-    let mut tx = state.db.begin().await?;
+    let mut tx = crate::db::begin_write(&state.db).await?;
     if let Some(tag) = &body.tag {
         validate_inbound_tag(tag)?;
         // Current tag, captured before the rename so the persisted per-inbound
