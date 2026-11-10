@@ -28,6 +28,9 @@
 //!     so config rotations propagate without operator intervention.
 //!   * `Content-Disposition: attachment; filename="<email>"` — gives
 //!     the imported profile a sensible default name in the UI.
+//!   * `Profile-Title` / `Profile-Web-Page-Url` — the operator's service name
+//!     and link, for the clients that show them (Happ, INCY, v2RayTun,
+//!     Hiddify); see `insert_client_profile_headers`.
 //!
 //! No auth — the URL itself is the credential. Rotation invalidates
 //! the old URL atomically (`POST /api/clients/{id}/rotate-sub-token`).
@@ -498,6 +501,7 @@ fn build_response_headers(
     // http(s)-only on write, but we still encode here for header
     // safety so the wire shape is consistent across the x-sub-* set.
     insert_pct_header(&mut headers, "x-sub-service", service_url);
+    insert_client_profile_headers(&mut headers, brand_name, service_url);
     // Sanitise the email for Content-Disposition — filename must avoid
     // CR/LF/quotes/semicolons. Strip the lot; fall back to the token
     // if nothing usable remains (token is always ASCII hex).
@@ -621,6 +625,35 @@ fn insert_pct_header(headers: &mut HeaderMap, name: &'static str, value: &str) {
     }
 }
 
+/// What the client apps (Happ, INCY, v2RayTun, Hiddify) show for the profile.
+///
+/// * `profile-title` — the subscription's name in the app. Without it they fall
+///   back to the URL's host, so every user sees the panel's domain. Sent as
+///   `base64:` + UTF-8: a header cannot carry Cyrillic or emoji as they are,
+///   and that prefix is the one all of those clients decode. They display the
+///   first 25 characters.
+/// * `profile-web-page-url` — the provider-site button in the profile; the same
+///   link the landing page's header button points at.
+///
+/// Both are skipped while the operator leaves the field empty.
+fn insert_client_profile_headers(headers: &mut HeaderMap, brand_name: &str, service_url: &str) {
+    if !brand_name.is_empty()
+        && let Ok(v) = HeaderValue::from_str(&format!("base64:{}", B64.encode(brand_name)))
+    {
+        headers.insert("profile-title", v);
+    }
+    // Validated as an http(s) URL on write, but stored as typed. Re-serialised
+    // here so a Cyrillic host or path goes out as punycode / percent-escapes:
+    // `HeaderValue` would pass raw UTF-8 bytes through, and what a client makes
+    // of those is anyone's guess.
+    if !service_url.is_empty()
+        && let Ok(url) = reqwest::Url::parse(service_url)
+        && let Ok(v) = HeaderValue::from_str(url.as_str())
+    {
+        headers.insert("profile-web-page-url", v);
+    }
+}
+
 /// True iff the caller's `Accept` header prefers HTML. Used to decide
 /// whether to fall through to the SPA landing page instead of serving
 /// the raw base64 bytes. We're lenient: any explicit `text/html` (with
@@ -641,6 +674,51 @@ fn wants_html(headers: &HeaderMap) -> bool {
 async fn best_host(state: &AppState) -> Option<String> {
     let snap = state.host.snapshot().await;
     snap.ipv4.or(snap.ipv6)
+}
+
+#[cfg(test)]
+mod profile_header_tests {
+    use super::{B64, HeaderMap, insert_client_profile_headers};
+    use base64::Engine as _;
+
+    fn headers(brand: &str, url: &str) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        insert_client_profile_headers(&mut h, brand, url);
+        h
+    }
+
+    /// The title survives the trip through a header whatever script it is in:
+    /// clients strip `base64:` and decode the rest as UTF-8.
+    #[test]
+    fn title_is_base64_utf8_and_decodes_back() {
+        for brand in ["My VPN", "Мой ВПН 🚀"] {
+            let h = headers(brand, "");
+            let raw = h["profile-title"].to_str().unwrap();
+            let encoded = raw.strip_prefix("base64:").expect("base64: prefix");
+            assert_eq!(B64.decode(encoded).unwrap(), brand.as_bytes());
+        }
+    }
+
+    /// An empty field sends nothing: an empty title would replace the client's
+    /// own fallback with a blank name.
+    #[test]
+    fn empty_fields_send_no_header() {
+        let h = headers("", "");
+        assert!(h.get("profile-title").is_none());
+        assert!(h.get("profile-web-page-url").is_none());
+    }
+
+    #[test]
+    fn service_url_goes_out_as_the_profile_page() {
+        let h = headers("", "https://t.me/my_bot");
+        assert_eq!(h["profile-web-page-url"], "https://t.me/my_bot");
+        // Non-ASCII goes out in its ASCII form, never as raw UTF-8 bytes.
+        let h = headers("", "https://пример.рф/путь");
+        assert_eq!(
+            h["profile-web-page-url"],
+            "https://xn--e1afmkfd.xn--p1ai/%D0%BF%D1%83%D1%82%D1%8C"
+        );
+    }
 }
 
 #[cfg(test)]
