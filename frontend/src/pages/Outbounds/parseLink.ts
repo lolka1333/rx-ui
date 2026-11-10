@@ -165,7 +165,8 @@ export function parseOutboundLink(raw: string): Partial<OutboundFormValues> {
  * the cert knobs (sni / pin / accept-by-name) map onto the TLS security block.
  * `alpn` and salamander `obfs` are honoured too — the latter maps onto the
  * panel's native FinalMask salamander (a client that doesn't mirror it can't
- * complete the QUIC handshake).
+ * complete the QUIC handshake) — and so is `fm=`, which carries every other
+ * mask.
  */
 function parseHysteriaLink(body: string): Partial<OutboundFormValues> {
   const hashAt = body.indexOf('#');
@@ -215,6 +216,12 @@ function parseHysteriaLink(body: string): Partial<OutboundFormValues> {
   if (get('obfs') === 'salamander') {
     out.finalmask_kind = 'salamander';
     out.finalmask_salamander_password = get('obfs-password');
+  } else {
+    // Every other mask (noise, xicmp, …) is xray's own and rides as `fm=`, the
+    // way the backend's hysteria2 builder writes it. Ignoring it left the
+    // outbound without the mask the server expects — a QUIC handshake that
+    // never completes, or for XICMP, packets sent where nobody listens.
+    applyFinalMask(out, get('fm'));
   }
   return out;
 }
