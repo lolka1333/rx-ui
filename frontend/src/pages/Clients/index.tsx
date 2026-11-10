@@ -53,10 +53,14 @@ export function Clients() {
 
   // Inbounds — need both for the filter dropdown AND for the create-form
   // inbound select. Same query key as the Inbounds page so refetches are
-  // shared.
+  // shared. Polled with the client lists: an inbound deleted or renamed from
+  // another tab or device would otherwise stay in the cache, and a filter on
+  // a deleted one would stick until a reload (the auto-clear below only sees
+  // what the cache holds).
   const inboundsQ = useQuery<Inbound[]>({
     queryKey: ['inbounds'],
     queryFn: async () => (await apiClient.get<Inbound[]>('/inbounds')).data,
+    refetchInterval: isActive ? 5_000 : false,
   });
   const { data: inbounds = [] } = inboundsQ;
 
