@@ -18,6 +18,8 @@
 #                          regenerating `.sqlx/` — this is a chronic source
 #                          of "works on my machine, breaks on CI" pain
 #   • pnpm typecheck     — types are the spec on the frontend side
+#   • pnpm test          — vitest over the pure logic: form ↔ API adapters,
+#                          share-link parsing, the h2Params presets
 #   • pnpm build         — catches Vite-time issues (rolldown, manualChunks)
 #                          that pure `tsc` won't see
 #
@@ -164,6 +166,13 @@ jobs:
         # ESLint flat config (eslint.config.js): typescript-eslint +
         # react-hooks + react-refresh. A hard gate now the toolchain exists.
         run: pnpm run lint
+
+      - name: pnpm test
+        # Unit tests for the logic the form and the outbound importer stand
+        # on. The adapter suites walk every form field, so one that is sent
+        # but not read back on reopen fails here instead of being reset by
+        # the operator's next save.
+        run: pnpm run test
 
       - name: pnpm build
         # Full Vite production build — catches issues `tsc -b` won't,
