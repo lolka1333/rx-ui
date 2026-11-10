@@ -228,6 +228,12 @@ export function SubscriptionSection({
                           desc={t('settings.subPortHint')}
                         />
                       }
+                      // 0 is how the API spells "no dedicated port". On screen
+                      // that is an empty field rather than a lone 0, and
+                      // clearing the field stores 0 again — so the saved value,
+                      // the dirty check and the TLS gate below all still see 0.
+                      getValueProps={(v: number | null) => ({ value: v === 0 ? null : v })}
+                      normalize={(v: number | null) => v ?? 0}
                       rules={[
                         {
                           validator: (_, v: number) => {
