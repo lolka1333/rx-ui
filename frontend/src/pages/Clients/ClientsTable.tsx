@@ -2,6 +2,7 @@
  *  per-user actions. */
 import { Button, Popconfirm, Popover, Space, Switch, Table, Tag, Typography } from 'antd';
 import { DeleteOutlined, EditOutlined, ShareAltOutlined, UndoOutlined } from '@ant-design/icons';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
@@ -10,6 +11,7 @@ import { fmtBytes } from '@/lib/format';
 import type { Client, Inbound } from '@/api/types';
 import type { TrafficSnapshotMap, ClientGroup } from './groups';
 import type { ClientActions } from './useClientActions';
+import { fitCount } from './tagFit';
 
 // Expiry timestamps are stored UTC; parse/format them in UTC and let the
 // browser localize for display.
@@ -89,14 +91,21 @@ export function ClientsTable({
           // as "the user's note."
           title: t('clients.email'),
           key: 'email',
+          // As narrow as its content: the spare width belongs to the inbound
+          // column, the one column that has a use for it. `nowrap` is what
+          // keeps "as narrow as" from meaning "broken at every hyphen", and
+          // the note is capped so a long one truncates instead of widening.
+          width: 1,
           render: (_, g) => (
-            <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+            <div
+              style={{ display: 'flex', flexDirection: 'column', minWidth: 0, whiteSpace: 'nowrap' }}
+            >
               <Typography.Text strong>{g.email}</Typography.Text>
               {g.note && (
                 <Typography.Text
                   type="secondary"
                   ellipsis={{ tooltip: g.note }}
-                  style={{ fontSize: 11, lineHeight: '14px' }}
+                  style={{ fontSize: 11, lineHeight: '14px', maxWidth: 260 }}
                 >
                   {g.note}
                 </Typography.Text>
@@ -120,6 +129,8 @@ export function ClientsTable({
           ),
         },
         {
+          // The one column without a width: whatever the table has left over
+          // goes here, and `InboundTags` fills it with as many tags as fit.
           title: t('clients.inbound'),
           key: 'inbound',
           render: (_, g) => (
@@ -299,17 +310,22 @@ export function ClientsTable({
   );
 }
 
-/** Compact rendering of an email-group's assigned inbounds.
+/** 6 px between chips — 4 px read as "almost-touching" when adjacent chips have
+ *  wider Antd padding (the visual margin between borders shrinks to ~1 px),
+ *  8 px feels loose. 6 lands at the eye's notion of "small but clearly
+ *  separated." */
+const TAG_GAP = 6;
+
+/** An email-group's assigned inbounds: as many tags as the column has room for,
+ *  the rest folded into a "+N" chip whose Popover lists them. On a wide screen
+ *  that is usually all of them; on a phone, one or two.
  *
- *  - 1–2 inbounds → all tags inline (no overflow trigger needed)
- *  - 3+ inbounds → first 2 tags inline + a "+N" pill; clicking the
- *    pill opens a Popover with the rest as clickable tags
- *
- *  Stops the column from blowing up on multi-inbound users — a single
- *  email mapped to ten servers takes the same horizontal space as one
- *  mapped to two. Each tag stays click-to-filter so the keyboard-light
- *  operator workflow ("show me everyone on this inbound") still works.
- */
+ *  The row never decides the column's width — `contain: inline-size` keeps the
+ *  tags out of the table's sizing, so a user on ten servers cannot stretch the
+ *  table, and the column takes what the layout leaves (see the column's note).
+ *  The tags are measured in a hidden copy of the row and re-fitted whenever the
+ *  cell changes size. Each tag stays click-to-filter so the keyboard-light
+ *  workflow ("show me everyone on this inbound") still works. */
 function InboundTags({
   inboundIds,
   inboundById,
@@ -320,36 +336,83 @@ function InboundTags({
   onPickFilter: (id: string) => void;
 }) {
   const { t } = useTranslation();
-  const VISIBLE = 2;
-  const renderTag = (id: string) => {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const measureRef = useRef<HTMLDivElement>(null);
+  const [shown, setShown] = useState(inboundIds.length);
+  const renderTag = (id: string, interactive = true) => {
     const ib = inboundById.get(id);
     return ib ? (
       <Tag
         key={id}
         color="geekblue"
-        style={{ cursor: 'pointer', marginInlineEnd: 0 }}
-        onClick={() => onPickFilter(id)}
-        title={t('clients.filterByThisInbound')}
+        style={{ cursor: 'pointer', marginInlineEnd: 0, flexShrink: 0 }}
+        onClick={interactive ? () => onPickFilter(id) : undefined}
+        title={interactive ? t('clients.filterByThisInbound') : undefined}
       >
         {ib.tag}
       </Tag>
     ) : (
-      <Typography.Text key={id} type="secondary" style={{ fontSize: 12 }}>
+      <Typography.Text key={id} type="secondary" style={{ fontSize: 12, flexShrink: 0 }}>
         {id.slice(0, 8)}…
       </Typography.Text>
     );
   };
-  const overflow = inboundIds.length - VISIBLE;
-  const visibleIds = overflow > 0 ? inboundIds.slice(0, VISIBLE) : inboundIds;
-  const hiddenIds = overflow > 0 ? inboundIds.slice(VISIBLE) : [];
+  // What the row shows, as a string: a re-fit is due when a tag is added,
+  // removed or renamed, not on every 5 s poll that hands over a fresh array.
+  const signature = inboundIds.map((id) => inboundById.get(id)?.tag ?? id).join('\n');
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    const measure = measureRef.current;
+    if (!box || !measure) return undefined;
+    const fit = () => {
+      const widths = Array.from(measure.children, (el) => (el as HTMLElement).offsetWidth);
+      const more = widths.pop() ?? 0;
+      setShown(fitCount(widths, more, TAG_GAP, box.clientWidth));
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, [signature]);
+
+  const visibleIds = inboundIds.slice(0, shown);
+  const hiddenIds = inboundIds.slice(shown);
   return (
-    // 6 px between chips — 4 px read as "almost-touching" when adjacent
-    // chips have wider Antd padding (the visual margin between borders
-    // shrinks to ~1 px), 8 px feels loose. 6 lands at the eye's notion
-    // of "small but clearly separated."
-    <Space size={6} wrap>
-      {visibleIds.map(renderTag)}
-      {overflow > 0 && (
+    <div
+      ref={boxRef}
+      style={{
+        position: 'relative',
+        display: 'flex',
+        alignItems: 'center',
+        gap: TAG_GAP,
+        overflow: 'hidden',
+        // The tags never size the column; it is at least this wide — two
+        // typical tags and a "+N", what the column always showed before it
+        // learned to stretch — even on a phone, where the table scrolls
+        // sideways instead.
+        contain: 'inline-size',
+        minWidth: 260,
+      }}
+    >
+      {/* Every tag plus a "+N" sample, laid out exactly like the real row and
+          never seen — the widths `fitCount` works from. */}
+      <div
+        ref={measureRef}
+        aria-hidden
+        style={{
+          position: 'absolute',
+          visibility: 'hidden',
+          pointerEvents: 'none',
+          display: 'flex',
+          gap: TAG_GAP,
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {inboundIds.map((id) => renderTag(id, false))}
+        <Tag style={{ marginInlineEnd: 0, flexShrink: 0 }}>+{inboundIds.length}</Tag>
+      </div>
+      {visibleIds.map((id) => renderTag(id))}
+      {hiddenIds.length > 0 && (
         <Popover
           // Click-only: on touch devices the combined hover-and-click
           // trigger fires twice from one tap, flickering the popover
@@ -357,14 +420,16 @@ function InboundTags({
           // pointer and touch.
           trigger="click"
           content={
-            <Space size={6} wrap style={{ maxWidth: 320 }}>
-              {hiddenIds.map(renderTag)}
+            <Space size={TAG_GAP} wrap style={{ maxWidth: 320 }}>
+              {hiddenIds.map((id) => renderTag(id))}
             </Space>
           }
         >
-          <Tag style={{ cursor: 'pointer', marginInlineEnd: 0 }}>+{overflow}</Tag>
+          <Tag style={{ cursor: 'pointer', marginInlineEnd: 0, flexShrink: 0 }}>
+            +{hiddenIds.length}
+          </Tag>
         </Popover>
       )}
-    </Space>
+    </div>
   );
 }
