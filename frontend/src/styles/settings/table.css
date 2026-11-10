@@ -1,16 +1,16 @@
 /* ====================================================================
    The settings tables — one description, two users.
 
-   The DNS tab and the routing tab show the same kind of thing: an ordered
+   The DNS tab and the Rules page show the same kind of thing: an ordered
    list of rows the operator reorders by hand. Everything that makes them
    look like one panel lives here — the card surface, the row grid and its
-   rhythm, the column header, the number cell that doubles as a drag grip,
-   and the drag states. Each rule names both tables, so a change to the row
-   height or the drop indicator cannot land on one tab and miss the other.
+   rhythm, the number cell that doubles as a drag grip, and the drag states.
+   Each rule names both tables, so a change to the drop indicator cannot land
+   on one of them and miss the other.
 
-   What stays with each tab is what genuinely differs: the column widths,
-   and the cells peculiar to it (a resolver's address and transport; a
-   rule's conditions and target).
+   What stays with each is what genuinely differs: the column widths, and
+   the cells peculiar to it (a resolver's address and transport; a rule's
+   conditions and target).
    ==================================================================== */
 
 /* The block IS the card — the panel's group surface, one radius, one fill. */
@@ -30,21 +30,6 @@
 }
 .app-dns-tr + .app-dns-tr {
   border-top: 1px solid var(--border);
-}
-
-/* Column names, not data: quieter than everything under them. */
-.app-dns-th > span {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.app-dns-th {
-  padding-block: 8px;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-3, #8a94a6);
 }
 
 .app-dns-num,
@@ -100,14 +85,6 @@
 .app-dns-tr.is-over,
 .ant-table-row.is-over {
   box-shadow: inset 0 2px 0 var(--accent, #6366f1);
-}
-
-/* A cell that may hold a second, quieter line under its value. */
-.app-dns-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
 }
 
 /* Chip lists. The two tables lay them out differently — the resolver's wrap,

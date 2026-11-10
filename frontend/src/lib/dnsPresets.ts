@@ -30,8 +30,6 @@ export const DNS_PRESETS: DnsPreset[] = [
   { value: 'https+local://1.1.1.1/dns-query', code: 'DoH', label: 'Cloudflare, off-tunnel' },
 ];
 
-export const DNS_PRESET_BY_VALUE = new Map(DNS_PRESETS.map((p) => [p.value, p]));
-
 /** The three starts offered on an empty list and in the add-button menu.
  *
  *  A subset of `DNS_PRESETS`, deliberately: the full list is a reference an

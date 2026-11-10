@@ -1,13 +1,16 @@
-//! Wire-transport modules — each transport (TCP, WebSocket, XHTTP, future
-//! gRPC/QUIC) lives in its own file behind a small `Transport` trait. The
-//! orchestrator that builds xray's `InboundHandlerConfig` (see
-//! `xray::orchestrator`) composes one transport + one security + one
-//! protocol without knowing which concrete variants are in play.
+//! Wire-transport modules — each transport (TCP, WebSocket, XHTTP, Hysteria)
+//! lives in its own file behind a small `Transport` trait. The orchestrator
+//! that builds xray's `InboundHandlerConfig` (see `xray::orchestrator`)
+//! composes one transport + one security + one protocol through that trait.
 //!
-//! Adding a new transport (e.g. gRPC) means: drop a new `grpc.rs` next
-//! to the others, implement `Transport` on its config struct, register
-//! it in `TransportConfig` enum, done — no edits anywhere else in the
-//! backend tree.
+//! Adding a transport starts here — a new file implementing `Transport`, a
+//! variant in `TransportConfig` and `TransportKind` — but does not end here:
+//! the rules about which transport goes with which protocol, security and mask
+//! still match on the kind. Those live in `api::inbounds` and `api::outbounds`
+//! (layer checks), `protocols` (Hysteria's forced pairing), `finalmask` (the
+//! mask matrix), `xray::orchestrator` and `xray::share_link`; the compiler
+//! points at the exhaustive matches, and a grep for `TransportConfig::` finds
+//! the rest.
 
 use crate::xray::proto::xray::common::serial::TypedMessage;
 use crate::xray::proto::xray::transport::internet::{

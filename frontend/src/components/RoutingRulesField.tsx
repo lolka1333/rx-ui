@@ -1,16 +1,17 @@
-//! Custom routing-rules editor for the Xray "Routing" settings tab.
+//! The routing order, as the Rules page shows it: the operator's own rules and
+//! the built-in rows the "Basic connections" settings produce, in one list that
+//! xray evaluates top to bottom, first match wins. The api row is pinned first
+//! and "everything else" closes the list; the rest can be reordered.
 //!
-//! Renders below the "Basic connections" block as an ordered list of
-//! user rules (first-match-wins, evaluated top-to-bottom *after* the
-//! built-in api/block/ipv4 rules). The rows are laid out the way the inbound
-//! and outbound lists are — switch · name · what it matches · where it goes ·
-//! actions — with a numbered column after the switch, because here the order
-//! of the list is the evaluation order. Edits flow through the parent Xray
-//! form (value/onChange), so the page-level dirty bar + save/restart path pick
-//! the rules up for free.
+//! The rows are laid out the way the inbound and outbound lists are — switch ·
+//! name · what it matches · where it goes · actions — with a numbered column
+//! after the switch, because here the order of the list is the evaluation
+//! order. Edits flow through the parent form (value/onChange), so the page's
+//! dirty bar and save path pick the rules up for free.
 //!
-//! v1 scope: single `outboundTag` target (direct / blocked / direct-ipv4),
-//! the common matchers, reorder by drag or the row's arrows. No balancers.
+//! Scope: one `outboundTag` per rule — a built-in exit, a custom outbound or a
+//! reverse tunnel — the common matchers, reorder by drag or the row's arrows.
+//! No balancers.
 
 import {
   App,
