@@ -13,10 +13,10 @@
 //! the served `index.html` carries an injected `<base href="{prefix}/">` so all
 //! of those relative URLs resolve under the actual mount — see `render_index`.
 
-use crate::AppState;
+use crate::{AppState, error::AppError};
 use axum::{
     body::Body,
-    extract::{Path, Request, State},
+    extract::{OriginalUri, Path, Request, State},
     http::{StatusCode, Uri, header},
     response::{IntoResponse, Response},
 };
@@ -70,6 +70,15 @@ pub async fn serve_asset(Path(path): Path<String>) -> Response {
 }
 
 fn serve_with_base(base_path: &str, req: &Request) -> Response {
+    // Judged on the URI as the client sent it: inside a nested router the path
+    // may already have lost its mount prefix.
+    let sent = req
+        .extensions()
+        .get::<OriginalUri>()
+        .map_or_else(|| req.uri().path(), |u| u.0.path());
+    if is_unrouted_api(base_path, sent) {
+        return AppError::NotFound.into_response();
+    }
     let path = req.uri().path().trim_start_matches('/');
     // Empty path = the mount root (`/` or the prefix root `/secret/`) — serve
     // the SPA so it boots.
@@ -210,4 +219,42 @@ fn not_found_for_uri(uri: &Uri) -> Response {
 /// with extensions (`favicon.ico`, `vite.svg`); client routes are extension-less.
 fn is_asset_like(path: &str) -> bool {
     path.starts_with("assets/") || path.contains('.')
+}
+
+/// An `/api` path no route claimed. The SPA shell is the wrong answer for it:
+/// served with a 200, a removed or mistyped endpoint looks like a success to
+/// its caller and only fails later, as a JSON parse error over HTML. It gets
+/// the API's own 404 instead. `sent` is the full request path, mount prefix
+/// included; no client route of the SPA lives under `/api`.
+fn is_unrouted_api(base_path: &str, sent: &str) -> bool {
+    let path = sent.strip_prefix(base_path).unwrap_or(sent);
+    path == "/api" || path.starts_with("/api/")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_unrouted_api;
+
+    #[test]
+    fn api_paths_are_told_apart_from_client_routes() {
+        for (base, sent) in [
+            ("", "/api"),
+            ("", "/api/never-existed"),
+            ("", "/api/dashboard/system"),
+            ("/secret", "/secret/api/never-existed"),
+            ("/secret/deep", "/secret/deep/api/x"),
+        ] {
+            assert!(is_unrouted_api(base, sent), "{base} {sent}");
+        }
+        for (base, sent) in [
+            ("", "/"),
+            ("", "/clients"),
+            ("", "/apiary"),
+            ("", "/settings/api"),
+            ("/secret", "/secret/clients"),
+            ("/secret", "/secret/apikeys"),
+        ] {
+            assert!(!is_unrouted_api(base, sent), "{base} {sent}");
+        }
+    }
 }
