@@ -463,24 +463,63 @@ interface RangePairProps {
   minName: string;
   maxName: string;
   last?: boolean;
+  /** Both ends required, `min` at least `floor`, `max` not below `min`. Off
+   *  by default: most ranges here are optional knobs where empty means "the
+   *  core's default". On for one whose empty ends silently mean something
+   *  else, so the gap is caught before it is saved. */
+  required?: { floor: number; messageKey: string };
 }
 
 /** Two `InputNumber`s side-by-side under one shared label. Convention for
  *  any `[min, max]` knob set as a single range. */
-export function RangePair({ labelKey, tooltipKey, minName, maxName, last }: RangePairProps) {
+export function RangePair({
+  labelKey,
+  tooltipKey,
+  minName,
+  maxName,
+  last,
+  required,
+}: RangePairProps) {
   const { t } = useTranslation();
+  const message = required ? t(required.messageKey) : '';
   return (
     <Form.Item
       label={t(labelKey)}
       tooltip={tooltipKey ? t(tooltipKey) : undefined}
+      required={!!required}
       style={{ marginBottom: last ? 0 : 12 }}
     >
       <SideBySide>
-        <Form.Item name={minName} noStyle>
-          <InputNumber min={0} placeholder="min" />
+        <Form.Item
+          name={minName}
+          noStyle
+          rules={required ? [{ required: true, type: 'number', min: required.floor, message }] : []}
+        >
+          <InputNumber min={required?.floor ?? 0} placeholder="min" />
         </Form.Item>
-        <Form.Item name={maxName} noStyle>
-          <InputNumber min={0} placeholder="max" />
+        <Form.Item
+          name={maxName}
+          noStyle
+          dependencies={required ? [minName] : []}
+          rules={
+            required
+              ? [
+                  ({ getFieldValue }) => ({
+                    // One message under the pair, not two: while `min` is
+                    // empty its own rule already says what is missing.
+                    validator: (_, value: number | null) => {
+                      const min = getFieldValue(minName) as number | null;
+                      if (min == null) return Promise.resolve();
+                      return value != null && value >= min
+                        ? Promise.resolve()
+                        : Promise.reject(new Error(message));
+                    },
+                  }),
+                ]
+              : []
+          }
+        >
+          <InputNumber min={required?.floor ?? 0} placeholder="max" />
         </Form.Item>
       </SideBySide>
     </Form.Item>

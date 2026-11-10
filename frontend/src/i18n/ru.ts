@@ -1043,6 +1043,7 @@ export const ru = {
     finalmaskFragmentRangeOrder: 'Минимум должен быть ≤ максимума.',
     finalmaskFragmentPackets: 'Сегменты (от..до)',
     finalmaskFragmentPacketsTooltip: 'Какие по счёту TCP-записи фрагментировать. «от» должно быть ≥ 1 (0 xray отвергает).',
+    finalmaskFragmentPacketsRange: 'Укажите оба конца: «от» не меньше 1, «до» не меньше «от»',
     finalmaskFragmentDelays: 'Задержки между чанками (мс)',
     finalmaskFragmentDelaysTooltip: 'Список диапазонов пауз (мс) через запятую, по одному на сегмент: «1-2» или «1-2, 5-6». Пусто — без задержки.',
     finalmaskNoiseSection: 'Noise',

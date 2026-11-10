@@ -549,6 +549,11 @@ function FragmentFields() {
           tooltipKey="inbounds.finalmaskFragmentPacketsTooltip"
           minName="finalmask_fragment_packets_from"
           maxName="finalmask_fragment_packets_to"
+          // Empty ends are not "the default" here: they are sent as 0/0, which
+          // is whole-stream segmentation, and 0/1 is the ClientHello shortcut
+          // — either way the inbound reopens in another mode than the one
+          // picked. xray also rejects a range that starts at 0.
+          required={{ floor: 1, messageKey: 'inbounds.finalmaskFragmentPacketsRange' }}
         />
       )}
       <InputField

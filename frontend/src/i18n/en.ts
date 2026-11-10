@@ -1070,6 +1070,7 @@ export const en: Dict = {
     finalmaskFragmentRangeOrder: 'Min must be ≤ max.',
     finalmaskFragmentPackets: 'Segments (from..to)',
     finalmaskFragmentPacketsTooltip: 'Which TCP records (by count) to fragment. "from" must be ≥ 1 (xray rejects 0).',
+    finalmaskFragmentPacketsRange: 'Set both ends: "from" at least 1, "to" not below "from"',
     finalmaskFragmentDelays: 'Inter-chunk delays (ms)',
     finalmaskFragmentDelaysTooltip: 'Comma-separated list of per-segment delay ranges (ms): "1-2" or "1-2, 5-6". Empty = no delay.',
     finalmaskNoiseSection: 'Noise',
