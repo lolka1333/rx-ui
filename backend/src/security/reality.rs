@@ -213,8 +213,8 @@ mod tests {
     /// "accept any client from 0.0.0 up", which is a different setting.
     #[test]
     fn empty_leaves_the_core_to_decide() {
-        assert!(parse_client_ver("f", "").unwrap().is_empty());
-        assert!(parse_client_ver("f", "   ").unwrap().is_empty());
+        assert_eq!(parse_client_ver("f", "").unwrap(), b"");
+        assert_eq!(parse_client_ver("f", "   ").unwrap(), b"");
     }
 
     /// Refused here rather than at core start, where a bad value takes the

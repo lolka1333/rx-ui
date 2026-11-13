@@ -343,7 +343,7 @@ impl XrayController {
     // `async` is required for the Unix poll loop (tokio::time::sleep). On
     // Windows the `#[cfg(unix)]` block compiles out, leaving zero awaits —
     // clippy then sees an "unused async" we accept on purpose.
-    #[allow(clippy::unused_async)]
+    #[allow(clippy::unused_async, clippy::unused_async_trait_impl)]
     async fn graceful_kill(pid: u32) {
         let pid_obj = Pid::from_u32(pid);
         // Single sysinfo::System for the whole operation. The process handle

@@ -527,10 +527,10 @@ mod tests {
         );
         // Blank rows are dropped, not refused: the editor keeps one around
         // while it is being filled in.
-        assert!(
+        assert_eq!(
             clean_dns_matchers("domains", &["  ".to_owned()], check_domain_matcher)
-                .expect("blank rows are dropped")
-                .is_empty()
+                .expect("blank rows are dropped"),
+            Vec::<String>::new()
         );
     }
 

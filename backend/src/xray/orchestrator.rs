@@ -925,7 +925,7 @@ mod tests {
         assert!(
             last.is_none(),
             "{bin} refused the pushed hysteria inbound: {}",
-            last.map(|e| e.to_string()).unwrap_or_default()
+            last.map_or_default(|e| e.to_string())
         );
     }
 

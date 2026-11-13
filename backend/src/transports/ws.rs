@@ -72,8 +72,7 @@ impl Transport for WsTransport {
         let header: std::collections::HashMap<String, String> = self
             .headers
             .as_ref()
-            .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
-            .unwrap_or_default();
+            .map_or_default(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
         // heartbeat_period is uint32 in the proto. Saturating-clamp the
         // i64 down so a wild operator value can't wrap silently. The
         // upper bound is `u32::MAX` lifted into i64 via the infallible

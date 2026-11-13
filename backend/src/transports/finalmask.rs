@@ -971,7 +971,9 @@ pub fn parse_uuid_bytes(text: &str) -> Option<Vec<u8>> {
     if hex.len() != 32 {
         return None;
     }
-    hex.chunks_exact(2)
+    hex.as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| Some(nibble(pair[0])? << 4 | nibble(pair[1])?))
         .collect()
 }
@@ -1022,7 +1024,7 @@ fn decode_hex_strict(s: &str) -> Option<Vec<u8>> {
         return None;
     }
     let mut out = Vec::with_capacity(cleaned.len() / 2);
-    for pair in cleaned.chunks_exact(2) {
+    for pair in cleaned.as_chunks::<2>().0 {
         out.push((nibble(pair[0])? << 4) | nibble(pair[1])?);
     }
     Some(out)
@@ -1162,8 +1164,8 @@ mod tests {
     fn xicmp_with_nothing_filled_in_is_still_a_working_mask() {
         let mask = FinalMask::Xicmp(XicmpParams::default());
         assert!(mask.is_configured() && mask.is_active());
-        assert!(decode_xicmp(&mask, false).i_ps.is_empty());
-        assert!(decode_xicmp(&mask, true).i_ps.is_empty());
+        assert_eq!(decode_xicmp(&mask, false).i_ps, Vec::<String>::new());
+        assert_eq!(decode_xicmp(&mask, true).i_ps, Vec::<String>::new());
     }
 
     /// Go's `netip.ParseAddr` rejects surrounding whitespace, so what the
@@ -1299,7 +1301,7 @@ mod tests {
         assert_eq!(cfg.items[0].delay_min, 1);
         assert_eq!(cfg.items[0].delay_max, 2);
         // Item 1: random mode → no packet, rand carried.
-        assert!(cfg.items[1].packet.is_empty());
+        assert_eq!(cfg.items[1].packet, b"");
         assert_eq!(cfg.items[1].rand_min, 4);
         assert_eq!(cfg.items[1].rand_max, 8);
     }

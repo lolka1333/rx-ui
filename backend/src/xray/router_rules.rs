@@ -339,9 +339,9 @@ mod tests {
         let cfg =
             build_router_config(&settings(vec![rule("r1", "direct")], &["api", "r1"])).unwrap();
         let cr = find(&cfg, "r1");
-        assert!(cr.domain.is_empty());
-        assert!(cr.ip.is_empty());
+        assert_eq!(cr.domain.len(), 0, "{:?}", cr.domain);
+        assert_eq!(cr.ip.len(), 0, "{:?}", cr.ip);
         assert!(cr.port_list.is_none());
-        assert!(cr.networks.is_empty());
+        assert_eq!(cr.networks.len(), 0, "{:?}", cr.networks);
     }
 }

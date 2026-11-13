@@ -3,12 +3,12 @@
 # on the maintainer's box, breaks on a fresh checkout or CI runner that
 # happens to default to an older toolchain.
 #
-# Why "1.96" specifically: we use the `2024` edition + `std::env::set_var`
-# inside `build.rs` (gated behind `#[allow(unsafe_code)]`) — both require
-# 1.85+. 1.96 is the current stable as of this commit and gets us recent
-# borrow-checker fixes used by the prost-generated code.
+# The floor is 1.85: the `2024` edition + `std::env::set_var` inside
+# `build.rs` (gated behind `#[allow(unsafe_code)]`) both require it. The pin
+# tracks the current stable rather than the floor, so CI, the Docker build and
+# a fresh checkout all lint with the same clippy.
 
 [toolchain]
-channel = "1.96"
+channel = "1.100"
 profile = "minimal"
 components = ["rustfmt", "clippy"]

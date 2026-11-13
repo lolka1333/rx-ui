@@ -630,7 +630,7 @@ mod tests {
 
         // No ranges at all: not a matcher, and stored empty.
         let (spec, has_range) = canonical_port_spec("port", ",,", "r").unwrap();
-        assert!(spec.is_empty());
+        assert_eq!(spec, "");
         assert!(!has_range);
 
         assert!(canonical_port_spec("port", "70000", "r").is_err());

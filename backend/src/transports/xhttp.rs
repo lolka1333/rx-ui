@@ -299,8 +299,7 @@ impl Transport for XhttpTransport {
         let headers: std::collections::HashMap<String, String> = self
             .headers
             .as_ref()
-            .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
-            .unwrap_or_default();
+            .map_or_default(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
         // Clamp the i64 column into the proto's int32 field. Upper bound
         // is lifted into i64 via the infallible `i64::from`; the clamped
         // result is in [0, i32::MAX] so the final `as i32` is exact.
@@ -593,18 +592,13 @@ mod tests {
     #[test]
     fn blank_input_emits_no_bytes() {
         for raw in ["", "   "] {
-            assert!(
-                with_h2(raw)
-                    .build_h2_params()
-                    .expect("blank is fine")
-                    .is_empty()
-            );
+            assert_eq!(with_h2(raw).build_h2_params().expect("blank is fine"), b"");
         }
-        assert!(
+        assert_eq!(
             XhttpTransport::default()
                 .build_h2_params()
-                .expect("absent is fine")
-                .is_empty()
+                .expect("absent is fine"),
+            b""
         );
     }
 
@@ -647,6 +641,6 @@ mod tests {
     fn an_untouched_inbound_leaves_the_field_empty() {
         let msg = XhttpTransport::default().build_settings().expect("builds");
         let cfg = XraySplitHttpConfig::decode(msg.value.as_slice()).expect("decodes");
-        assert!(cfg.h2_params.is_empty());
+        assert_eq!(cfg.h2_params, b"");
     }
 }

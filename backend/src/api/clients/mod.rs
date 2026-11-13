@@ -696,8 +696,7 @@ async fn create(
 
     let mut ids = stored
         .as_ref()
-        .map(user::StoredUser::inbound_ids)
-        .unwrap_or_default();
+        .map_or_default(user::StoredUser::inbound_ids);
     ids.push(inbound_id.clone());
     let inbounds = super::inbounds::fetch_inbounds_batch(&state, &ids).await?;
     let applied = user::apply_user(

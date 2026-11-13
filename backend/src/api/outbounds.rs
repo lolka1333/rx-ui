@@ -62,7 +62,7 @@ async fn warp_register(
     State(state): State<AppState>,
     body: Option<Json<WarpRequest>>,
 ) -> AppResult<Json<CustomOutbound>> {
-    let license = body.map(|Json(b)| b.license).unwrap_or_default();
+    let license = body.map_or_default(|Json(b)| b.license);
     let keys = crate::xray::keygen::generate_wireguard_keypair();
     let registration = crate::xray::warp::register(keys.private_key, &keys.public_key, &license)
         .await

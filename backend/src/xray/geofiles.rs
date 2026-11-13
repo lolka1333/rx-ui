@@ -142,8 +142,7 @@ async fn status_one(path: &Path, name: &str) -> GeoFileStatus {
     let modified_at = meta
         .modified()
         .ok()
-        .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339())
-        .unwrap_or_default();
+        .map_or_default(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339());
     GeoFileStatus {
         name: name.to_owned(),
         present: true,

@@ -456,6 +456,6 @@ mod tests {
         let SecurityConfig::Reality(r2) = preserve_reality_keypair(&blank, &stored_none) else {
             panic!("expected Reality");
         };
-        assert!(r2.private_key.is_empty());
+        assert_eq!(r2.private_key, "");
     }
 }

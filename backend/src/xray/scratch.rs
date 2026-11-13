@@ -34,8 +34,7 @@ impl ScratchDir {
         sweep_stale(&temp);
         let stamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or_default();
+            .map_or_default(|d| d.as_nanos());
         let path = temp.join(format!("{PREFIX}{kind}-{}-{stamp}", std::process::id()));
         // `create_new` rather than `create_dir_all`: the name already carries a
         // pid and a nanosecond stamp, so an existing entry means someone else
