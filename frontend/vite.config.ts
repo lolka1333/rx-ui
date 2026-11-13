@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import type { Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
-import { PALETTES, SIDEBAR_WIDTH } from './src/theme/palette';
+import { PALETTES, SIDEBAR_WIDTH } from './src/theme/palette.ts';
 
 /**
  * Stamps the shell constants into index.html.
@@ -49,7 +49,7 @@ export default defineConfig(({ command }) => ({
   plugins: [react(), shellConstants()],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
+      '@': path.resolve(import.meta.dirname, './src'),
     },
   },
   build: {

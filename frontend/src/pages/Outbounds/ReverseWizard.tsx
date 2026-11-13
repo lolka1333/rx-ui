@@ -218,7 +218,7 @@ export function ReverseWizard({
       }
     } catch (e) {
       message.error(
-        e instanceof LinkParseError ? t(e.i18nKey, e.params) : t('reverse.linkParseError'),
+        e instanceof LinkParseError ? t(e.i18nKey, e.params ?? {}) : t('reverse.linkParseError'),
       );
     }
   };

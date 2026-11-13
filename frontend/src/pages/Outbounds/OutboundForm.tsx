@@ -137,7 +137,7 @@ export const OutboundForm = memo(function OutboundForm({
       message.success(t('outbounds.linkParsed'));
     } catch (e) {
       message.error(
-        e instanceof LinkParseError ? t(e.i18nKey, e.params) : t('outbounds.linkError'),
+        e instanceof LinkParseError ? t(e.i18nKey, e.params ?? {}) : t('outbounds.linkError'),
       );
     }
   }, [linkText, form, message, t]);
