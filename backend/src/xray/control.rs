@@ -11,7 +11,17 @@ use tokio::{
     sync::RwLock,
 };
 
-/// The oldest xray whose protobuf layout matches the definitions vendored under
+/// The oldest xray the panel supports. Two things set it, and the later one
+/// wins:
+///
+/// * the protobuf layout vendored under `backend/proto/` (v26.9.9, below);
+/// * what the panel writes into configs. v26.11.9 renamed the freedom
+///   `finalRules` block rule's `blockDelay` to `delay`, and an older core
+///   ignores the new key without a word, so the operator's block delay
+///   would simply stop applying. The same release added `hellochrome_155`,
+///   which the fingerprint lists offer.
+///
+/// The protobuf half: the oldest xray whose layout matches the definitions vendored under
 /// `backend/proto/`.
 ///
 /// Two releases running have renumbered messages the panel fills in on every
@@ -30,7 +40,7 @@ use tokio::{
 /// with its own numbering and either refuses the message or, where the wire
 /// types happen to line up, builds a different setting entirely. Neither end
 /// says a word, so the panel says it instead.
-pub const MIN_XRAY_VERSION: (u32, u32, u32) = (26, 9, 9);
+pub const MIN_XRAY_VERSION: (u32, u32, u32) = (26, 11, 9);
 
 /// `"v26.9.9"` → `(26, 9, 9)`. `None` for anything that is not three numbers,
 /// which covers a custom build with its own version string.
@@ -468,15 +478,18 @@ fn strip_xray_timestamp(line: &str) -> &str {
 mod tests {
     use super::{parse_xray_line, strip_xray_timestamp, version_too_old};
 
-    /// The comparison is on numbers, not on the string: "26.10.1" is newer than
+    /// The comparison is on numbers, not on the string: "26.11.9" is newer than
     /// "26.9.9" and sorts before it alphabetically.
     ///
-    /// v26.9.8 is on the flagged side now. It was the floor until v26.9.9
-    /// renumbered `QuicParams` a second time, and the two are not compatible on
-    /// that message in either direction — the panel has to name one of them.
+    /// v26.9.8 is on the flagged side for the protobuf layout (v26.9.9
+    /// renumbered `QuicParams` a second time); everything before v26.11.9 for
+    /// the config keys the panel writes.
     #[test]
-    fn a_core_older_than_the_vendored_protos_is_flagged() {
+    fn a_core_older_than_the_panel_supports_is_flagged() {
         for old in [
+            "v26.10.31",
+            "v26.10.1",
+            "v26.9.9",
             "v26.9.8",
             "v26.7.11",
             "v26.7.28",
@@ -486,7 +499,13 @@ mod tests {
         ] {
             assert!(version_too_old(old), "{old} should be flagged");
         }
-        for ok in ["v26.9.9", "v26.10.1", "v27.0.0", "  v26.9.9  "] {
+        for ok in [
+            "v26.11.9",
+            "v26.11.10",
+            "v26.12.1",
+            "v27.0.0",
+            "  v26.11.9  ",
+        ] {
             assert!(!version_too_old(ok), "{ok} should pass");
         }
     }

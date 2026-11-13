@@ -324,10 +324,13 @@ fn build_direct_outbound(s: &BootstrapSettings) -> Value {
         // session carries a tag but no inbound name — and would cut DNS to
         // every private address the operator did not list.
         let mut block = json!({ "action": "block", "ip": PRIVATE_IP_RANGES });
-        // Only on the block rule: the two allow rules have nothing to delay.
+        // Only on the block rule: the two allow rules have nothing to delay,
+        // and v26.11.9 refuses `delay` on a non-block rule outright. The key
+        // was `blockDelay` before that release, which still accepts it with a
+        // deprecation warning.
         let delay = s.freedom_block_delay.trim();
         if !delay.is_empty() {
-            block["blockDelay"] = Value::String(delay.to_owned());
+            block["delay"] = Value::String(delay.to_owned());
         }
         rules.push(block);
         rules.push(json!({ "action": "allow", "network": "tcp,udp" }));
@@ -1097,8 +1100,8 @@ mod tests {
     }
 
     /// The delay rides on the block rule and nowhere else: the two allow rules
-    /// have nothing to delay, and putting a `blockDelay` on one would be a key
-    /// the core reads for a rule that never blocks.
+    /// have nothing to delay, and the core refuses `delay` on a rule that is
+    /// not a block. Written as `delay`, the key v26.11.9 renamed it to.
     #[test]
     fn a_block_delay_lands_on_the_block_rule_only() {
         let mut s = base(vec![], vec![]);
@@ -1112,9 +1115,10 @@ mod tests {
             .clone();
         for r in &rules {
             if r["action"] == "block" {
-                assert_eq!(r["blockDelay"], "30-90");
+                assert_eq!(r["delay"], "30-90");
+                assert!(r["blockDelay"].is_null(), "the deprecated key is gone");
             } else {
-                assert!(r["blockDelay"].is_null(), "allow rule carries a delay: {r}");
+                assert!(r["delay"].is_null(), "allow rule carries a delay: {r}");
             }
         }
     }
@@ -1128,7 +1132,7 @@ mod tests {
         let cfg = build_bootstrap_config(&s);
         let block = cfg["outbounds"][0]["settings"]["finalRules"][0].clone();
         assert_eq!(block["action"], "block");
-        assert!(block["blockDelay"].is_null());
+        assert!(block["delay"].is_null());
     }
 
     /// The allow-list reopens exactly what it names and nothing else. In
@@ -1255,7 +1259,7 @@ mod tests {
             ipv4_domains: vec!["geosite:netflix".into()],
             // Both on, so the `direct` outbound emits the full finalRules set:
             // an allow for the listed private range, then the block rule that
-            // carries `blockDelay`, then the tunnelled-traffic allow.
+            // carries `delay`, then the tunnelled-traffic allow.
             has_reverse_bridge: true,
             freedom_allow_private: vec!["192.168.1.10/32".into()],
             freedom_block_delay: "30-90".into(),

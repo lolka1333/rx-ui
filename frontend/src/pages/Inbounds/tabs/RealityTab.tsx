@@ -25,7 +25,7 @@ import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/api/client';
 import { apiErrorMessage } from '@/api/errors';
 import type { Inbound } from '@/api/types';
-import { FINGERPRINT_OPTIONS } from '../helpers';
+import { FINGERPRINT_OPTIONS, fingerprintRule } from '../helpers';
 import { SideBySide } from '../widgets';
 import type { FormValues } from '../form/types';
 
@@ -131,6 +131,7 @@ export function RealityTab({ editing, onRotate, rotating }: RealityTabProps) {
         <Form.Item
           name="reality_fingerprint"
           label={t('inbounds.fingerprint')}
+          rules={[fingerprintRule(t('inbounds.fingerprintUnknown'))]}
           style={{ flex: 1 }}
         >
           <Select options={FINGERPRINT_OPTIONS} />

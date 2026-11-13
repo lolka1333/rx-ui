@@ -38,11 +38,11 @@ pub struct XrayStatus {
     pub running: bool,
     pub pid: Option<u32>,
     pub version: Option<String>,
-    /// This core is older than the protobuf layout the panel speaks — see
-    /// `xray::control::MIN_XRAY_VERSION`. Inbounds are pushed as protobuf over
-    /// gRPC, and that channel carries no version negotiation, so a mismatch is
-    /// invisible from both ends: the core decodes the panel's bytes with the
-    /// numbering it knows and quietly builds something else.
+    /// This core is older than the panel supports — see
+    /// `xray::control::MIN_XRAY_VERSION`. Neither of the reasons is visible from
+    /// either end: inbounds go over gRPC as protobuf with no version
+    /// negotiation, so a core on another layout quietly builds something else,
+    /// and a config key an older core does not know is quietly ignored.
     pub proto_too_old: bool,
     pub started_at: Option<String>,
 }

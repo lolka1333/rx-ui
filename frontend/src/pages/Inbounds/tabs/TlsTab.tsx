@@ -32,7 +32,7 @@ import { pemRule } from '@/lib/pem';
 import { apiClient } from '@/api/client';
 import { apiErrorMessage } from '@/api/errors';
 import type { EchKeyBundle, TlsCertSource, TlsCertUsage } from '@/api/types';
-import { FINGERPRINT_OPTIONS } from '../helpers';
+import { FINGERPRINT_OPTIONS, fingerprintRule } from '../helpers';
 import { ChipGroup, Section } from '../widgets';
 import type { FormValues } from '../form/types';
 
@@ -220,6 +220,7 @@ export function TlsTab() {
         name="tls_fingerprint"
         label={t('inbounds.fingerprint')}
         tooltip={t('inbounds.tlsFingerprintTooltip')}
+        rules={[fingerprintRule(t('inbounds.fingerprintUnknown'))]}
       >
         <Select options={FINGERPRINT_OPTIONS} />
       </Form.Item>

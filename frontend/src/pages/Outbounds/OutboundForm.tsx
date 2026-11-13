@@ -25,7 +25,7 @@ import { FinalMaskTab } from '@/pages/Inbounds/tabs/FinalMaskTab';
 import { LinkParseError, parseOutboundLink } from './parseLink';
 // Single source of truth for uTLS fingerprints — same list the inbound
 // Reality/TLS tabs use (chrome … 360/qq … hello*_NNN version-pinned).
-import { FINGERPRINT_OPTIONS } from '@/pages/Inbounds/helpers';
+import { FINGERPRINT_OPTIONS, fingerprintRule } from '@/pages/Inbounds/helpers';
 import {
   AddonLabel,
   HeaderListField,
@@ -678,11 +678,13 @@ export const OutboundForm = memo(function OutboundForm({
           <Form.Item name="tls_alpn" label={t('outbounds.tlsAlpn')}>
             <Select mode="multiple" allowClear options={ALPN_OPTIONS} placeholder="http/1.1" />
           </Form.Item>
-          <SelectField
+          <Form.Item
             name="tls_fingerprint"
-            labelKey="outbounds.fingerprint"
-            options={FINGERPRINT_OPTIONS}
-          />
+            label={t('outbounds.fingerprint')}
+            rules={[fingerprintRule(t('outbounds.fingerprintUnknown'))]}
+          >
+            <Select options={FINGERPRINT_OPTIONS} />
+          </Form.Item>
           <Form.Item
             name="tls_verify_peer_cert_by_name"
             label={t('outbounds.tlsVcn')}
@@ -724,6 +726,7 @@ export const OutboundForm = memo(function OutboundForm({
             <Form.Item
               name="reality_fingerprint"
               label={t('outbounds.fingerprint')}
+              rules={[fingerprintRule(t('outbounds.fingerprintUnknown'))]}
               style={{ flex: 1, marginBottom: 0 }}
             >
               <Select options={FINGERPRINT_OPTIONS} />
