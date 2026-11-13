@@ -17,11 +17,11 @@ tower-http = { version = "0.7", features = ["cors", "trace"] }
 # reuses the aws-lc-rs CryptoProvider already in the tree (rustls/reqwest) instead
 # of pulling a second `ring` provider — we install it explicitly at startup so the
 # process-default is unambiguous regardless of feature unification.
-axum-server = { version = "0.8", features = ["tls-rustls-no-provider"] }
+axum-server = { version = "0.9", features = ["tls-rustls-no-provider"] }
 rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs"] }
 
 # Async runtime
-tokio = { version = "1.52", features = ["full"] }
+tokio = { version = "1.54", features = ["full"] }
 
 # Database
 sqlx = { version = "0.9", features = ["runtime-tokio", "sqlite", "migrate", "macros", "chrono", "uuid"] }
@@ -38,8 +38,8 @@ ts-rs = { version = "12", features = ["serde-compat", "chrono-impl", "uuid-impl"
 # in a pure-Rust RSA/EC stack (rsa, num-bigint-dig, p256, p384, ed25519-dalek)
 # we never use — and which keeps the old rand 0.8 / rand_core 0.6 alive.
 # `default-features = false` also drops the unused PEM key-parsing features.
-jsonwebtoken = { version = "10", default-features = false, features = ["aws_lc_rs"] }
-argon2 = { version = "0.5", features = ["std"] }
+jsonwebtoken = { version = "12", default-features = false, features = ["aws_lc_rs"] }
+argon2 = "0.6"
 
 # Utils
 chrono = { version = "0.4", features = ["serde"] }
@@ -51,16 +51,16 @@ dotenvy = "0.15"
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-parking_lot = "0.12"
+parking_lot = "0.13"
 
 # System info
-sysinfo = "0.39"
+sysinfo = "0.40"
 
 # xray installer (GitHub release download + zip extraction).
 # reqwest 0.13 renamed `rustls-tls` → `rustls`; we also need `webpki-roots`
 # because the `rustls` flag no longer bundles a root cert store by default.
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "webpki-roots", "json"] }
-zip = { version = "8", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 
 # Xray gRPC client (HandlerService for runtime inbound CRUD).
 # `tonic-prost` is referenced from the build-script-generated proto
@@ -77,7 +77,7 @@ x25519-dalek = { version = "3", features = ["static_secrets"] }
 # short_id. argon2/password-hash keeps its own (older) rand_core internally for
 # salt generation — that's transitive, not a direct dep here.
 rand = "0.10"
-base64 = "0.22"
+base64 = "0.23"
 # SHA-256 of a self-signed leaf cert's DER — distributed in the hysteria2
 # share-link as `pinSHA256=` so clients pin it.
 sha2 = "0.11"

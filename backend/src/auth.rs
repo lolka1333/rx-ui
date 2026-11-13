@@ -2,10 +2,7 @@ use crate::{
     error::{AppError, AppResult},
     models::Claims,
 };
-use argon2::{
-    Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
-    password_hash::{SaltString, rand_core::OsRng},
-};
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use axum::{
     extract::{FromRequestParts, State},
     http::request::Parts,
@@ -20,18 +17,21 @@ pub struct JwtKeys {
 }
 
 impl JwtKeys {
-    pub fn from_secret(secret: &str) -> Self {
-        Self {
-            encoding: EncodingKey::from_secret(secret.as_bytes()),
-            decoding: DecodingKey::from_secret(secret.as_bytes()),
-        }
+    /// Fails only on an empty secret, which jsonwebtoken refuses outright: an
+    /// HMAC over no key would sign tokens anyone can forge.
+    pub fn from_secret(secret: &str) -> anyhow::Result<Self> {
+        Ok(Self {
+            encoding: EncodingKey::from_secret(secret.as_bytes())?,
+            decoding: DecodingKey::from_secret(secret.as_bytes())?,
+        })
     }
 }
 
+/// The salt is drawn from the OS RNG inside `hash_password`; the PHC string
+/// it returns carries it, so `verify_password` needs nothing else.
 pub fn hash_password(plain: &str) -> AppResult<String> {
-    let salt = SaltString::generate(&mut OsRng);
     Argon2::default()
-        .hash_password(plain.as_bytes(), &salt)
+        .hash_password(plain.as_bytes())
         .map(|h| h.to_string())
         .map_err(|e| AppError::Internal(anyhow::anyhow!("argon2 hash: {e}")))
 }

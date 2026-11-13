@@ -290,7 +290,7 @@ impl XrayController {
     /// host (e.g. v2rayN's bundled copy under `Downloads/v2rayN-...`).
     pub fn detect_external_pid_for(binary: &std::path::Path) -> Option<u32> {
         let target = std::path::absolute(binary).ok()?;
-        let mut sys = System::new_with_specifics(RefreshKind::nothing());
+        let mut sys = process_table()?;
         // BOTH `with_cmd` and `with_exe` need to be enabled — without
         // `with_exe`, sysinfo doesn't query the executable path and
         // `Process::exe()` returns `None` for every process, making the
@@ -318,7 +318,9 @@ impl XrayController {
     }
 
     fn pid_alive(pid: u32) -> bool {
-        let mut sys = System::new();
+        let Some(mut sys) = process_table() else {
+            return false;
+        };
         sys.refresh_processes_specifics(
             ProcessesToUpdate::Some(&[Pid::from_u32(pid)]),
             true,
@@ -350,7 +352,9 @@ impl XrayController {
         // returned by sys.process() borrows from `sys`, so on Unix where we
         // poll between SIGTERM and SIGKILL we have to re-refresh before the
         // fallback — but we don't have to build a new System.
-        let mut sys = System::new();
+        let Some(mut sys) = process_table() else {
+            return;
+        };
         sys.refresh_processes_specifics(
             ProcessesToUpdate::Some(&[pid_obj]),
             true,
@@ -385,6 +389,16 @@ impl XrayController {
             proc.kill();
         }
     }
+}
+
+/// sysinfo's process table, or `None` on a platform it has no backend for
+/// (its constructors are fallible since 0.40). Never `None` on the Linux and
+/// Windows hosts the panel runs on; where it is, the process lookups below
+/// find nothing rather than failing.
+fn process_table() -> Option<System> {
+    System::new_with_specifics(RefreshKind::nothing())
+        .inspect_err(|e| tracing::warn!("sysinfo process table unavailable: {e}"))
+        .ok()
 }
 
 /// Trait so `spawn_pipe_reader` can take either stdout or stderr.

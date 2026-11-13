@@ -24,6 +24,7 @@ use crate::{
     logs::LogBuffer,
     xray::{XrayClient, XrayController, grpc},
 };
+use anyhow::Context as _;
 use axum::{extract::FromRef, response::IntoResponse};
 use std::{
     path::PathBuf,
@@ -216,10 +217,10 @@ async fn main() -> anyhow::Result<()> {
 
     let state = AppState {
         db,
-        jwt: JwtKeys::from_secret(&jwt_secret),
+        jwt: JwtKeys::from_secret(&jwt_secret).context("JWT secret")?,
         xray: XrayController::new(xray_binary, xray_config, log_buffer.clone()),
         xray_client: XrayClient::new(grpc::DEFAULT_ENDPOINT),
-        host: HostMonitor::spawn(),
+        host: HostMonitor::spawn().context("host stats")?,
         logs: log_buffer,
         traffic: traffic::TrafficStore::new(),
         inbound_live: inbound_traffic::InboundLiveStore::new(),

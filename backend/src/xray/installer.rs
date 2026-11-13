@@ -231,7 +231,11 @@ pub async fn install_release(release: &XrayRelease, install_dir: &Path) -> anyho
         let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).context("open zip archive")?;
         for i in 0..archive.len() {
             let mut entry = archive.by_index(i).context("read zip entry")?;
-            let name = entry.name().to_string();
+            // An entry whose name does not decode is not one of the three we
+            // extract; skip it rather than abort the whole install.
+            let Ok(name) = entry.name().map(std::borrow::Cow::into_owned) else {
+                continue;
+            };
             // Reject any entry whose name contains a path separator or parent
             // ref — guards against zip-slip even if the matching list below
             // is later broadened. The official xray release archives ship

@@ -32,11 +32,13 @@ pub struct HostMonitor {
 
 impl HostMonitor {
     /// Build the shared sampler and spawn its refresh loop. Call once at boot.
-    pub fn spawn() -> Self {
+    /// Fails only where sysinfo has no backend for the platform — not on the
+    /// Linux and Windows hosts the panel runs on.
+    pub fn spawn() -> anyhow::Result<Self> {
         let kinds = RefreshKind::nothing()
             .with_cpu(CpuRefreshKind::everything())
             .with_memory(MemoryRefreshKind::everything());
-        let sys = Arc::new(RwLock::new(System::new_with_specifics(kinds)));
+        let sys = Arc::new(RwLock::new(System::new_with_specifics(kinds)?));
 
         let bg = sys.clone();
         tokio::spawn(async move {
@@ -56,11 +58,11 @@ impl HostMonitor {
             }
         });
 
-        Self {
+        Ok(Self {
             sys,
             ipv4: detect_local_ip(false),
             ipv6: detect_local_ip(true),
-        }
+        })
     }
 
     /// Read the latest cached snapshot. Disks are queried inline — they don't
@@ -76,15 +78,19 @@ impl HostMonitor {
         // which both double-counts (e.g. `/` plus `/mnt/...`) and misses
         // non-standard layouts (a data disk on `/data`, Windows `E:`, …).
         // `Path::starts_with` is component-wise, so `/apple` never matches `/app`.
-        let disks = Disks::new_with_refreshed_list();
+        // A disk list that cannot be read reports as zero rather than failing
+        // the whole snapshot: CPU and memory are still worth showing.
         let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"));
-        let (disk_total, disk_used) = disks
-            .iter()
-            .filter(|d| cwd.starts_with(d.mount_point()))
-            .max_by_key(|d| d.mount_point().as_os_str().len())
-            .map_or((0u64, 0u64), |d| {
-                (d.total_space(), d.total_space() - d.available_space())
-            });
+        let (disk_total, disk_used) = Disks::new_with_refreshed_list()
+            .ok()
+            .and_then(|disks| {
+                disks
+                    .into_iter()
+                    .filter(|d| cwd.starts_with(d.mount_point()))
+                    .max_by_key(|d| d.mount_point().as_os_str().len())
+                    .map(|d| (d.total_space(), d.total_space() - d.available_space()))
+            })
+            .unwrap_or((0, 0));
 
         let sys = self.sys.read().await;
         SystemStats {
@@ -96,7 +102,7 @@ impl HostMonitor {
             disk_total_bytes: disk_total,
             swap_used_bytes: sys.used_swap(),
             swap_total_bytes: sys.total_swap(),
-            uptime_seconds: System::uptime(),
+            uptime_seconds: System::uptime().unwrap_or(0),
             ipv4: self.ipv4.clone(),
             ipv6: self.ipv6.clone(),
         }
