@@ -722,6 +722,13 @@ export function RoutingRulesField({
       shownGroups.push({ ...first, items: first.items.slice(0, fitChips(first.items, room)) });
     }
     const rest = total - condCount(shownGroups);
+    // What the pill stands for: every chip not in the row. `shownGroups` is a
+    // prefix of `groups`, and its first entry may be cut short — the cut-off
+    // part of that group belongs in the list too, or a rule with one long kind
+    // (seven domains, say) opens an empty "+5".
+    const hiddenGroups = groups
+      .map((g, i) => ({ ...g, items: g.items.slice(shownGroups[i]?.items.length ?? 0) }))
+      .filter((g) => g.items.length > 0);
     return (
       <div className="app-rt-conds">
         {shownGroups.map((g) => (
@@ -748,11 +755,14 @@ export function RoutingRulesField({
           </span>
         ))}
         {rest > 0 && (
-          <Popover
-            trigger="click"
-            content={<GroupList groups={groups.slice(shownGroups.length)} t={t} />}
-          >
-            <Tag style={{ cursor: 'pointer', margin: 0, flexShrink: 0 }}>+{rest}</Tag>
+          <Popover trigger="click" content={<GroupList groups={hiddenGroups} t={t} />}>
+            {/* Click-only, and it must not reach the draggable row underneath. */}
+            <Tag
+              style={{ cursor: 'pointer', margin: 0, flexShrink: 0 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              +{rest}
+            </Tag>
           </Popover>
         )}
       </div>
