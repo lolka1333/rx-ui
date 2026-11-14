@@ -60,6 +60,7 @@ import {
   type BuiltinOutboundTag,
 } from '@/lib/builtinOutbounds';
 import { GEOIP_PRESETS, GEOSITE_PRESETS } from '@/lib/geoPresets';
+import { activeSystemTokens, deriveRuleOrder } from '@/lib/ruleOrder';
 import { uuid } from '@/lib/id';
 import type {
   Client,
@@ -538,43 +539,27 @@ export function RoutingRulesField({
   // this is what tells them apart, and it narrows the type so `sysInfo[tok]` is
   // a lookup the compiler can check rather than an index into `any`.
   const isSystemToken = (tok: string): tok is SystemToken => tok in sysInfo;
-  const activeSys: string[] = ['api'];
-  if (sysBittorrent) activeSys.push('bittorrent');
-  if (sysBlockedDomains.length) activeSys.push('blocked_domains');
-  if (sysBlockedIps.length) activeSys.push('blocked_ips');
-  if (sysDirectDomains.length) activeSys.push('direct_domains');
-  if (sysDirectIps.length) activeSys.push('direct_ips');
-  if (sysIpv4.length) activeSys.push('ipv4');
+  const activeSys = activeSystemTokens({
+    xray_block_bittorrent: sysBittorrent,
+    xray_blocked_domains: sysBlockedDomains,
+    xray_blocked_ips: sysBlockedIps,
+    xray_direct_domains: sysDirectDomains,
+    xray_direct_ips: sysDirectIps,
+    xray_ipv4_domains: sysIpv4,
+  });
 
   const customById = new Map(rules.map((r) => [r.id, r] as const));
-  const valid = new Set<string>([...activeSys, ...customById.keys()]);
 
-  // Reconcile the saved order against what currently exists: keep known tokens
-  // in place, slot new system rows into the system block, append new custom
-  // rows at the end.
-  // First occurrence wins, mirroring the backend reconcile: a repeated token
-  // would render a phantom duplicate row here while the emitter collapses it,
-  // so the list would stop matching what xray evaluates.
-  const seenTok = new Set<string>();
-  const order = ruleOrder.filter((tok) => {
-    if (!valid.has(tok) || seenTok.has(tok)) return false;
-    seenTok.add(tok);
-    return true;
-  });
-  let insertAt = 0;
-  order.forEach((tok, idx) => {
-    if (isSystemToken(tok)) insertAt = idx + 1;
-  });
-  order.splice(insertAt, 0, ...activeSys.filter((k) => !order.includes(k)));
-  rules.forEach((r) => {
-    if (!order.includes(r.id)) order.push(r.id);
-  });
-  // Mirror the backend's final step (`ordered_rule_tokens`): the api pin leads
-  // whatever was saved. With the dedup above, this list is now the emitted list
-  // for every input the backend accepts — including orders stored before the
-  // pin became fixed.
-  const apiAt = order.indexOf('api');
-  if (apiAt > 0) order.unshift(...order.splice(apiAt, 1));
+  // The saved order reconciled against what exists now, exactly as the backend
+  // emits it (`ordered_rule_tokens`): first occurrence wins, new built-in rows
+  // join the built-in block, new custom rows go last, the api pin leads. The
+  // Rules page runs the same derivation to tell a real change from a rule
+  // moved away and back.
+  const order = deriveRuleOrder(
+    ruleOrder,
+    rules.map((r) => r.id),
+    activeSys,
+  );
 
   // Persist the custom-rule set, marking the form dirty (setFieldsValue alone
   // won't fire onValuesChange, so bounce the bound value through onChange every

@@ -26,6 +26,8 @@ import { useLoadState } from '@/api/loadState';
 import { LoadError, LoadStale } from '@/components/LoadState';
 import { RoutingRulesField } from '@/components/RoutingRulesField';
 import { reportRouting, type RoutingApplyResult } from '@/lib/routingReport';
+import { activeSystemTokens, deriveRuleOrder } from '@/lib/ruleOrder';
+import { differsFromSaved } from '@/pages/Settings/dirty';
 import type { PanelSettings, RoutingRule } from '@/api/types';
 
 /** The slice of the settings row this page puts in a form: the two fields it
@@ -51,6 +53,22 @@ function seed(d: PanelSettings): RulesFormValues {
     xray_direct_ips: d.xray_direct_ips ?? [],
     xray_direct_domains: d.xray_direct_domains ?? [],
     xray_ipv4_domains: d.xray_ipv4_domains ?? [],
+  };
+}
+
+/** What a save would actually change: the custom rules, and the evaluation
+ *  order AS DERIVED. Moving a rule writes the full derived list into the order
+ *  field while the stored one may be shorter, so the raw fields would differ
+ *  after a rule is moved away and back even though nothing would change. */
+function savedShape(v: RulesFormValues): Record<string, unknown> {
+  const rules = v.xray_custom_rules ?? [];
+  return {
+    xray_custom_rules: rules,
+    xray_rule_order: deriveRuleOrder(
+      v.xray_rule_order ?? [],
+      rules.map((r) => r.id),
+      activeSystemTokens(v),
+    ),
   };
 }
 
@@ -160,7 +178,16 @@ export function Rules() {
         layout="vertical"
         initialValues={baseline ?? undefined}
         onValuesChange={() => {
-          setDirty(true);
+          // Against the saved state, not "something was touched": moving a
+          // rule and moving it back, or flipping a switch twice, leaves nothing
+          // to save and must not leave the bar up.
+          setDirty(
+            baseline === null ||
+              differsFromSaved(
+                savedShape(form.getFieldsValue(true) as RulesFormValues),
+                savedShape(baseline),
+              ),
+          );
           setAppliedNote(false);
         }}
       >
