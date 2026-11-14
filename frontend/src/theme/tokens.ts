@@ -198,6 +198,9 @@ export function applyCssVariables(mode: ThemeMode): void {
   r.setProperty('--text-2', p.textSecondary);
   r.setProperty('--text-3', p.textTertiary);
   r.setProperty('--accent', '#6366f1');
+  // The same green antd uses for `colorSuccess`, for the few CSS rules that
+  // have to say "done" outside a component.
+  r.setProperty('--success', '#22c55e');
   r.setProperty('--nav-active', navActive(mode));
   // Keep <html>'s inline backgroundColor in sync — the pre-paint script
   // in index.html sets it on initial load to avoid a flash-of-white, but

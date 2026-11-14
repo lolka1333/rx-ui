@@ -165,6 +165,17 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* The same strip after a live save of the routing rules, saying what the save
+   could not do: connections already open keep the route they started on. Calm
+   rather than pending — success colour, no pulse — since nothing is unsaved. */
+.app-settings-dirtybar.is-note .app-settings-dirtybar-inner {
+  border-left-color: var(--success, #22c55e);
+}
+.app-settings-dirtybar.is-note .app-settings-dirtybar-dot {
+  background: var(--success, #22c55e);
+  box-shadow: none;
+  animation: none;
+}
 /* Phones: the label + both buttons can't share such a narrow row. Drop the
    label (the pulsing dot + accent border already signal "unsaved") and let the
    two buttons split the width into comfortable tap targets. */
@@ -174,5 +185,29 @@
   }
   .app-settings-dirtybar-inner .ant-btn {
     flex: 1 1 0;
+  }
+  /* The note is nothing without its words, and on a phone the restart button
+     alone is wider than the room left beside it. So the note takes two rows:
+     the words across the full width (wrapping), the action and the close
+     cross under them. The extra height grows in with the strip's own
+     max-height transition when the bar turns from "unsaved" into the note. */
+  .app-settings-dirtybar.is-note.is-visible {
+    max-height: 150px;
+  }
+  .app-settings-dirtybar.is-note .app-settings-dirtybar-inner {
+    flex-wrap: wrap;
+    row-gap: 10px;
+  }
+  .app-settings-dirtybar.is-note .app-settings-dirtybar-text {
+    display: block;
+    flex: 1 1 calc(100% - 22px) !important;
+    font-size: 12px;
+    white-space: normal;
+  }
+  .app-settings-dirtybar.is-note .app-settings-dirtybar-inner .ant-btn {
+    flex: 1 1 auto;
+  }
+  .app-settings-dirtybar.is-note .app-settings-dirtybar-inner .ant-btn-text {
+    flex: 0 0 auto;
   }
 }

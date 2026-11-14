@@ -246,7 +246,12 @@ export const en: Dict = {
     xrayRestartLater: 'Later',
     xrayRestarted: 'Xray restarted, settings applied',
     xrayRestartError: 'Failed to restart Xray',
-    xrayRoutingApplied: 'Routing rules applied, no restart needed',
+    xrayRoutingApplied: 'Routing rules applied to new connections',
+    rulesAppliedNew: 'Applied to new connections — open ones keep their old route',
+    rulesAppliedNewHint:
+      'Xray picks a route when a connection opens. Ones already open (a browser tab keeps its own for minutes) keep the old route until they close. A restart reconnects every client at once.',
+    rulesRestartNow: 'Restart Xray',
+    rulesRestartedAll: 'Xray restarted — every connection now follows the new rules',
     xrayRoutingAppliedRestart: 'Routing rules applied — Xray was restarted',
     xrayRoutingNotLive:
       'Saved, but not applied to Xray — {{detail}}',

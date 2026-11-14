@@ -16,6 +16,7 @@
 //! "block" row, and so on); they are seeded from the server and left alone.
 
 import { App, Button, Form, Typography } from 'antd';
+import { CloseOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -66,6 +67,11 @@ export function Rules() {
   const qc = useQueryClient();
   const [form] = Form.useForm<RulesFormValues>();
   const [dirty, setDirty] = useState(false);
+  // Set by a save the core took live. xray picks a route once, when a
+  // connection opens, so those rules reach new connections only — a browser
+  // tab keeps reusing the one it already has. The strip below says so and
+  // offers the restart that moves everything at once.
+  const [appliedNote, setAppliedNote] = useState(false);
 
   const query = useQuery<PanelSettings>({
     queryKey: ['panel-settings'],
@@ -110,9 +116,10 @@ export function Rules() {
       // did but only because xray was restarted and every client reconnected —
       // so a plain "saved" here would hide an unapplied rule set or an outage
       // this save caused. Claim success only when it had nothing to say.
-      if (reportRouting(routing, message, t) === 'clean') {
-        message.success(t('settings.xrayRoutingApplied'));
-      }
+      // When the rules went live without a restart, the strip takes over from
+      // a toast: what is worth saying is what did NOT happen to the
+      // connections already open, and that needs a button next to it.
+      setAppliedNote(reportRouting(routing, message, t) === 'clean');
     },
     onError: (e: unknown) =>
       message.error(apiErrorMessage(e) ?? t('settings.panelSaveError')),
@@ -122,6 +129,19 @@ export function Rules() {
     if (baseline) form.setFieldsValue(baseline);
     setDirty(false);
   }, [baseline, form]);
+
+  // Every client reconnects, and on reconnecting each connection is routed by
+  // the rules that are live now.
+  const restart = useMutation({
+    mutationFn: async () => apiClient.post('/xray/restart'),
+    onSuccess: async () => {
+      setAppliedNote(false);
+      await qc.invalidateQueries({ queryKey: ['dashboard-overview'] });
+      message.success(t('settings.rulesRestartedAll'));
+    },
+    onError: (e: unknown) => message.error(apiErrorMessage(e) ?? t('settings.xrayRestartError')),
+  });
+  const noteShown = appliedNote && !dirty;
 
   // The house pattern: nothing on screen until the row has arrived, then the
   // whole page fades in as one piece.
@@ -139,7 +159,10 @@ export function Rules() {
         form={form}
         layout="vertical"
         initialValues={baseline ?? undefined}
-        onValuesChange={() => setDirty(true)}
+        onValuesChange={() => {
+          setDirty(true);
+          setAppliedNote(false);
+        }}
       >
         <Form.Item name="xray_custom_rules" noStyle>
           <RoutingRulesField />
@@ -174,27 +197,58 @@ export function Rules() {
 
       {/* The same bar the settings page raises, for the same reason: the table
           edits in place and nothing else on the page says the change is not
-          stored yet. */}
+          stored yet. After a live save it stays up as a note about the
+          connections already open. */}
       <div
-        className={`app-settings-dirtybar${dirty ? ' is-visible' : ''}`}
+        className={`app-settings-dirtybar${dirty || noteShown ? ' is-visible' : ''}${
+          noteShown ? ' is-note' : ''
+        }`}
         role="region"
         aria-live="polite"
       >
-        <div className="app-settings-dirtybar-inner">
-          <span className="app-settings-dirtybar-dot" aria-hidden="true" />
-          <Typography.Text
-            className="app-settings-dirtybar-text"
-            style={{ flex: '1 1 auto', minWidth: 0 }}
-          >
-            {t('settings.dirtyHint')}
-          </Typography.Text>
-          <Button onClick={discard} disabled={mutation.isPending}>
-            {t('settings.discard')}
-          </Button>
-          <Button type="primary" onClick={() => mutation.mutate()} loading={mutation.isPending}>
-            {t('settings.save')}
-          </Button>
-        </div>
+        {noteShown ? (
+          <div className="app-settings-dirtybar-inner">
+            <span className="app-settings-dirtybar-dot" aria-hidden="true" />
+            <Typography.Text
+              className="app-settings-dirtybar-text"
+              style={{ flex: '1 1 auto', minWidth: 0 }}
+              title={t('settings.rulesAppliedNewHint')}
+            >
+              {t('settings.rulesAppliedNew')}
+            </Typography.Text>
+            <Button
+              type="primary"
+              icon={<ReloadOutlined />}
+              onClick={() => restart.mutate()}
+              loading={restart.isPending}
+            >
+              {t('settings.rulesRestartNow')}
+            </Button>
+            <Button
+              type="text"
+              icon={<CloseOutlined />}
+              aria-label={t('common.close')}
+              onClick={() => setAppliedNote(false)}
+              disabled={restart.isPending}
+            />
+          </div>
+        ) : (
+          <div className="app-settings-dirtybar-inner">
+            <span className="app-settings-dirtybar-dot" aria-hidden="true" />
+            <Typography.Text
+              className="app-settings-dirtybar-text"
+              style={{ flex: '1 1 auto', minWidth: 0 }}
+            >
+              {t('settings.dirtyHint')}
+            </Typography.Text>
+            <Button onClick={discard} disabled={mutation.isPending}>
+              {t('settings.discard')}
+            </Button>
+            <Button type="primary" onClick={() => mutation.mutate()} loading={mutation.isPending}>
+              {t('settings.save')}
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );
