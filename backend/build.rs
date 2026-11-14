@@ -52,6 +52,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // DeviceConfig with one peer. Keys travel as hex here, not base64;
         // `orchestrator` converts, mirroring the core's `ParseWireGuardKey`.
         "proto/proxy/wireguard/config.proto",
+        // MASQUE (RFC 9484 CONNECT-IP) client — Cloudflare WARP over HTTP/3 or
+        // HTTP/2. The proxy half carries the endpoint; the transport half the
+        // WARP keys, the tunnel addresses and XMUX.
+        "proto/proxy/masque/config.proto",
+        "proto/transport/internet/masque/config.proto",
         // Transports we support today.
         "proto/transport/internet/reality/config.proto",
         "proto/transport/internet/splithttp/config.proto",

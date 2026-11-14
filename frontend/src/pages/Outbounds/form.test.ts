@@ -79,6 +79,8 @@ const SHAPES: Record<string, Partial<OutboundFormValues>> = {
   'hysteria xicmp': { protocol_kind: 'hysteria', security: 'tls', finalmask_kind: 'xicmp' },
   wireguard: { protocol_kind: 'wireguard', security: 'none' },
   'wireguard warp': { protocol_kind: 'wireguard', security: 'none', wg_warp: true },
+  'masque h3': { protocol_kind: 'masque', security: 'none' },
+  'masque h2': { protocol_kind: 'masque', security: 'none', ms_http2: true },
   'sudoku mask': { finalmask_kind: 'sudoku' },
   'fragment mask range': {
     finalmask_kind: 'fragment',

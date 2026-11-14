@@ -51,9 +51,9 @@ import { formToOutbound, type OutboundFormValues } from './form';
  *  directly — no per-kind branch. (The old code special-cased vless and left
  *  hysteria showing a bare "—".) */
 function endpointOf(ob: CustomOutbound): string {
-  // A WireGuard peer names one endpoint, host and port together; the relay
-  // protocols keep the two apart.
-  return ob.protocol.kind === 'wireguard'
+  // A WireGuard peer and a MASQUE edge name one endpoint, host and port
+  // together; the relay protocols keep the two apart.
+  return ob.protocol.kind === 'wireguard' || ob.protocol.kind === 'masque'
     ? ob.protocol.endpoint
     : `${ob.protocol.address}:${ob.protocol.port}`;
 }
@@ -365,14 +365,19 @@ export function Outbounds() {
               ) : (
                 <Space size={4}>
                   <Tag color="geekblue">{r.ob.protocol.kind}</Tag>
-                  {/* A WireGuard tunnel dials UDP itself and never touches
-                      the stream layer; its stored transport is a placeholder,
-                      so printing it would name a protocol that isn't in play. */}
+                  {/* WireGuard and MASQUE build their own stream layer; the
+                      stored transport is a placeholder, so printing it would
+                      name a protocol that isn't in play. */}
                   <Tag>
                     {r.ob.protocol.kind === 'wireguard'
                       ? 'UDP'
-                      : TRANSPORT_LABEL[r.ob.transport.kind]}
+                      : r.ob.protocol.kind === 'masque'
+                        ? r.ob.protocol.http2
+                          ? 'H2'
+                          : 'H3'
+                        : TRANSPORT_LABEL[r.ob.transport.kind]}
                   </Tag>
+                  {r.ob.protocol.kind === 'masque' && <Tag color="green">tls</Tag>}
                   {r.ob.security.kind !== 'none' && (
                     <Tag color={r.ob.security.kind === 'reality' ? 'purple' : 'green'}>
                       {r.ob.security.kind}

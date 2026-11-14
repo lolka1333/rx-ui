@@ -86,6 +86,9 @@ pub mod xray {
         pub mod wireguard {
             tonic::include_proto!("xray.proxy.wireguard");
         }
+        pub mod masque {
+            tonic::include_proto!("xray.proxy.masque");
+        }
     }
     pub mod transport {
         pub mod internet {
@@ -112,6 +115,9 @@ pub mod xray {
             }
             pub mod hysteria {
                 tonic::include_proto!("xray.transport.internet.hysteria");
+            }
+            pub mod masque {
+                tonic::include_proto!("xray.transport.internet.masque");
             }
             pub mod reality {
                 tonic::include_proto!("xray.transport.internet.reality");

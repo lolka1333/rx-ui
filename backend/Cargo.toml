@@ -70,6 +70,11 @@ tonic = { version = "0.14", default-features = false, features = ["codegen", "tr
 tonic-prost = "0.14"
 prost = "0.14"
 
+# P-256 keys for WARP over MASQUE: generating the device key and reading the
+# endpoint's. aws-lc-rs is already in the tree as the rustls/reqwest crypto
+# provider, so this adds an edge, not a crate.
+aws-lc-rs = "1.19"
+
 # Reality x25519 keypair generation (server-side)
 x25519-dalek = { version = "3", features = ["static_secrets"] }
 # OS-entropy CSPRNG (`rand::rngs::SysRng`) for every secret we mint ourselves:

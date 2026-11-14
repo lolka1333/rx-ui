@@ -65,6 +65,7 @@ pub enum OutboundProtocolConfig {
     Vless(VlessOutbound),
     Hysteria(HysteriaOutbound),
     Wireguard(WireguardOutbound),
+    Masque(MasqueOutbound),
 }
 
 /// VLESS client settings → xray `settings.vnext[0]`. One endpoint, one user.
@@ -176,6 +177,54 @@ pub struct WireguardOutbound {
     /// affects what the UI says about the row.
     #[serde(default)]
     pub warp: bool,
+}
+
+/// A Cloudflare WARP tunnel over MASQUE (RFC 9484 CONNECT-IP) — the newer of
+/// the two ways the WARP app connects. Instead of `WireGuard`'s own UDP
+/// handshake it speaks HTTP/3, or HTTP/2 over TLS on 443, to Cloudflare's edge:
+/// on the wire it is a client talking to a Cloudflare HTTPS endpoint.
+///
+/// Self-contained like [`WireguardOutbound`]: the orchestrator builds the whole
+/// stream layer (the `masque` transport and its TLS) from these fields, so the
+/// outbound's generic transport, security and mask slots are not consulted.
+///
+/// The keys are the device's: a P-256 key the panel generates and enrols with
+/// the registration, and the endpoint's public key Cloudflare hands back. Both
+/// are kept as base64 DER (PEM is accepted too); the orchestrator converts them
+/// to what the core's proto wants, mirroring `parseWarpPrivateKey` /
+/// `parseWarpPublicKey` in `infra/conf/transport_method.go`.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../frontend/src/api/types/outbound.ts")]
+pub struct MasqueOutbound {
+    /// Our P-256 private key — PKCS #8 or SEC 1, base64 DER or PEM. A client
+    /// certificate is minted from it on every connection.
+    pub private_key: String,
+    /// The endpoint's P-256 public key (`SubjectPublicKeyInfo`, base64 DER or
+    /// PEM). The server certificate is checked against it rather than against
+    /// a CA.
+    pub peer_public_key: String,
+    /// The addresses the registration gave us — at most one v4 and one v6.
+    /// WARP does not assign them inside the tunnel.
+    pub address: Vec<String>,
+    /// `host:port` of the edge: the v4 address the registration names, on
+    /// 443. The same address serves HTTP/3 and HTTP/2, and it is the
+    /// registration's own — another Cloudflare edge presents a different key
+    /// and the certificate check refuses it.
+    pub endpoint: String,
+    /// SNI. Empty ≡ `consumer-masque.cloudflareclient.com`, what the WARP app
+    /// sends — and what the edge needs: under any other name it presents a
+    /// different certificate, which the key check refuses. Kept as a field for
+    /// the day Cloudflare moves it.
+    #[serde(default)]
+    pub server_name: String,
+    /// HTTP/2 over TCP instead of HTTP/3 over QUIC — for networks that throttle
+    /// or drop UDP. Same edge, same port.
+    #[serde(default)]
+    pub http2: bool,
+    /// Resolvers reached through the tunnel, as for `WireGuard`. Empty ≡ the
+    /// core resolves names the way it resolves everything else.
+    #[serde(default)]
+    pub remote_dns: Vec<String>,
 }
 
 /// Mux settings → xray `mux`. Disabled by default.

@@ -14,6 +14,7 @@ import {
   InputNumber,
   Select,
   Space,
+  Switch,
   Typography,
 } from 'antd';
 import { memo, useCallback, useLayoutEffect, useMemo, useState } from 'react';
@@ -37,6 +38,7 @@ import {
   SwitchField,
 } from '@/pages/Inbounds/widgets';
 import {
+  MASQUE_DEFAULT_SNI,
   OUTBOUND_DEFAULTS,
   outboundToForm,
   type OutboundFormValues,
@@ -56,6 +58,7 @@ const PROTOCOL_OPTIONS = [
   { value: 'vless', label: 'VLESS' },
   { value: 'hysteria', label: 'Hysteria2' },
   { value: 'wireguard', label: 'WireGuard' },
+  { value: 'masque', label: 'MASQUE' },
 ];
 
 const NETWORK_OPTIONS = [
@@ -98,6 +101,7 @@ export const OutboundForm = memo(function OutboundForm({
   const protocol = Form.useWatch('protocol_kind', form) as OutboundProtocol | undefined;
   const isHysteria = protocol === 'hysteria';
   const isWireguard = protocol === 'wireguard';
+  const isMasque = protocol === 'masque';
   const isWarpTunnel = editing?.protocol.kind === 'wireguard' && editing.protocol.warp;
   const network = Form.useWatch('network', form) as OutboundNetwork | undefined;
   const security = Form.useWatch('security', form) as OutboundSecurity | undefined;
@@ -278,6 +282,108 @@ export const OutboundForm = memo(function OutboundForm({
             through it. */}
         <Form.Item
           name="wg_remote_dns"
+          label={t('outbounds.wgRemoteDns')}
+          tooltip={t('outbounds.wgRemoteDnsHint')}
+        >
+          <Select
+            mode="tags"
+            tokenSeparators={[',', ' ']}
+            placeholder={t('outbounds.wgRemoteDnsPlaceholder')}
+            open={false}
+          />
+        </Form.Item>
+
+        <SwitchField name="enabled" labelKey="outbounds.enabled" last />
+      </Form>
+    );
+  }
+
+  // WARP over MASQUE builds its own transport and TLS, so — as for WireGuard —
+  // only the tunnel's own fields are offered: the edge, its key, ours, and the
+  // addresses the registration handed out.
+  if (isMasque) {
+    return (
+      <Form
+        className="app-form-rows"
+        key={formKey}
+        form={form}
+        layout="vertical"
+        initialValues={initialValues}
+        onFinish={onFinish}
+        style={{ marginTop: 8 }}
+      >
+        <InputField
+          name="tag"
+          labelKey="outbounds.tag"
+          tooltipKey="outbounds.tagHint"
+          rules={[{ required: true, message: t('outbounds.tagRequired') }]}
+        />
+
+        <Form.Item name="protocol_kind" label={t('outbounds.protocol')}>
+          <Select options={PROTOCOL_OPTIONS} />
+        </Form.Item>
+
+        {editing?.protocol.kind === 'masque' && (
+          <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+            {t('outbounds.msWarpNote')}
+          </Typography.Text>
+        )}
+
+        <SubHeader>{t('outbounds.msEdgeSection')}</SubHeader>
+
+        <SideBySide>
+          <Form.Item
+            name="ms_endpoint"
+            label={t('outbounds.msEndpoint')}
+            tooltip={t('outbounds.msEndpointHint')}
+            rules={[{ required: true, message: t('outbounds.msEndpointRequired') }]}
+            style={{ flex: 2, marginBottom: 12 }}
+          >
+            <Input placeholder="162.159.198.2:443" spellCheck={false} />
+          </Form.Item>
+          <Form.Item
+            name="ms_http2"
+            label="HTTP/2"
+            tooltip={t('outbounds.msHttp2Hint')}
+            valuePropName="checked"
+            style={{ flex: 1, marginBottom: 12 }}
+          >
+            <Switch size="small" />
+          </Form.Item>
+        </SideBySide>
+        <Form.Item
+          name="ms_server_name"
+          label={t('outbounds.tlsServerName')}
+          tooltip={t('outbounds.msServerNameHint')}
+        >
+          <Input placeholder={MASQUE_DEFAULT_SNI} spellCheck={false} allowClear />
+        </Form.Item>
+        <InputField
+          name="ms_peer_public_key"
+          labelKey="outbounds.wgPeerKey"
+          tooltipKey="outbounds.msPeerKeyHint"
+          rules={[{ required: true, message: t('outbounds.wgPeerKeyRequired') }]}
+        />
+
+        <SubHeader>{t('outbounds.wgLocalSection')}</SubHeader>
+
+        <InputField
+          name="ms_private_key"
+          labelKey="outbounds.wgSecretKey"
+          tooltipKey="outbounds.msSecretKeyHint"
+          rules={[{ required: true, message: t('outbounds.wgSecretKeyRequired') }]}
+        />
+        <Form.Item
+          name="ms_address"
+          label={t('outbounds.wgAddress')}
+          tooltip={t('outbounds.msAddressHint')}
+          rules={[{ required: true, message: t('outbounds.wgAddressRequired') }]}
+          style={{ marginBottom: 12 }}
+        >
+          <Select mode="tags" open={false} tokenSeparators={[',', ' ']} placeholder="172.16.0.2/32" />
+        </Form.Item>
+        <Form.Item
+          name="ms_remote_dns"
           label={t('outbounds.wgRemoteDns')}
           tooltip={t('outbounds.wgRemoteDnsHint')}
         >

@@ -23,6 +23,7 @@ use crate::xray::proto::xray::common::protocol::{ServerEndpoint, User};
 use crate::xray::proto::xray::common::serial::TypedMessage;
 use crate::xray::proto::xray::core::{InboundHandlerConfig, OutboundHandlerConfig};
 use crate::xray::proto::xray::proxy::hysteria::ClientConfig as HysteriaClientConfig;
+use crate::xray::proto::xray::proxy::masque::ClientConfig as MasqueClientConfig;
 use crate::xray::proto::xray::proxy::vless::outbound::Config as VlessOutboundConfig;
 use crate::xray::proto::xray::proxy::vless::{Account as VlessAccount, Reverse as VlessReverse};
 use crate::xray::proto::xray::proxy::wireguard::{
@@ -36,6 +37,7 @@ const TYPE_VLESS_OUTBOUND: &str = "xray.proxy.vless.outbound.Config";
 const TYPE_VLESS_ACCOUNT: &str = "xray.proxy.vless.Account";
 const TYPE_HYSTERIA_OUTBOUND: &str = "xray.proxy.hysteria.ClientConfig";
 const TYPE_WIREGUARD_OUTBOUND: &str = "xray.proxy.wireguard.DeviceConfig";
+const TYPE_MASQUE_OUTBOUND: &str = "xray.proxy.masque.ClientConfig";
 /// What `infra/conf` fills in when a peer names no `allowedIPs`. The JSON path
 /// gets that default for free; building the proto here means saying it, and a
 /// peer that allows nothing carries no traffic at all.
@@ -136,7 +138,7 @@ pub fn inbound_to_handler_config(
 }
 
 /// The protocol half of an outbound handler: everything that differs between
-/// a VLESS relay, a Hysteria endpoint and a `WireGuard` tunnel. Split out of
+/// a VLESS relay, a Hysteria endpoint and a `WireGuard` or MASQUE tunnel. Split out of
 /// `outbound_to_handler_config` so that function stays about the sender and
 /// the stream, which is the part every protocol shares.
 fn outbound_proxy_settings(protocol: &OutboundProtocolConfig) -> anyhow::Result<TypedMessage> {
@@ -253,6 +255,25 @@ fn outbound_proxy_settings(protocol: &OutboundProtocolConfig) -> anyhow::Result<
                 value: prost::Message::encode_to_vec(&cfg),
             }
         }
+        OutboundProtocolConfig::Masque(m) => masque_proxy_settings(m)?,
+    })
+}
+
+/// `protocol: "masque"` carries only the edge's address and the tunnel's
+/// resolvers; the keys and the TLS are the stream layer's (`xray::masque`).
+fn masque_proxy_settings(m: &crate::models::MasqueOutbound) -> anyhow::Result<TypedMessage> {
+    let (host, port) = crate::xray::masque::endpoint_parts(&m.endpoint)?;
+    let cfg = MasqueClientConfig {
+        server: Some(ServerEndpoint {
+            address: Some(parse_listen_address(&host)),
+            port: u32::from(port),
+            user: None,
+        }),
+        remote_dns: crate::xray::masque::remote_dns(&m.remote_dns)?,
+    };
+    Ok(TypedMessage {
+        r#type: TYPE_MASQUE_OUTBOUND.to_owned(),
+        value: prost::Message::encode_to_vec(&cfg),
     })
 }
 
@@ -284,30 +305,40 @@ pub fn outbound_to_handler_config(ob: &CustomOutbound) -> anyhow::Result<Outboun
         ..SocketConfig::default()
     });
 
-    // Same StreamConfig as inbounds, but the client-side security variant.
-    let stream_settings = StreamConfig {
-        socket_settings,
-        protocol_name: transport.xray_protocol_name().to_owned(),
-        transport_settings: ob.transport.build_xray_transport_settings()?,
-        security_type: security.xray_type_url().to_owned(),
-        security_settings: security
-            .build_client_settings()?
-            .map_or_else(Vec::new, |msg| vec![msg]),
-        quic_params: transport.quic_params_proto(),
-        tcpmasks,
-        udpmasks,
-        ..StreamConfig::default()
+    // Same StreamConfig as inbounds, but the client-side security variant —
+    // except for MASQUE, whose transport and TLS are fixed by what WARP's edge
+    // speaks and are built from the protocol's own fields. Its generic slots
+    // hold placeholders, and the masks with them are not applied.
+    let stream_settings = if let OutboundProtocolConfig::Masque(m) = &ob.protocol {
+        crate::xray::masque::stream_config(m, socket_settings)?
+    } else {
+        StreamConfig {
+            socket_settings,
+            protocol_name: transport.xray_protocol_name().to_owned(),
+            transport_settings: ob.transport.build_xray_transport_settings()?,
+            security_type: security.xray_type_url().to_owned(),
+            security_settings: security
+                .build_client_settings()?
+                .map_or_else(Vec::new, |msg| vec![msg]),
+            quic_params: transport.quic_params_proto(),
+            tcpmasks,
+            udpmasks,
+            ..StreamConfig::default()
+        }
     };
 
     let proxy = outbound_proxy_settings(&ob.protocol)?;
 
     // Mux is a stream the far end has to speak. A WireGuard peer speaks
-    // WireGuard: wrapping its outbound in mux produces a tunnel that dials and
-    // then carries nothing. The form does not offer the switch for WireGuard,
-    // and a value left over from another protocol is dropped here rather than
-    // trusted.
+    // WireGuard, and WARP's MASQUE edge speaks CONNECT-IP: wrapping either in
+    // mux produces a tunnel that dials and then carries nothing. The form does
+    // not offer the switch for them, and a value left over from another
+    // protocol is dropped here rather than trusted.
     let multiplex_settings = (ob.mux.enabled
-        && !matches!(ob.protocol, OutboundProtocolConfig::Wireguard(_)))
+        && !matches!(
+            ob.protocol,
+            OutboundProtocolConfig::Wireguard(_) | OutboundProtocolConfig::Masque(_)
+        ))
     .then(|| MultiplexingConfig {
         enabled: true,
         concurrency: ob.mux.concurrency,

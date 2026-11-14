@@ -58,6 +58,64 @@ address: string,
 port: number, };
 
 /**
+ * A Cloudflare WARP tunnel over MASQUE (RFC 9484 CONNECT-IP) — the newer of
+ * the two ways the WARP app connects. Instead of `WireGuard`'s own UDP
+ * handshake it speaks HTTP/3, or HTTP/2 over TLS on 443, to Cloudflare's edge:
+ * on the wire it is a client talking to a Cloudflare HTTPS endpoint.
+ *
+ * Self-contained like [`WireguardOutbound`]: the orchestrator builds the whole
+ * stream layer (the `masque` transport and its TLS) from these fields, so the
+ * outbound's generic transport, security and mask slots are not consulted.
+ *
+ * The keys are the device's: a P-256 key the panel generates and enrols with
+ * the registration, and the endpoint's public key Cloudflare hands back. Both
+ * are kept as base64 DER (PEM is accepted too); the orchestrator converts them
+ * to what the core's proto wants, mirroring `parseWarpPrivateKey` /
+ * `parseWarpPublicKey` in `infra/conf/transport_method.go`.
+ */
+export type MasqueOutbound = { 
+/**
+ * Our P-256 private key — PKCS #8 or SEC 1, base64 DER or PEM. A client
+ * certificate is minted from it on every connection.
+ */
+private_key: string, 
+/**
+ * The endpoint's P-256 public key (`SubjectPublicKeyInfo`, base64 DER or
+ * PEM). The server certificate is checked against it rather than against
+ * a CA.
+ */
+peer_public_key: string, 
+/**
+ * The addresses the registration gave us — at most one v4 and one v6.
+ * WARP does not assign them inside the tunnel.
+ */
+address: Array<string>, 
+/**
+ * `host:port` of the edge: the v4 address the registration names, on
+ * 443. The same address serves HTTP/3 and HTTP/2, and it is the
+ * registration's own — another Cloudflare edge presents a different key
+ * and the certificate check refuses it.
+ */
+endpoint: string, 
+/**
+ * SNI. Empty ≡ `consumer-masque.cloudflareclient.com`, what the WARP app
+ * sends — and what the edge needs: under any other name it presents a
+ * different certificate, which the key check refuses. Kept as a field for
+ * the day Cloudflare moves it.
+ */
+server_name: string, 
+/**
+ * HTTP/2 over TCP instead of HTTP/3 over QUIC — for networks that throttle
+ * or drop UDP. Same edge, same port.
+ */
+http2: boolean, 
+/**
+ * Resolvers reached through the tunnel, as for `WireGuard`. Empty ≡ the
+ * core resolves names the way it resolves everything else.
+ */
+remote_dns: Array<string>, };
+
+/**
  * Mux settings → xray `mux`. Disabled by default.
  */
 export type OutboundMux = { enabled: boolean, 
@@ -70,7 +128,7 @@ concurrency: number, };
  * Protocol-specific outbound settings. Tagged enum mirrors the inbound
  * `ProtocolConfig` shape so the frontend form can dispatch the same way.
  */
-export type OutboundProtocolConfig = { "kind": "vless" } & VlessOutbound | { "kind": "hysteria" } & HysteriaOutbound | { "kind": "wireguard" } & WireguardOutbound;
+export type OutboundProtocolConfig = { "kind": "vless" } & VlessOutbound | { "kind": "hysteria" } & HysteriaOutbound | { "kind": "wireguard" } & WireguardOutbound | { "kind": "masque" } & MasqueOutbound;
 
 export type OutboundTestResult = { 
 /**
@@ -138,10 +196,19 @@ encryption_mode: VlessEncryptionMode, encryption_xor_mode: VlessXorMode | null,
 encryption_client_key: string | null, encryption_padding: string | null, };
 
 /**
- * Optional body of the WARP registration: a WARP+ license key, or nothing at
- * all for a free tunnel.
+ * Optional body of the WARP registration: a WARP+ license key, which tunnel
+ * to build, or nothing at all for a free `WireGuard` tunnel.
  */
-export type WarpRequest = { license: string, };
+export type WarpRequest = { license: string, tunnel: WarpTunnel, 
+/**
+ * MASQUE only: HTTP/2 over TCP instead of HTTP/3.
+ */
+http2: boolean, };
+
+/**
+ * The two ways the WARP app connects.
+ */
+export type WarpTunnel = "wireguard" | "masque";
 
 /**
  * A `WireGuard` tunnel used as an outbound — xray dials it in userspace, so no

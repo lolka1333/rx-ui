@@ -22,6 +22,7 @@ import {
   Modal,
   Popconfirm,
   Popover,
+  Segmented,
   Select,
   Space,
   Switch,
@@ -66,6 +67,7 @@ import type {
   Inbound,
   RoutingRule,
   SystemToken,
+  WarpRequest,
 } from '@/api/types';
 // Reuse the inbound editor's form widgets so this modal matches the rest of
 // the panel — compact 12px field spacing, pill ChipGroups, and the collapsible
@@ -369,12 +371,15 @@ export function RoutingRulesField({
   const [warpBusy, setWarpBusy] = useState(false);
   /** Register, save the outbound, and — for the services ticked in the sheet —
    *  add one rule that sends them into the new tunnel. */
-  const addWarp = async (license: string, services: string[]) => {
+  const addWarp = async (license: string, services: string[], tunnel: WarpChoice) => {
     setWarpBusy(true);
     try {
-      const { data: warp } = await apiClient.post<CustomOutbound>('/outbounds/warp', {
+      const request: WarpRequest = {
         license,
-      });
+        tunnel: tunnel === 'wireguard' ? 'wireguard' : 'masque',
+        http2: tunnel === 'masque-h2',
+      };
+      const { data: warp } = await apiClient.post<CustomOutbound>('/outbounds/warp', request);
       const { data: current } = await apiClient.get<CustomOutbound[]>('/outbounds');
       await apiClient.put('/outbounds', [...current, warp]);
       await qc.invalidateQueries({ queryKey: ['outbounds'] });
@@ -1031,9 +1036,20 @@ const WARP_SERVICES = [
   label: GEOSITE_PRESETS.find((p) => p.value === value)?.label ?? value,
 }));
 
-/** The sheet the WARP button opens: the services to point at the tunnel, and
- *  an optional WARP+ key. Both are optional — the plain path is "press create,
- *  get a tunnel".
+/** How the tunnel reaches Cloudflare. WireGuard is what every WARP client
+ *  speaks; MASQUE is HTTPS to Cloudflare's edge, over HTTP/3 or, where UDP is
+ *  throttled or dropped, HTTP/2 over TCP. */
+type WarpChoice = 'wireguard' | 'masque-h3' | 'masque-h2';
+
+const WARP_TUNNEL_OPTIONS: { value: WarpChoice; label: string }[] = [
+  { value: 'wireguard', label: 'WireGuard' },
+  { value: 'masque-h3', label: 'MASQUE H3' },
+  { value: 'masque-h2', label: 'MASQUE H2' },
+];
+
+/** The sheet the WARP button opens: the services to point at the tunnel, how
+ *  it connects, and an optional WARP+ key. All optional — the plain path is
+ *  "press create, get a tunnel".
  *
  *  Two rows of the panel's own field grid, the services first: that is what the
  *  sheet is opened for, while the key is a thing few operators have. The
@@ -1048,11 +1064,12 @@ function WarpModal({
   open: boolean;
   busy: boolean;
   onCancel: () => void;
-  onCreate: (license: string, services: string[]) => void;
+  onCreate: (license: string, services: string[], tunnel: WarpChoice) => void;
 }) {
   const { t } = useTranslation();
   const [license, setLicense] = useState('');
   const [services, setServices] = useState<string[]>([]);
+  const [tunnel, setTunnel] = useState<WarpChoice>('wireguard');
   return (
     <Modal
       open={open}
@@ -1060,7 +1077,7 @@ function WarpModal({
       okText={t('settings.warpCreate')}
       cancelText={t('common.cancel')}
       confirmLoading={busy}
-      onOk={() => onCreate(license.trim(), services)}
+      onOk={() => onCreate(license.trim(), services, tunnel)}
       onCancel={onCancel}
       destroyOnHidden
       width={520}
@@ -1083,6 +1100,18 @@ function WarpModal({
             showSearch={{ optionFilterProp: 'label' }}
           />
         </label>
+
+        <div className="app-warp-row">
+          <Tooltip title={t('settings.warpTunnelHint')}>
+            <span className="app-warp-label">{t('settings.warpTunnel')}</span>
+          </Tooltip>
+          <Segmented<WarpChoice>
+            block
+            value={tunnel}
+            onChange={setTunnel}
+            options={WARP_TUNNEL_OPTIONS}
+          />
+        </div>
 
         <label className="app-warp-row">
           <Tooltip title={t('settings.warpLicenseHint')}>

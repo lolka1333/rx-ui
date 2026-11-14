@@ -33,7 +33,7 @@ interface HeaderPair {
   value: string;
 }
 
-export type OutboundProtocol = 'vless' | 'hysteria' | 'wireguard';
+export type OutboundProtocol = 'vless' | 'hysteria' | 'wireguard' | 'masque';
 export type OutboundNetwork = 'tcp' | 'ws' | 'xhttp';
 export type OutboundSecurity = 'none' | 'tls' | 'reality';
 
@@ -132,6 +132,24 @@ export interface OutboundFormValues extends FinalMaskFormFields {
   wg_domain_strategy: string;
   wg_remote_dns: string[];
   wg_warp: boolean;
+  // WARP over MASQUE. The keys as the registration left them (base64 DER);
+  // `ms_http2` picks HTTP/2 over TCP instead of HTTP/3 — same edge, same port.
+  ms_private_key: string;
+  ms_peer_public_key: string;
+  ms_endpoint: string;
+  ms_address: string[];
+  ms_server_name: string;
+  ms_http2: boolean;
+  ms_remote_dns: string[];
+}
+
+/** The SNI the WARP app sends — what an empty server name stands for. */
+export const MASQUE_DEFAULT_SNI = 'consumer-masque.cloudflareclient.com';
+
+/** WireGuard and MASQUE build their own stream layer, so the generic
+ *  transport, security, masks and mux are neither offered nor sent. */
+function isSelfContained(kind: OutboundProtocol): boolean {
+  return kind === 'wireguard' || kind === 'masque';
 }
 
 export const OUTBOUND_DEFAULTS: OutboundFormValues = {
@@ -202,6 +220,13 @@ export const OUTBOUND_DEFAULTS: OutboundFormValues = {
   wg_domain_strategy: '',
   wg_remote_dns: [],
   wg_warp: false,
+  ms_private_key: '',
+  ms_peer_public_key: '',
+  ms_endpoint: '',
+  ms_address: [],
+  ms_server_name: '',
+  ms_http2: false,
+  ms_remote_dns: [],
   // FinalMask defaults reused verbatim from the inbound form.
   finalmask_kind: INB_DEFAULTS.finalmask_kind,
   finalmask_sudoku_password: INB_DEFAULTS.finalmask_sudoku_password,
@@ -370,17 +395,37 @@ function buildHyQuic(v: OutboundFormValues): QuicParams | null {
   };
 }
 
+/** The protocol block for the two tunnels that carry their own stream layer,
+ *  or null for a relay protocol. */
+function buildTunnelProtocol(v: OutboundFormValues): CustomOutbound['protocol'] | null {
+  if (v.protocol_kind === 'masque') {
+    return {
+      kind: 'masque',
+      private_key: v.ms_private_key.trim(),
+      peer_public_key: v.ms_peer_public_key.trim(),
+      endpoint: v.ms_endpoint.trim(),
+      address: v.ms_address.map((a) => a.trim()).filter(Boolean),
+      server_name: v.ms_server_name.trim(),
+      http2: v.ms_http2,
+      remote_dns: v.ms_remote_dns.map((s) => s.trim()).filter(Boolean),
+    };
+  }
+  return null;
+}
+
 export function formToOutbound(
   v: OutboundFormValues,
   existing: CustomOutbound | null,
 ): CustomOutbound {
   const now = new Date().toISOString();
+  const selfContained = isSelfContained(v.protocol_kind);
   return {
     id: existing?.id ?? uuid(),
     tag: v.tag.trim(),
     enabled: v.enabled,
     protocol:
-      v.protocol_kind === 'wireguard'
+      buildTunnelProtocol(v) ??
+      (v.protocol_kind === 'wireguard'
         ? {
             kind: 'wireguard',
             secret_key: v.wg_secret_key.trim(),
@@ -412,7 +457,7 @@ export function formToOutbound(
               v.encryption_mode === 'none' ? null : orNull(v.encryption_client_key),
               encryption_padding:
                 v.encryption_mode === 'none' ? null : orNull(v.encryption_padding),
-            },
+            }),
     // Hysteria 2 IS its transport: the password rides on the hysteria transport
     // (where xray's dialer reads it), masquerade is server-only so a client
     // leaves it at the no-op `notfound`, and the QUIC knobs stay at defaults.
@@ -425,29 +470,26 @@ export function formToOutbound(
             masquerade: { kind: 'notfound' },
             quic_params: buildHyQuic(v),
           }
-        : v.protocol_kind === 'wireguard'
+        : selfContained
           ? { kind: 'tcp' }
           : buildTransport(v),
-    // A WireGuard tunnel dials UDP itself, so the stream layer, its security
-    // and the masks are never consulted — the same reason the backend pins
-    // them for a registered WARP tunnel. The form shows none of these controls
-    // for WireGuard either, so what is left here is the VLESS defaults: sending
-    // them would store a Reality block with no key on a tunnel that cannot use
-    // one, and the save is refused.
-    security: v.protocol_kind === 'wireguard' ? { kind: 'none' } : buildSecurity(v),
+    // A WireGuard tunnel dials UDP itself and a MASQUE one builds its own
+    // transport and TLS, so the stream layer, its security and the masks are
+    // never consulted — the same reason the backend pins them for a
+    // registered WARP tunnel. The form shows none of these controls for them
+    // either, so what is left here is the VLESS defaults: sending them would
+    // store a Reality block with no key on a tunnel that cannot use one, and
+    // the save is refused.
+    security: selfContained ? { kind: 'none' } : buildSecurity(v),
     // `buildFinalMask` reads only the finalmask_* fields, which OutboundFormValues
     // carries via FinalMaskFormFields — the cast just bridges the wider param type.
-    finalmask:
-      v.protocol_kind === 'wireguard'
-        ? { kind: 'none' }
-        : buildFinalMask(v as unknown as InbFormValues),
-    // Mux belongs to the same group as the three above: a WireGuard peer has
-    // no idea what it is, and the form does not offer the switch there — what
-    // is left in the field is whatever the previous protocol had.
-    mux:
-      v.protocol_kind === 'wireguard'
-        ? { enabled: false, concurrency: 0 }
-        : { enabled: v.mux_enabled, concurrency: v.mux_concurrency },
+    finalmask: selfContained ? { kind: 'none' } : buildFinalMask(v as unknown as InbFormValues),
+    // Mux belongs to the same group as the three above: neither tunnel's far
+    // end knows what it is, and the form does not offer the switch there —
+    // what is left in the field is whatever the previous protocol had.
+    mux: selfContained
+      ? { enabled: false, concurrency: 0 }
+      : { enabled: v.mux_enabled, concurrency: v.mux_concurrency },
     send_through: v.send_through.trim(),
     proxy_tag: v.proxy_tag.trim(),
     created_at: existing?.created_at ?? now,
@@ -489,6 +531,16 @@ export function outboundToForm(ob: CustomOutbound): OutboundFormValues {
     d.protocol_kind = 'hysteria';
     d.address = ob.protocol.address;
     d.port = ob.protocol.port;
+  } else if (ob.protocol.kind === 'masque') {
+    const p = ob.protocol;
+    d.protocol_kind = 'masque';
+    d.ms_private_key = p.private_key;
+    d.ms_peer_public_key = p.peer_public_key;
+    d.ms_endpoint = p.endpoint;
+    d.ms_address = p.address;
+    d.ms_server_name = p.server_name;
+    d.ms_http2 = p.http2;
+    d.ms_remote_dns = p.remote_dns;
   } else {
     const p = ob.protocol;
     d.protocol_kind = 'wireguard';

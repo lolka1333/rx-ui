@@ -2213,6 +2213,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "argon2",
+ "aws-lc-rs",
  "axum",
  "axum-server",
  "base64 0.23.1",

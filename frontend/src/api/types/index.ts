@@ -49,6 +49,7 @@ export type {
   CustomOutbound,
   OutboundTestResult,
   OutboundTraffic,
+  WarpRequest,
 } from './outbound';
 
 export type {

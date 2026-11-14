@@ -5,6 +5,7 @@ pub mod geofiles;
 pub mod grpc;
 pub mod installer;
 pub mod keygen;
+pub mod masque;
 pub mod orchestrator;
 pub mod outbound_test;
 pub mod proto;

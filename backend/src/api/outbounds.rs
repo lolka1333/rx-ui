@@ -41,13 +41,32 @@ pub fn routes() -> Router<AppState> {
         .route("/builtin/{tag}/test", axum::routing::post(test_builtin))
 }
 
-/// Optional body of the WARP registration: a WARP+ license key, or nothing at
-/// all for a free tunnel.
-#[derive(Debug, serde::Deserialize, ts_rs::TS)]
+/// Optional body of the WARP registration: a WARP+ license key, which tunnel
+/// to build, or nothing at all for a free `WireGuard` tunnel.
+#[derive(Debug, Default, serde::Deserialize, ts_rs::TS)]
 #[ts(export, export_to = "../../frontend/src/api/types/outbound.ts")]
 pub struct WarpRequest {
     #[serde(default)]
     pub license: String,
+    #[serde(default)]
+    pub tunnel: WarpTunnel,
+    /// MASQUE only: HTTP/2 over TCP instead of HTTP/3.
+    #[serde(default)]
+    pub http2: bool,
+}
+
+/// The two ways the WARP app connects.
+#[derive(Debug, Default, Clone, Copy, serde::Deserialize, ts_rs::TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "../../frontend/src/api/types/outbound.ts")]
+pub enum WarpTunnel {
+    /// `WireGuard` on UDP 2408 — the older one, and what every WARP client
+    /// speaks.
+    #[default]
+    Wireguard,
+    /// MASQUE: HTTP/3, or HTTP/2 over TLS on 443. Looks like HTTPS to
+    /// Cloudflare, for networks that block or fingerprint `WireGuard`.
+    Masque,
 }
 
 /// Register a Cloudflare WARP tunnel and return it as a ready outbound —
@@ -62,20 +81,30 @@ async fn warp_register(
     State(state): State<AppState>,
     body: Option<Json<WarpRequest>>,
 ) -> AppResult<Json<CustomOutbound>> {
-    let license = body.map_or_default(|Json(b)| b.license);
-    let keys = crate::xray::keygen::generate_wireguard_keypair();
-    let registration = crate::xray::warp::register(keys.private_key, &keys.public_key, &license)
-        .await
-        .map_err(|e| {
-            // A rejected license is the operator's typo and comes back as such,
-            // with Cloudflare's own wording. Everything else is the panel's
-            // host failing to reach Cloudflare, where the cause chain is what
-            // says which step broke.
-            match e.downcast::<crate::xray::warp::BadLicense>() {
-                Ok(bad) => AppError::BadRequest(bad.0),
-                Err(other) => AppError::Internal(other),
-            }
-        })?;
+    let request = body.map_or_default(|Json(b)| b);
+    // A rejected license is the operator's typo and comes back as such, with
+    // Cloudflare's own wording. Everything else is the panel's host failing to
+    // reach Cloudflare, where the cause chain is what says which step broke.
+    let failed = |e: anyhow::Error| match e.downcast::<crate::xray::warp::BadLicense>() {
+        Ok(bad) => AppError::BadRequest(bad.0),
+        Err(other) => AppError::Internal(other),
+    };
+    let protocol = match request.tunnel {
+        WarpTunnel::Wireguard => {
+            let keys = crate::xray::keygen::generate_wireguard_keypair();
+            let registration =
+                crate::xray::warp::register(keys.private_key, &keys.public_key, &request.license)
+                    .await
+                    .map_err(failed)?;
+            OutboundProtocolConfig::Wireguard(registration.into_outbound())
+        }
+        WarpTunnel::Masque => {
+            let registration = crate::xray::warp::register_masque(&request.license)
+                .await
+                .map_err(failed)?;
+            OutboundProtocolConfig::Masque(registration.into_outbound(request.http2))
+        }
+    };
 
     let existing = load_custom_outbounds(&state.db).await?;
     let now = chrono::Utc::now().to_rfc3339();
@@ -83,9 +112,10 @@ async fn warp_register(
         id: uuid::Uuid::new_v4().to_string(),
         tag: free_warp_tag(&existing),
         enabled: true,
-        protocol: OutboundProtocolConfig::Wireguard(registration.into_outbound()),
-        // A WireGuard outbound dials UDP itself: the stream layer, its security
-        // and the masks are not consulted, so they stay at their defaults.
+        protocol,
+        // Neither tunnel reads these: WireGuard dials UDP itself, and MASQUE's
+        // stream layer is built from the protocol's own fields. They stay at
+        // their defaults.
         transport: TransportConfig::Tcp(crate::transports::tcp::TcpTransport {}),
         security: SecurityConfig::None(crate::security::NoneSecurity {}),
         finalmask: crate::transports::finalmask::FinalMask::default(),
@@ -449,10 +479,12 @@ fn validate_outbounds(outbounds: &[CustomOutbound], previous: &[CustomOutbound])
             }
             _ => {}
         }
-        if let OutboundProtocolConfig::Wireguard(w) = &o.protocol {
-            validate_wireguard(w)
-                .map_err(|e| AppError::BadRequest(format!("outbound '{tag}': {e}")))?;
-        }
+        let checked = match &o.protocol {
+            OutboundProtocolConfig::Wireguard(w) => validate_wireguard(w),
+            OutboundProtocolConfig::Masque(m) => validate_masque(m),
+            OutboundProtocolConfig::Vless(_) | OutboundProtocolConfig::Hysteria(_) => Ok(()),
+        };
+        checked.map_err(|e| AppError::BadRequest(format!("outbound '{tag}': {e}")))?;
     }
     Ok(())
 }
@@ -534,10 +566,29 @@ fn validate_wireguard(w: &crate::models::WireguardOutbound) -> anyhow::Result<()
     Ok(())
 }
 
+/// A WARP-over-MASQUE tunnel, checked before it reaches the core. Every field
+/// goes through the same helper the emitter uses, so what passes here builds;
+/// the point is to say so at save time instead of as "saved but not applied".
+fn validate_masque(m: &crate::models::MasqueOutbound) -> anyhow::Result<()> {
+    use crate::xray::masque;
+    masque::private_key_pkcs8(&m.private_key).map_err(|e| anyhow::anyhow!("private key: {e}"))?;
+    masque::public_key_spki(&m.peer_public_key)
+        .map_err(|e| anyhow::anyhow!("peer public key: {e}"))?;
+    masque::tunnel_addresses(&m.address)?;
+    masque::endpoint_parts(&m.endpoint)?;
+    masque::remote_dns(&m.remote_dns)?;
+    let sni = m.server_name.trim();
+    anyhow::ensure!(
+        !sni.contains(|c: char| c.is_whitespace() || c == '/' || c == ':'),
+        "server name must be a bare host name: {sni}"
+    );
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::validate_wireguard;
-    use crate::models::WireguardOutbound;
+    use super::{validate_masque, validate_wireguard};
+    use crate::models::{MasqueOutbound, WireguardOutbound};
 
     fn peer() -> WireguardOutbound {
         WireguardOutbound {
@@ -611,6 +662,68 @@ mod tests {
             let mut w = peer();
             break_it(&mut w);
             assert!(validate_wireguard(&w).is_err(), "{what} should be refused");
+        }
+    }
+
+    fn masque() -> MasqueOutbound {
+        let ours = crate::xray::masque::generate_keypair().expect("keygen");
+        let edge = crate::xray::masque::generate_keypair().expect("keygen");
+        MasqueOutbound {
+            private_key: ours.private_key,
+            peer_public_key: edge.public_key,
+            address: vec![
+                "172.16.0.2/32".to_owned(),
+                "2606:4700:110:8a36::2/128".to_owned(),
+            ],
+            endpoint: "162.159.198.1:443".to_owned(),
+            server_name: String::new(),
+            http2: false,
+            remote_dns: vec!["1.1.1.1".to_owned()],
+        }
+    }
+
+    /// What a registration hands back, and the edits an operator makes to it.
+    #[test]
+    fn a_registered_masque_tunnel_is_accepted() {
+        assert!(validate_masque(&masque()).is_ok());
+        let edited = MasqueOutbound {
+            http2: true,
+            endpoint: "162.159.198.2:443".to_owned(),
+            server_name: "www.example.com".to_owned(),
+            ..masque()
+        };
+        assert!(validate_masque(&edited).is_ok());
+    }
+
+    /// Each of these is a 400 now rather than a handler that fails to build.
+    #[test]
+    fn a_masque_tunnel_the_core_would_choke_on_is_refused() {
+        type Break = (&'static str, fn(&mut MasqueOutbound));
+        let cases: [Break; 7] = [
+            ("private key that is not a key", |m| {
+                m.private_key = "hunter2".to_owned();
+            }),
+            ("peer key swapped for our private key", |m| {
+                m.peer_public_key = m.private_key.clone();
+            }),
+            ("no address", |m| m.address.clear()),
+            ("two IPv4 addresses", |m| {
+                m.address = vec!["172.16.0.2".to_owned(), "172.16.0.3".to_owned()];
+            }),
+            ("endpoint without a port", |m| {
+                m.endpoint = "162.159.198.1".to_owned();
+            }),
+            ("resolver by name", |m| {
+                m.remote_dns = vec!["dns.google".to_owned()];
+            }),
+            ("SNI with a port", |m| {
+                m.server_name = "example.com:443".to_owned();
+            }),
+        ];
+        for (what, break_it) in cases {
+            let mut m = masque();
+            break_it(&mut m);
+            assert!(validate_masque(&m).is_err(), "{what} should be refused");
         }
     }
 }
