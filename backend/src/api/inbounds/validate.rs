@@ -400,6 +400,21 @@ pub(super) fn validate_layers(
     // helper to keep this function readable).
     validate_xhttp_mode(transport)?;
 
+    // QUIC tuning goes to the core over gRPC, past the loader that range-checks
+    // it, and a Hysteria share link hands part of it to client apps that do run
+    // that loader. Checked when the transport is part of the submission, like
+    // the mask matrix, so a legacy row can still be toggled.
+    if check_matrix {
+        let quic = match transport {
+            TransportConfig::Hysteria(h) => h.quic_params.as_ref(),
+            TransportConfig::Xhttp(x) => x.quic_params.as_ref(),
+            _ => None,
+        };
+        if let Some(q) = quic {
+            q.validate().map_err(AppError::BadRequest)?;
+        }
+    }
+
     // A WireGuard peer is not ours: whatever wraps the inbound's socket, the
     // far end is a stock WireGuard client, and the config the panel hands out
     // has no field that could tell it to speak the same wrapping. Only the

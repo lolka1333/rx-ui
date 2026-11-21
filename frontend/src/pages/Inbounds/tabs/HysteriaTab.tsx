@@ -106,7 +106,7 @@ export function HysteriaTab() {
         </>
       )}
 
-      <QuicTuning />
+      <QuicTuning hysteria />
     </>
   );
 }

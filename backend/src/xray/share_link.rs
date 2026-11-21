@@ -200,14 +200,33 @@ pub fn build_hysteria2_share_link(
     // `obfs=salamander&obfs-password=…` — it lands in every hysteria2 client's
     // obfs field (xray or not). Any other FinalMask (noise/sudoku/…) is an
     // xray-specific wrapper and rides as `fm=`, same as the vless builder.
+    //
+    // `fm=` is xray's whole `finalmask` object, so the client's QUIC tuning
+    // (keepalive, receive windows, the Chrome switch — see
+    // `QuicParams::client_share_json`) rides in it as `quicParams`, with or
+    // without a mask. Not next to Salamander: there the mask travels as
+    // `obfs=`, and a client that takes `fm=` as its finalmask wholesale could
+    // drop the obfs it built from those params.
+    let client_quic = match &inbound.transport {
+        TransportConfig::Hysteria(h) => h
+            .quic_params
+            .as_ref()
+            .and_then(crate::transports::quic::QuicParams::client_share_json),
+        _ => None,
+    };
     match &inbound.finalmask {
         FinalMask::Salamander(p) if !p.password.trim().is_empty() => {
             params.push(("obfs".to_owned(), "salamander".to_owned()));
             params.push(("obfs-password".to_owned(), p.password.clone()));
         }
         _ => {
-            if let Some(pair) = finalmask_share_link_param(&inbound.finalmask) {
-                params.push(pair);
+            let mut body = finalmask_share_link_json(&inbound.finalmask);
+            if let Some(quic) = client_quic {
+                body.get_or_insert_with(|| serde_json::json!({ "tcp": [], "udp": [] }))["quicParams"] =
+                    quic;
+            }
+            if let Some(body) = body {
+                params.push(("fm".to_owned(), body.to_string()));
             }
         }
     }
@@ -324,6 +343,12 @@ pub fn build_vless_share_link(
 /// stable so clients don't have to handle missing keys. Inactive masks
 /// return `None` and the caller skips the param.
 fn finalmask_share_link_param(fm: &FinalMask) -> Option<(String, String)> {
+    finalmask_share_link_json(fm).map(|body| ("fm".to_owned(), body.to_string()))
+}
+
+/// The `fm=` object itself, before it is serialised — the hysteria2 builder
+/// adds `quicParams` to it.
+fn finalmask_share_link_json(fm: &FinalMask) -> Option<serde_json::Value> {
     if !fm.is_active() {
         return None;
     }
@@ -456,8 +481,7 @@ fn finalmask_share_link_param(fm: &FinalMask) -> Option<(String, String)> {
         }
         FinalMask::None => unreachable!("filtered by is_active above"),
     };
-    let raw = serde_json::to_string(&body).ok()?;
-    Some(("fm".to_owned(), raw))
+    Some(body)
 }
 
 /// SNI fallback for TLS-secured inbounds: when the operator left
@@ -1135,6 +1159,87 @@ mod tests {
         assert_eq!(layer["type"], "xicmp");
         assert_eq!(layer["settings"]["ips"], serde_json::json!(["203.0.113.9"]));
         assert_eq!(layer["settings"]["dgram"], true);
+    }
+
+    fn with_quic(mut inb: Inbound, q: crate::transports::quic::QuicParams) -> Inbound {
+        if let TransportConfig::Hysteria(h) = &mut inb.transport {
+            h.quic_params = Some(q);
+        }
+        inb
+    }
+
+    fn client_quic() -> crate::transports::quic::QuicParams {
+        crate::transports::quic::QuicParams {
+            // Server-only knobs: must stay out of the link.
+            congestion: Some(crate::transports::quic::QuicCongestion::Bbr),
+            max_idle_timeout_secs: Some(60),
+            keep_alive_period_secs: Some(10),
+            max_stream_receive_window: Some(1_048_576),
+            max_conn_receive_window: Some(67_108_864),
+            disable_chrome_parrot: true,
+            ..crate::transports::quic::QuicParams::default()
+        }
+    }
+
+    /// The client half of the QUIC tuning rides inside `fm` next to the mask —
+    /// one `finalmask` object, which is what the client's core reads.
+    #[test]
+    fn hysteria2_client_quic_params_ride_in_fm_with_the_mask() {
+        use crate::transports::finalmask::XicmpParams;
+        let mut inb = with_quic(hy_inbound(tls_with_sni("hy.example.com")), client_quic());
+        inb.finalmask = FinalMask::Xicmp(XicmpParams {
+            allowed_client_ips: vec![],
+            server_ips: vec!["203.0.113.9".to_owned()],
+            dgram: false,
+        });
+        let fm = extract_fm(&build_share_link(&inb, &base_client(), "1.2.3.4").unwrap());
+        assert_eq!(fm["udp"][0]["type"], "xicmp");
+        assert_eq!(
+            fm["quicParams"],
+            serde_json::json!({
+                "keepAlivePeriod": 10,
+                "maxStreamReceiveWindow": 1_048_576,
+                "maxConnectionReceiveWindow": 67_108_864,
+                "disableChromeParrot": true,
+            })
+        );
+    }
+
+    #[test]
+    fn hysteria2_client_quic_params_ride_in_fm_without_a_mask() {
+        let inb = with_quic(hy_inbound(tls_with_sni("hy.example.com")), client_quic());
+        let fm = extract_fm(&build_share_link(&inb, &base_client(), "1.2.3.4").unwrap());
+        assert_eq!(fm["tcp"], serde_json::json!([]));
+        assert_eq!(fm["udp"], serde_json::json!([]));
+        assert_eq!(fm["quicParams"]["keepAlivePeriod"], 10);
+    }
+
+    #[test]
+    fn hysteria2_server_only_quic_tuning_adds_no_fm() {
+        let inb = with_quic(
+            hy_inbound(tls_with_sni("hy.example.com")),
+            crate::transports::quic::QuicParams {
+                congestion: Some(crate::transports::quic::QuicCongestion::Bbr),
+                max_incoming_streams: Some(64),
+                ..crate::transports::quic::QuicParams::default()
+            },
+        );
+        let link = build_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
+        assert!(!link.contains("fm="), "got: {link}");
+    }
+
+    /// Salamander travels as `obfs=`; an `fm=` beside it could replace the
+    /// finalmask a client built from those params, dropping the obfs.
+    #[test]
+    fn hysteria2_salamander_keeps_quic_params_out() {
+        use crate::transports::finalmask::SalamanderParams;
+        let mut inb = with_quic(hy_inbound(tls_with_sni("hy.example.com")), client_quic());
+        inb.finalmask = FinalMask::Salamander(SalamanderParams {
+            password: "obfs-pw".into(),
+        });
+        let link = build_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
+        assert!(link.contains("obfs=salamander"), "got: {link}");
+        assert!(!link.contains("fm="), "got: {link}");
     }
 
     /// `mport=` went with the server-side hopping that fed it. xray v26.9.9

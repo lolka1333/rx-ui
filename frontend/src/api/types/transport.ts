@@ -68,7 +68,15 @@ disable_path_mtu_discovery: boolean,
 /**
  * Max concurrent inbound streams per connection. 0 ≡ default.
  */
-max_incoming_streams: number | null, };
+max_incoming_streams: number | null, 
+/**
+ * Client side only: stop the Hysteria dialer from imitating Chrome's QUIC
+ * handshake. The imitation pins Chrome's numbers (6 MiB stream and 15 MiB
+ * connection starting windows, 30 s idle) over whatever is set above, so
+ * the windows reach a client only with this on. The server never reads it.
+ * Absent in rows saved before the field existed, hence the default.
+ */
+disable_chrome_parrot: boolean, };
 
 export type TcpTransport = Record<symbol, never>;
 

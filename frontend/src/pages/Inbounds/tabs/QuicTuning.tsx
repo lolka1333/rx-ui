@@ -19,7 +19,10 @@ const CONGESTION_MODES: { value: FormCongestion; label: string | null }[] = [
   { value: 'reno', label: 'Reno' },
 ];
 
-export function QuicTuning() {
+/** `hysteria`: the inbound's share link carries the client half of this
+ *  tuning (keepalive, windows, the Chrome switch) in `fm.quicParams`, so the
+ *  hints say so and the client-only switch is shown. XHTTP links carry none. */
+export function QuicTuning({ hysteria = false }: { hysteria?: boolean }) {
   const { t } = useTranslation();
   const form = Form.useFormInstance<FormValues>();
   const congestion = Form.useWatch('quic_congestion', form) as FormCongestion | undefined;
@@ -83,7 +86,7 @@ export function QuicTuning() {
         <NumberUnitField
           name="quic_keep_alive_period_secs"
           labelKey="inbounds.quicKeepAlive"
-          tooltipKey="inbounds.quicKeepAliveHint"
+          tooltipKey={hysteria ? 'inbounds.quicKeepAliveHintHy' : 'inbounds.quicKeepAliveHint'}
           placeholder="10"
           unit={t('inbounds.unitSec')}
         />
@@ -93,7 +96,7 @@ export function QuicTuning() {
         <NumberUnitField
           name="quic_init_stream_receive_window"
           labelKey="inbounds.quicInitStreamWindow"
-          tooltipKey="inbounds.quicWindowHint"
+          tooltipKey={hysteria ? 'inbounds.quicWindowHintHy' : 'inbounds.quicWindowHint'}
           unit={t('inbounds.unitBytes')}
         />
         <NumberUnitField
@@ -128,10 +131,22 @@ export function QuicTuning() {
         label={t('inbounds.quicDisablePathMtu')}
         tooltip={t('inbounds.quicDisablePathMtuHint')}
         valuePropName="checked"
-        style={{ marginBottom: 0 }}
+        style={hysteria ? undefined : { marginBottom: 0 }}
       >
         <Switch />
       </Form.Item>
+
+      {hysteria && (
+        <Form.Item
+          name="quic_disable_chrome_parrot"
+          label={t('inbounds.quicDisableChromeParrot')}
+          tooltip={t('inbounds.quicDisableChromeParrotHint')}
+          valuePropName="checked"
+          style={{ marginBottom: 0 }}
+        >
+          <Switch />
+        </Form.Item>
+      )}
     </Section>
   );
 }

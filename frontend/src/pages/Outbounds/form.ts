@@ -70,6 +70,13 @@ export interface OutboundFormValues extends FinalMaskFormFields {
   hy_brutal_down_mbps: number | null;
   hy_keep_alive_secs: number | null;
   hy_max_idle_secs: number | null;
+  // Receive windows, bytes (null = core default) — what bounds this client's
+  // downloads. They take effect only with the Chrome imitation off.
+  hy_init_stream_window: number | null;
+  hy_max_stream_window: number | null;
+  hy_init_conn_window: number | null;
+  hy_max_conn_window: number | null;
+  hy_disable_chrome_parrot: boolean;
   // Port hopping — rotate the UDP port across a set to dodge port-based
   // blocking. Empty = disabled.
   // transport
@@ -171,6 +178,11 @@ export const OUTBOUND_DEFAULTS: OutboundFormValues = {
   hy_brutal_down_mbps: null,
   hy_keep_alive_secs: null,
   hy_max_idle_secs: null,
+  hy_init_stream_window: null,
+  hy_max_stream_window: null,
+  hy_init_conn_window: null,
+  hy_max_conn_window: null,
+  hy_disable_chrome_parrot: false,
   network: 'tcp',
   ws_path: '/',
   ws_host: '',
@@ -367,8 +379,9 @@ function buildSecurity(v: OutboundFormValues): SecurityConfig {
  *  id + created_at on edit; a fresh row mints both. Timestamps are ISO-8601
  *  (the backend stores the array verbatim — no server-side stamping). */
 /** The hysteria client's QUIC knobs, or null when the operator set none.
- *  Only the fields a client cares about are surfaced (Brutal caps + keepalive
- *  /idle); everything else stays at xray's defaults. */
+ *  Only the fields a client cares about are surfaced (Brutal caps, keepalive
+ *  /idle, receive windows, the Chrome switch); everything else stays at
+ *  xray's defaults. */
 function buildHyQuic(v: OutboundFormValues): QuicParams | null {
   const congestion =
     v.hy_congestion === 'brutal' ? 'brutal' : v.hy_congestion === 'bbr' ? 'bbr' : null;
@@ -377,21 +390,27 @@ function buildHyQuic(v: OutboundFormValues): QuicParams | null {
     v.hy_brutal_up_mbps !== null ||
     v.hy_brutal_down_mbps !== null ||
     v.hy_keep_alive_secs !== null ||
-    v.hy_max_idle_secs !== null;
+    v.hy_max_idle_secs !== null ||
+    v.hy_init_stream_window !== null ||
+    v.hy_max_stream_window !== null ||
+    v.hy_init_conn_window !== null ||
+    v.hy_max_conn_window !== null ||
+    v.hy_disable_chrome_parrot;
   if (!anySet) return null;
   return {
     congestion,
     bbr_profile: null,
     brutal_up_mbps: v.hy_brutal_up_mbps,
     brutal_down_mbps: v.hy_brutal_down_mbps,
-    init_stream_receive_window: null,
-    max_stream_receive_window: null,
-    init_conn_receive_window: null,
-    max_conn_receive_window: null,
+    init_stream_receive_window: v.hy_init_stream_window,
+    max_stream_receive_window: v.hy_max_stream_window,
+    init_conn_receive_window: v.hy_init_conn_window,
+    max_conn_receive_window: v.hy_max_conn_window,
     max_incoming_streams: null,
     max_idle_timeout_secs: v.hy_max_idle_secs,
     keep_alive_period_secs: v.hy_keep_alive_secs,
     disable_path_mtu_discovery: false,
+    disable_chrome_parrot: v.hy_disable_chrome_parrot,
   };
 }
 
@@ -576,6 +595,11 @@ export function outboundToForm(ob: CustomOutbound): OutboundFormValues {
       d.hy_brutal_down_mbps = q.brutal_down_mbps;
       d.hy_keep_alive_secs = q.keep_alive_period_secs;
       d.hy_max_idle_secs = q.max_idle_timeout_secs;
+      d.hy_init_stream_window = q.init_stream_receive_window;
+      d.hy_max_stream_window = q.max_stream_receive_window;
+      d.hy_init_conn_window = q.init_conn_receive_window;
+      d.hy_max_conn_window = q.max_conn_receive_window;
+      d.hy_disable_chrome_parrot = q.disable_chrome_parrot ?? false;
     }
   }
   const toPairs = (h: { [k: string]: string } | null): HeaderPair[] =>

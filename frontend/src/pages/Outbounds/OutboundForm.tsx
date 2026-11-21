@@ -602,6 +602,47 @@ export const OutboundForm = memo(function OutboundForm({
               <InputNumber min={0} placeholder="30" />
             </Form.Item>
           </SideBySide>
+          <SideBySide>
+            <Form.Item
+              name="hy_init_stream_window"
+              label={t('outbounds.hyInitStreamWindow')}
+              tooltip={t('outbounds.hyWindowHint')}
+              style={{ flex: 1 }}
+            >
+              <InputNumber min={0} placeholder="8388608" style={{ width: '100%' }} />
+            </Form.Item>
+            <Form.Item
+              name="hy_max_stream_window"
+              label={t('outbounds.hyMaxStreamWindow')}
+              style={{ flex: 1 }}
+            >
+              <InputNumber min={0} placeholder="8388608" style={{ width: '100%' }} />
+            </Form.Item>
+          </SideBySide>
+          <SideBySide>
+            <Form.Item
+              name="hy_init_conn_window"
+              label={t('outbounds.hyInitConnWindow')}
+              style={{ flex: 1 }}
+            >
+              <InputNumber min={0} placeholder="20971520" style={{ width: '100%' }} />
+            </Form.Item>
+            <Form.Item
+              name="hy_max_conn_window"
+              label={t('outbounds.hyMaxConnWindow')}
+              style={{ flex: 1 }}
+            >
+              <InputNumber min={0} placeholder="20971520" style={{ width: '100%' }} />
+            </Form.Item>
+          </SideBySide>
+          <Form.Item
+            name="hy_disable_chrome_parrot"
+            label={t('outbounds.hyDisableChromeParrot')}
+            tooltip={t('outbounds.hyDisableChromeParrotHint')}
+            valuePropName="checked"
+          >
+            <Switch />
+          </Form.Item>
         </>
       )}
 

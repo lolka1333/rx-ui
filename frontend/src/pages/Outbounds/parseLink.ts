@@ -223,7 +223,40 @@ function parseHysteriaLink(body: string): Partial<OutboundFormValues> {
     // never completes, or for XICMP, packets sent where nobody listens.
     applyFinalMask(out, get('fm'));
   }
+  applyQuicParams(out, get('fm'));
   return out;
+}
+
+/** Map `fm.quicParams` — the client QUIC tuning a hysteria2 link carries next
+ *  to (or without) a mask: keepalive, receive windows, the Chrome switch —
+ *  onto the outbound's Hysteria QUIC fields. Anything that is not a positive
+ *  number is ignored and the field keeps its default. */
+function applyQuicParams(out: Partial<OutboundFormValues>, fmRaw: string): void {
+  if (!fmRaw) return;
+  let raw: unknown;
+  try {
+    raw = (JSON.parse(fmRaw) as { quicParams?: unknown }).quicParams;
+  } catch {
+    return;
+  }
+  if (!raw || typeof raw !== 'object') return;
+  const q = raw as Record<string, unknown>;
+  const num = (k: string): number | null => {
+    const v = q[k];
+    return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null;
+  };
+  const fields: [keyof OutboundFormValues, string][] = [
+    ['hy_keep_alive_secs', 'keepAlivePeriod'],
+    ['hy_init_stream_window', 'initStreamReceiveWindow'],
+    ['hy_max_stream_window', 'maxStreamReceiveWindow'],
+    ['hy_init_conn_window', 'initConnectionReceiveWindow'],
+    ['hy_max_conn_window', 'maxConnectionReceiveWindow'],
+  ];
+  for (const [field, key] of fields) {
+    const v = num(key);
+    if (v !== null) Object.assign(out, { [field]: v });
+  }
+  if (q.disableChromeParrot === true) out.hy_disable_chrome_parrot = true;
 }
 
 /** Map the splithttp `extra` JSON (padding-obfs + session-id + seq + uplink). */

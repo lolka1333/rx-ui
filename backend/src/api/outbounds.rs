@@ -409,6 +409,23 @@ fn mask_is_new(o: &CustomOutbound, previous: &[CustomOutbound]) -> bool {
         .is_none_or(|p| mask_fingerprint(&p.finalmask) != mask_fingerprint(&o.finalmask))
 }
 
+/// Whether `q` differs from the QUIC tuning stored for the same outbound id.
+/// Compared through JSON because the struct carries no `PartialEq`.
+fn quic_is_new(
+    o: &CustomOutbound,
+    q: &crate::transports::quic::QuicParams,
+    previous: &[CustomOutbound],
+) -> bool {
+    let stored = previous
+        .iter()
+        .find(|p| p.id == o.id)
+        .and_then(|p| match &p.transport {
+            TransportConfig::Hysteria(t) => t.quic_params.as_ref(),
+            _ => None,
+        });
+    stored.is_none_or(|s| serde_json::to_value(s).ok() != serde_json::to_value(q).ok())
+}
+
 /// `previous` is the stored list, used only to tell a freshly chosen mask from
 /// one that was already there — rules added after a row was written must not
 /// turn every later save of the whole array into a 400.
@@ -465,6 +482,16 @@ fn validate_outbounds(outbounds: &[CustomOutbound], previous: &[CustomOutbound])
                     return Err(AppError::BadRequest(format!(
                         "outbound '{tag}': hysteria2 requires TLS security"
                     )));
+                }
+                // Range-checked the way xray's own loader would (the gRPC push
+                // skips it), but only when the tuning is new or changed: the
+                // whole array is re-sent on every save, and a stored legacy
+                // value must not block writes to unrelated outbounds.
+                if let Some(q) = &t.quic_params
+                    && quic_is_new(o, q, previous)
+                {
+                    q.validate()
+                        .map_err(|e| AppError::BadRequest(format!("outbound '{tag}': {e}")))?;
                 }
             }
             (OutboundProtocolConfig::Hysteria(_), _) => {

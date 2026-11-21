@@ -997,6 +997,7 @@ mod tests {
                 keep_alive_period_secs: Some(10),
                 disable_path_mtu_discovery: true,
                 max_incoming_streams: Some(64),
+                disable_chrome_parrot: true,
             }),
         });
         inb

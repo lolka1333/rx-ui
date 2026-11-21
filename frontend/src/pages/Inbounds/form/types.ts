@@ -253,6 +253,8 @@ export interface FormValues {
   quic_max_conn_receive_window: number | null;
   quic_disable_path_mtu_discovery: boolean;
   quic_max_incoming_streams: number | null;
+  // Hysteria only: rides to clients in the share link (`fm.quicParams`).
+  quic_disable_chrome_parrot: boolean;
   // FinalMask — wire-level obfuscation wrapping socket bytes after the
   // TLS/Reality handshake. Variants:
   //   * sudoku   — TCP + UDP, password-derived lookup + entropy + padding

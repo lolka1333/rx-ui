@@ -249,6 +249,47 @@ describe('hysteria2 links', () => {
     });
     expect(out.finalmask_xicmp_allowed_client_ips).toBeUndefined();
   });
+
+  it('reads the client QUIC tuning from fm.quicParams, next to the mask', () => {
+    const quicParams = {
+      keepAlivePeriod: 10,
+      initStreamReceiveWindow: 1048576,
+      maxStreamReceiveWindow: 1048576,
+      initConnectionReceiveWindow: 67108864,
+      maxConnectionReceiveWindow: 67108864,
+      disableChromeParrot: true,
+    };
+    const mask = { udp: [{ type: 'xicmp', settings: { ips: ['203.0.113.9'], dgram: false } }] };
+    const out = parseOutboundLink(
+      hy2({ fm: JSON.stringify({ ...JSON.parse(fm(mask)), quicParams }) }),
+    );
+    expect(out).toMatchObject({
+      finalmask_kind: 'xicmp',
+      hy_keep_alive_secs: 10,
+      hy_init_stream_window: 1048576,
+      hy_max_stream_window: 1048576,
+      hy_init_conn_window: 67108864,
+      hy_max_conn_window: 67108864,
+      hy_disable_chrome_parrot: true,
+    });
+  });
+
+  it('reads fm.quicParams with no mask and skips values that are not positive numbers', () => {
+    const out = parseOutboundLink(
+      hy2({
+        fm: JSON.stringify({
+          tcp: [],
+          udp: [],
+          quicParams: { keepAlivePeriod: 15, maxStreamReceiveWindow: '1048576', initStreamReceiveWindow: 0 },
+        }),
+      }),
+    );
+    expect(out.hy_keep_alive_secs).toBe(15);
+    expect(out.hy_max_stream_window).toBeUndefined();
+    expect(out.hy_init_stream_window).toBeUndefined();
+    expect(out.hy_disable_chrome_parrot).toBeUndefined();
+    expect(out.finalmask_kind).toBeUndefined();
+  });
 });
 
 describe('rejected links', () => {

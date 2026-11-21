@@ -55,6 +55,7 @@ export const DEFAULTS: FormValues = {
   quic_max_conn_receive_window: null,
   quic_disable_path_mtu_discovery: false,
   quic_max_incoming_streams: null,
+  quic_disable_chrome_parrot: false,
   // Base mode: no flow. XTLS Vision is the recommended add-on for VLESS+Reality
   // but it's still an extra layer the user opts into — match xray's own default
   // (empty flow) so newcomers get a working baseline they can extend.

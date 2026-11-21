@@ -379,6 +379,7 @@ function hydrateQuicParams(v: FormValues, q: QuicParams) {
   v.quic_max_conn_receive_window = q.max_conn_receive_window ?? null;
   v.quic_disable_path_mtu_discovery = q.disable_path_mtu_discovery;
   v.quic_max_incoming_streams = q.max_incoming_streams ?? null;
+  v.quic_disable_chrome_parrot = q.disable_chrome_parrot ?? false;
 }
 
 /** Collect the operator-set QUIC tuning fields into a `QuicParams`,
@@ -399,9 +400,10 @@ function buildQuicParams(v: FormValues): QuicParams | null {
     keep_alive_period_secs: orNullNum(v.quic_keep_alive_period_secs),
     disable_path_mtu_discovery: v.quic_disable_path_mtu_discovery,
     max_incoming_streams: orNullNum(v.quic_max_incoming_streams),
+    disable_chrome_parrot: v.quic_disable_chrome_parrot,
   };
-  // True only when every nullable field is null AND the two booleans
-  // sit at their defaults — that's "operator hasn't touched the panel".
+  // True only when every nullable field is null AND the booleans sit at
+  // their defaults — that's "operator hasn't touched the panel".
   const isEmpty =
     q.congestion === null &&
     q.bbr_profile === null &&
@@ -414,7 +416,8 @@ function buildQuicParams(v: FormValues): QuicParams | null {
     q.max_idle_timeout_secs === null &&
     q.keep_alive_period_secs === null &&
     !q.disable_path_mtu_discovery &&
-    q.max_incoming_streams === null;
+    q.max_incoming_streams === null &&
+    !q.disable_chrome_parrot;
   return isEmpty ? null : q;
 }
 
