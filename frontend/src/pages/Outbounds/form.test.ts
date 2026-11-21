@@ -22,7 +22,9 @@ const CHOICES: Partial<Record<keyof OutboundFormValues, readonly unknown[]>> = {
   flow: ['', 'xtls-rprx-vision'],
   encryption_mode: ['none', 'mlkem768x25519plus'],
   encryption_xor_mode: ['native', 'xorpub', 'random'],
-  hy_congestion: ['', 'brutal', 'bbr'],
+  hy_congestion: ['', 'brutal', 'bbr', 'force-brutal', 'reno'],
+  hy_bbr_profile: ['', 'conservative', 'aggressive'],
+  hy_hop_remote: ['off', 'per_connection', 'interval'],
   xhttp_mode: ['auto', 'packet-up', 'stream-up', 'stream-one'],
   finalmask_kind: ['none', 'sudoku', 'fragment', 'noise', 'salamander', 'xmc', 'xicmp'],
   finalmask_sudoku_ascii: ['', 'prefer_entropy', 'prefer_ascii'],
@@ -77,6 +79,14 @@ const SHAPES: Record<string, Partial<OutboundFormValues>> = {
     finalmask_kind: 'salamander',
   },
   'hysteria xicmp': { protocol_kind: 'hysteria', security: 'tls', finalmask_kind: 'xicmp' },
+  'hysteria force-brutal': { protocol_kind: 'hysteria', security: 'tls', hy_congestion: 'force-brutal' },
+  'hysteria hopping': {
+    protocol_kind: 'hysteria',
+    security: 'tls',
+    hy_hop_local: true,
+    hy_hop_remote: 'interval',
+    hy_hop_ports: '20000-30000',
+  },
   wireguard: { protocol_kind: 'wireguard', security: 'none' },
   'wireguard warp': { protocol_kind: 'wireguard', security: 'none', wg_warp: true },
   'masque h3': { protocol_kind: 'masque', security: 'none' },
@@ -115,5 +125,41 @@ describe.each(Object.entries(SHAPES))('outbound form: %s', (_, overrides) => {
     const back = reopen(edited);
     expect(back[key]).toEqual(edited[key]);
     expect(payload(save(back))).toEqual(sent);
+  });
+});
+
+describe('hysteria QUIC tuning the form does not show', () => {
+  it('carries max_incoming_streams from the stored outbound instead of resetting it', () => {
+    const first = save({ ...OUTBOUND_DEFAULTS, protocol_kind: 'hysteria', security: 'tls' });
+    const stored: CustomOutbound = {
+      ...first,
+      transport: {
+        kind: 'hysteria',
+        auth: null,
+        udp_idle_timeout: null,
+        masquerade: { kind: 'notfound' },
+        quic_params: {
+          congestion: null,
+          bbr_profile: null,
+          brutal_up_mbps: null,
+          brutal_down_mbps: null,
+          init_stream_receive_window: null,
+          max_stream_receive_window: null,
+          init_conn_receive_window: null,
+          max_conn_receive_window: null,
+          max_idle_timeout_secs: null,
+          keep_alive_period_secs: null,
+          disable_path_mtu_discovery: false,
+          max_incoming_streams: 64,
+          disable_chrome_parrot: false,
+          disable_gso: false,
+          disable_stateless_reset: false,
+          brutal_disable_loss_compensation: false,
+        },
+        udp_hop: null,
+      },
+    };
+    const again = formToOutbound(outboundToForm(stored), stored);
+    expect(again.transport.kind === 'hysteria' && again.transport.quic_params?.max_incoming_streams).toBe(64);
   });
 });

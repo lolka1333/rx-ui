@@ -19,6 +19,7 @@ import type {
   XhttpMode,
   XmcProfile,
 } from '@/api/types';
+import type { HopFormFields } from '@/lib/udpHop';
 
 /** Operator-facing transport label, derived from the typed transport.
  *  `hysteria` is omitted on purpose — it's not a free-standing operator
@@ -94,8 +95,9 @@ export interface ProtocolDef {
 /** Shape of the form's value store, with array fields kept as arrays
  *  (Antd's Select mode="tags" hands us `string[]` directly). One field
  *  per operator-visible knob; the adapters convert from/to the typed
- *  Inbound shape at the boundary. */
-export interface FormValues {
+ *  Inbound shape at the boundary. The `hy_hop_*` port-hopping fields come
+ *  from `HopFormFields`, shared with the outbound form. */
+export interface FormValues extends HopFormFields {
   tag: string;
   port: number;
   listen: string;
@@ -224,6 +226,7 @@ export interface FormValues {
   hysteria_masq_proxy_url: string;
   hysteria_masq_proxy_rewrite_host: boolean;
   hysteria_masq_proxy_insecure: boolean;
+  hysteria_masq_proxy_x_forwarded: boolean;
   hysteria_masq_string_content: string;
   hysteria_masq_string_status_code: number;
   // WireGuard inbound — the panel is the server device. The keypair is
@@ -255,6 +258,9 @@ export interface FormValues {
   quic_max_incoming_streams: number | null;
   // Hysteria only: rides to clients in the share link (`fm.quicParams`).
   quic_disable_chrome_parrot: boolean;
+  quic_disable_gso: boolean;
+  quic_disable_stateless_reset: boolean;
+  quic_brutal_disable_loss_compensation: boolean;
   // FinalMask — wire-level obfuscation wrapping socket bytes after the
   // TLS/Reality handshake. Variants:
   //   * sudoku   — TCP + UDP, password-derived lookup + entropy + padding

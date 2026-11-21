@@ -409,21 +409,20 @@ fn mask_is_new(o: &CustomOutbound, previous: &[CustomOutbound]) -> bool {
         .is_none_or(|p| mask_fingerprint(&p.finalmask) != mask_fingerprint(&o.finalmask))
 }
 
-/// Whether `q` differs from the QUIC tuning stored for the same outbound id.
-/// Compared through JSON because the struct carries no `PartialEq`.
-fn quic_is_new(
-    o: &CustomOutbound,
-    q: &crate::transports::quic::QuicParams,
-    previous: &[CustomOutbound],
-) -> bool {
-    let stored = previous
+/// Whether this outbound's transport or mask differs from what is stored for
+/// the same id — the hysteria checks depend on both (hopping clashes with
+/// XICMP). Compared through JSON because the structs carry no `PartialEq`.
+fn transport_is_new(o: &CustomOutbound, previous: &[CustomOutbound]) -> bool {
+    let shape = |c: &CustomOutbound| {
+        (
+            serde_json::to_value(&c.transport).ok(),
+            serde_json::to_value(&c.finalmask).ok(),
+        )
+    };
+    previous
         .iter()
         .find(|p| p.id == o.id)
-        .and_then(|p| match &p.transport {
-            TransportConfig::Hysteria(t) => t.quic_params.as_ref(),
-            _ => None,
-        });
-    stored.is_none_or(|s| serde_json::to_value(s).ok() != serde_json::to_value(q).ok())
+        .is_none_or(|p| shape(p) != shape(o))
 }
 
 /// `previous` is the stored list, used only to tell a freshly chosen mask from
@@ -484,13 +483,12 @@ fn validate_outbounds(outbounds: &[CustomOutbound], previous: &[CustomOutbound])
                     )));
                 }
                 // Range-checked the way xray's own loader would (the gRPC push
-                // skips it), but only when the tuning is new or changed: the
-                // whole array is re-sent on every save, and a stored legacy
-                // value must not block writes to unrelated outbounds.
-                if let Some(q) = &t.quic_params
-                    && quic_is_new(o, q, previous)
-                {
-                    q.validate()
+                // skips it), but only when the transport or mask is new or
+                // changed: the whole array is re-sent on every save, and a
+                // stored legacy value must not block writes to unrelated
+                // outbounds.
+                if transport_is_new(o, previous) {
+                    t.validate(&o.finalmask)
                         .map_err(|e| AppError::BadRequest(format!("outbound '{tag}': {e}")))?;
                 }
             }

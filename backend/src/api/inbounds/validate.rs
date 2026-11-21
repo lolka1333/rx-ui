@@ -342,6 +342,20 @@ fn validate_wireguard_finalmask(finalmask: &FinalMask, check: bool) -> AppResult
 /// `check_matrix` decides whether the transport×mask matrix applies. See
 /// `validate_finalmask` — it is off when a stored mask is being carried
 /// forward untouched, so a legacy row stays editable.
+/// QUIC tuning, the UDP idle timeout and port hopping go to the core over gRPC,
+/// past the loader that range-checks them, and a Hysteria share link hands
+/// part of them to client apps that do run that loader.
+fn validate_transport_limits(transport: &TransportConfig, finalmask: &FinalMask) -> AppResult<()> {
+    match transport {
+        TransportConfig::Hysteria(h) => h.validate(finalmask).map_err(AppError::BadRequest),
+        TransportConfig::Xhttp(x) => x
+            .quic_params
+            .as_ref()
+            .map_or(Ok(()), |q| q.validate().map_err(AppError::BadRequest)),
+        _ => Ok(()),
+    }
+}
+
 pub(super) fn validate_layers(
     protocol: &ProtocolConfig,
     transport: &TransportConfig,
@@ -400,19 +414,10 @@ pub(super) fn validate_layers(
     // helper to keep this function readable).
     validate_xhttp_mode(transport)?;
 
-    // QUIC tuning goes to the core over gRPC, past the loader that range-checks
-    // it, and a Hysteria share link hands part of it to client apps that do run
-    // that loader. Checked when the transport is part of the submission, like
-    // the mask matrix, so a legacy row can still be toggled.
+    // Checked when the transport is part of the submission, like the mask
+    // matrix, so a legacy row can still be toggled.
     if check_matrix {
-        let quic = match transport {
-            TransportConfig::Hysteria(h) => h.quic_params.as_ref(),
-            TransportConfig::Xhttp(x) => x.quic_params.as_ref(),
-            _ => None,
-        };
-        if let Some(q) = quic {
-            q.validate().map_err(AppError::BadRequest)?;
-        }
+        validate_transport_limits(transport, finalmask)?;
     }
 
     // A WireGuard peer is not ours: whatever wraps the inbound's socket, the

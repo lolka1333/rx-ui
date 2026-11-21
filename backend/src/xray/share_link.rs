@@ -196,39 +196,56 @@ pub fn build_hysteria2_share_link(
     // connects with `ech` stripped and times out with it present. ECH stays on
     // the vless/TLS builders where the listener actually serves it.
     //
-    // Obfuscation. Salamander is Hysteria 2's NATIVE obfs, so emit the standard
-    // `obfs=salamander&obfs-password=…` — it lands in every hysteria2 client's
-    // obfs field (xray or not). Any other FinalMask (noise/sudoku/…) is an
-    // xray-specific wrapper and rides as `fm=`, same as the vless builder.
+    // Obfuscation and hopping, first in the standard params every hysteria2
+    // client reads: Salamander is Hysteria 2's NATIVE obfs, so
+    // `obfs=salamander&obfs-password=…`, and server-port hopping is `mport=`
+    // (v2rayN, sing-box). Any other FinalMask (noise/sudoku/…) is xray's own
+    // and only rides in `fm=`, same as the vless builder.
     //
-    // `fm=` is xray's whole `finalmask` object, so the client's QUIC tuning
-    // (keepalive, receive windows, the Chrome switch — see
-    // `QuicParams::client_share_json`) rides in it as `quicParams`, with or
-    // without a mask. Not next to Salamander: there the mask travels as
-    // `obfs=`, and a client that takes `fm=` as its finalmask wholesale could
-    // drop the obfs it built from those params.
-    let client_quic = match &inbound.transport {
-        TransportConfig::Hysteria(h) => h
-            .quic_params
-            .as_ref()
-            .and_then(crate::transports::quic::QuicParams::client_share_json),
+    // `fm=` is xray's WHOLE `finalmask` object: v2rayN builds one from
+    // `obfs=`/`mport=` and then replaces it with `fm=` outright. So whenever
+    // `fm=` is sent it carries everything — the mask (Salamander included),
+    // hopping as the last UDP layer, and the client's QUIC tuning as
+    // `quicParams` (keepalive, receive windows, the Chrome switch — see
+    // `QuicParams::client_share_json`). Plain Salamander with nothing else to
+    // say sends no `fm=`, as before.
+    let (client_quic, hop) = match &inbound.transport {
+        TransportConfig::Hysteria(h) => (
+            h.quic_params
+                .as_ref()
+                .and_then(crate::transports::quic::QuicParams::client_share_json),
+            h.udp_hop.as_ref().filter(|h| h.is_active()),
+        ),
+        _ => (None, None),
+    };
+    let salamander = match &inbound.finalmask {
+        FinalMask::Salamander(p) if !p.password.trim().is_empty() => Some(p),
         _ => None,
     };
-    match &inbound.finalmask {
-        FinalMask::Salamander(p) if !p.password.trim().is_empty() => {
-            params.push(("obfs".to_owned(), "salamander".to_owned()));
-            params.push(("obfs-password".to_owned(), p.password.clone()));
-        }
-        _ => {
-            let mut body = finalmask_share_link_json(&inbound.finalmask);
-            if let Some(quic) = client_quic {
-                body.get_or_insert_with(|| serde_json::json!({ "tcp": [], "udp": [] }))["quicParams"] =
-                    quic;
-            }
-            if let Some(body) = body {
-                params.push(("fm".to_owned(), body.to_string()));
-            }
-        }
+    if let Some(p) = salamander {
+        params.push(("obfs".to_owned(), "salamander".to_owned()));
+        params.push(("obfs-password".to_owned(), p.password.clone()));
+    }
+    if let Some(mport) = hop.and_then(crate::transports::udphop::UdpHop::share_mport) {
+        params.push(("mport".to_owned(), mport));
+    }
+    let more_than_obfs = client_quic.is_some() || hop.is_some();
+    let mut body = if salamander.is_some() && !more_than_obfs {
+        None
+    } else {
+        finalmask_share_link_json(&inbound.finalmask)
+    };
+    let empty = || serde_json::json!({ "tcp": [], "udp": [] });
+    if let Some(layer) = hop.and_then(crate::transports::udphop::UdpHop::share_json)
+        && let Some(udp) = body.get_or_insert_with(empty)["udp"].as_array_mut()
+    {
+        udp.push(layer);
+    }
+    if let Some(quic) = client_quic {
+        body.get_or_insert_with(empty)["quicParams"] = quic;
+    }
+    if let Some(body) = body {
+        params.push(("fm".to_owned(), body.to_string()));
     }
 
     let query = params
@@ -987,6 +1004,7 @@ mod tests {
                 udp_idle_timeout: None,
                 masquerade: HysteriaMasquerade::NotFound,
                 quic_params: None,
+                udp_hop: None,
             }),
             security: SecurityConfig::Tls(tls),
             sniffing: Sniffing::default(),
@@ -1228,10 +1246,11 @@ mod tests {
         assert!(!link.contains("fm="), "got: {link}");
     }
 
-    /// Salamander travels as `obfs=`; an `fm=` beside it could replace the
-    /// finalmask a client built from those params, dropping the obfs.
+    /// v2rayN builds a finalmask from `obfs=` and then replaces it with `fm=`
+    /// outright, so an `fm=` sent next to Salamander must carry Salamander too
+    /// — `obfs=` stays for the clients that don't read `fm=`.
     #[test]
-    fn hysteria2_salamander_keeps_quic_params_out() {
+    fn hysteria2_salamander_rides_in_fm_when_fm_is_sent() {
         use crate::transports::finalmask::SalamanderParams;
         let mut inb = with_quic(hy_inbound(tls_with_sni("hy.example.com")), client_quic());
         inb.finalmask = FinalMask::Salamander(SalamanderParams {
@@ -1239,19 +1258,101 @@ mod tests {
         });
         let link = build_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
         assert!(link.contains("obfs=salamander"), "got: {link}");
-        assert!(!link.contains("fm="), "got: {link}");
+        let fm = extract_fm(&link);
+        assert_eq!(fm["udp"][0]["type"], "salamander");
+        assert_eq!(fm["udp"][0]["settings"]["password"], "obfs-pw");
+        assert_eq!(fm["quicParams"]["keepAlivePeriod"], 10);
     }
 
-    /// `mport=` went with the server-side hopping that fed it. xray v26.9.9
-    /// deleted `UdpHop` from `QuicParams` and moved port hopping to the
-    /// finalmask system, so the panel has no port set to advertise — and
-    /// telling a client to rotate ports a server no longer listens on is worse
-    /// than saying nothing.
+    fn with_hop(mut inb: Inbound, hop: crate::transports::udphop::UdpHop) -> Inbound {
+        if let TransportConfig::Hysteria(h) = &mut inb.transport {
+            h.udp_hop = Some(hop);
+        }
+        inb
+    }
+
+    fn server_port_hop() -> crate::transports::udphop::UdpHop {
+        crate::transports::udphop::UdpHop {
+            local: true,
+            remote: crate::transports::udphop::UdpHopRemote::Interval,
+            ports: "20000-30000".to_owned(),
+            interval_min: Some(20),
+            interval_max: Some(40),
+        }
+    }
+
     #[test]
-    fn hysteria2_never_carries_mport() {
+    fn hysteria2_no_mport_without_server_port_hopping() {
         let inb = hy_inbound(tls_with_sni("hy.example.com"));
         let link = build_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
         assert!(!link.contains("mport="), "got: {link}");
+        let local_only = with_hop(
+            hy_inbound(tls_with_sni("hy.example.com")),
+            crate::transports::udphop::UdpHop {
+                local: true,
+                ..crate::transports::udphop::UdpHop::default()
+            },
+        );
+        let link = build_share_link(&local_only, &base_client(), "1.2.3.4").unwrap();
+        assert!(!link.contains("mport="), "got: {link}");
+        assert_eq!(
+            extract_fm(&link)["udp"][0]["settings"]["mode"],
+            "intervalLocal"
+        );
+    }
+
+    /// The canonical pairing: Salamander + hopping. Every client gets the
+    /// standard params; xray clients get both layers in `fm`, hopping last.
+    #[test]
+    fn hysteria2_salamander_with_hopping() {
+        use crate::transports::finalmask::SalamanderParams;
+        let mut inb = with_hop(
+            hy_inbound(tls_with_sni("hy.example.com")),
+            server_port_hop(),
+        );
+        inb.finalmask = FinalMask::Salamander(SalamanderParams {
+            password: "obfs-pw".into(),
+        });
+        let link = build_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
+        assert!(link.contains("obfs=salamander"), "got: {link}");
+        assert!(link.contains("mport=20000-30000"), "got: {link}");
+        let fm = extract_fm(&link);
+        let types: Vec<_> = fm["udp"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|l| l["type"].clone())
+            .collect();
+        assert_eq!(types, vec!["salamander", "udphop"]);
+        assert_eq!(
+            fm["udp"][1]["settings"],
+            serde_json::json!({
+                "mode": "intervalLocal,intervalRemote",
+                "interval": "20-40",
+                "remotePorts": "20000-30000",
+            })
+        );
+        assert!(fm.get("quicParams").is_none());
+    }
+
+    #[test]
+    fn hysteria2_hopping_goes_after_an_fm_mask() {
+        use crate::transports::finalmask::{NoiseItem, NoiseParams};
+        let mut inb = with_hop(
+            hy_inbound(tls_with_sni("hy.example.com")),
+            server_port_hop(),
+        );
+        inb.finalmask = FinalMask::Noise(NoiseParams {
+            items: vec![NoiseItem {
+                rand_min: Some(5),
+                rand_max: Some(10),
+                ..NoiseItem::default()
+            }],
+            ..NoiseParams::default()
+        });
+        let fm = extract_fm(&build_share_link(&inb, &base_client(), "1.2.3.4").unwrap());
+        assert_eq!(fm["udp"][0]["type"], "noise");
+        assert_eq!(fm["udp"][1]["type"], "udphop");
     }
 
     #[test]

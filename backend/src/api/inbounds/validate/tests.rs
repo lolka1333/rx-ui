@@ -801,6 +801,7 @@ fn hysteria_transport() -> TransportConfig {
         udp_idle_timeout: None,
         masquerade: HysteriaMasquerade::NotFound,
         quic_params: None,
+        udp_hop: None,
     })
 }
 

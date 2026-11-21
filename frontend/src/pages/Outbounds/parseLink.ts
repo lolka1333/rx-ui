@@ -224,7 +224,49 @@ function parseHysteriaLink(body: string): Partial<OutboundFormValues> {
     applyFinalMask(out, get('fm'));
   }
   applyQuicParams(out, get('fm'));
+  applyPortHopping(out, get('mport'), get('fm'));
   return out;
+}
+
+/** Port hopping: `mport=` is the standard spelling (v2rayN reads it as
+ *  hopping both the source and the server port), and an `udphop` layer in
+ *  `fm` — which xray clients take over `mport` — states the exact mode,
+ *  interval and ports. */
+function applyPortHopping(out: Partial<OutboundFormValues>, mport: string, fmRaw: string): void {
+  if (mport) {
+    out.hy_hop_local = true;
+    out.hy_hop_remote = 'interval';
+    out.hy_hop_ports = mport.replace(/:/g, '-');
+  }
+  if (!fmRaw) return;
+  let layers: FmItem[];
+  try {
+    layers = (JSON.parse(fmRaw) as { udp?: FmItem[] }).udp ?? [];
+  } catch {
+    return;
+  }
+  const hop = layers.find((l) => l.type === 'udphop');
+  if (!hop?.settings) return;
+  const s = hop.settings;
+  const mode = typeof s.mode === 'string' ? s.mode.toLowerCase() : '';
+  out.hy_hop_local = mode.includes('intervallocal');
+  out.hy_hop_remote = mode.includes('intervalremote')
+    ? 'interval'
+    : mode.includes('perconnremote')
+      ? 'per_connection'
+      : 'off';
+  if (typeof s.remotePorts === 'string' || typeof s.remotePorts === 'number') {
+    out.hy_hop_ports = String(s.remotePorts);
+  }
+  // `interval` is "min-max" or a single number of seconds.
+  const iv = typeof s.interval === 'number' ? String(s.interval) : s.interval;
+  if (typeof iv === 'string') {
+    const m = /^\s*(\d+)\s*(?:-\s*(\d+))?\s*$/.exec(iv);
+    if (m) {
+      out.hy_hop_interval_min = Number(m[1]);
+      out.hy_hop_interval_max = Number(m[2] ?? m[1]);
+    }
+  }
 }
 
 /** Map `fm.quicParams` — the client QUIC tuning a hysteria2 link carries next
@@ -298,7 +340,8 @@ function applyFinalMask(out: Partial<OutboundFormValues>, fmRaw: string): void {
   } catch {
     return;
   }
-  const item = [...(fm.tcp ?? []), ...(fm.udp ?? [])][0];
+  // Port hopping is a layer of its own (see `applyPortHopping`), not the mask.
+  const item = [...(fm.tcp ?? []), ...(fm.udp ?? [])].find((l) => l.type !== 'udphop');
   if (!item?.type || !item.settings) return;
   const st = item.settings;
   const arr = (k: string) => (Array.isArray(st[k]) ? (st[k] as unknown[]) : []);

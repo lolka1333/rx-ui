@@ -4,8 +4,9 @@
 //! them on submit and the right transport variant gets the proto.
 
 import { useMemo } from 'react';
-import { Form, Input, InputNumber, Select, Switch } from 'antd';
+import { Form, InputNumber, Select, Switch } from 'antd';
 import { useTranslation } from 'react-i18next';
+import { bbrProfileSelectOptions } from '@/lib/quic';
 import { NumberUnitField, Section, SideBySide } from '../widgets';
 import type { FormCongestion, FormValues } from '../form/types';
 
@@ -35,6 +36,7 @@ export function QuicTuning({ hysteria = false }: { hysteria?: boolean }) {
       })),
     [t],
   );
+  const bbrProfileOptions = useMemo(() => bbrProfileSelectOptions(t), [t]);
   return (
     <Section itemKey="quic" labelKey="inbounds.quicSection">
       <Form.Item
@@ -46,23 +48,33 @@ export function QuicTuning({ hysteria = false }: { hysteria?: boolean }) {
       </Form.Item>
 
       {brutalActive && (
-        <SideBySide>
-          <NumberUnitField
-            name="quic_brutal_up_mbps"
-            labelKey="inbounds.quicBrutalUp"
-            tooltipKey="inbounds.quicBrutalHint"
-            placeholder="100"
-            min={1}
-            unit={t('inbounds.unitMbps')}
-          />
-          <NumberUnitField
-            name="quic_brutal_down_mbps"
-            labelKey="inbounds.quicBrutalDown"
-            placeholder="100"
-            min={1}
-            unit={t('inbounds.unitMbps')}
-          />
-        </SideBySide>
+        <>
+          <SideBySide>
+            <NumberUnitField
+              name="quic_brutal_up_mbps"
+              labelKey="inbounds.quicBrutalUp"
+              tooltipKey="inbounds.quicBrutalHint"
+              placeholder="100"
+              min={1}
+              unit={t('inbounds.unitMbps')}
+            />
+            <NumberUnitField
+              name="quic_brutal_down_mbps"
+              labelKey="inbounds.quicBrutalDown"
+              placeholder="100"
+              min={1}
+              unit={t('inbounds.unitMbps')}
+            />
+          </SideBySide>
+          <Form.Item
+            name="quic_brutal_disable_loss_compensation"
+            label={t('inbounds.quicBrutalNoLossComp')}
+            tooltip={t('inbounds.quicBrutalNoLossCompHint')}
+            valuePropName="checked"
+          >
+            <Switch />
+          </Form.Item>
+        </>
       )}
 
       {congestion === 'bbr' && (
@@ -71,7 +83,7 @@ export function QuicTuning({ hysteria = false }: { hysteria?: boolean }) {
           label={t('inbounds.quicBbrProfile')}
           tooltip={t('inbounds.quicBbrProfileHint')}
         >
-          <Input placeholder="standard" allowClear />
+          <Select options={bbrProfileOptions} />
         </Form.Item>
       )}
 
@@ -130,6 +142,24 @@ export function QuicTuning({ hysteria = false }: { hysteria?: boolean }) {
         name="quic_disable_path_mtu_discovery"
         label={t('inbounds.quicDisablePathMtu')}
         tooltip={t('inbounds.quicDisablePathMtuHint')}
+        valuePropName="checked"
+      >
+        <Switch />
+      </Form.Item>
+
+      <Form.Item
+        name="quic_disable_gso"
+        label={t('inbounds.quicDisableGso')}
+        tooltip={t('inbounds.quicDisableGsoHint')}
+        valuePropName="checked"
+      >
+        <Switch />
+      </Form.Item>
+
+      <Form.Item
+        name="quic_disable_stateless_reset"
+        label={t('inbounds.quicDisableStatelessReset')}
+        tooltip={t('inbounds.quicDisableStatelessResetHint')}
         valuePropName="checked"
         style={hysteria ? undefined : { marginBottom: 0 }}
       >

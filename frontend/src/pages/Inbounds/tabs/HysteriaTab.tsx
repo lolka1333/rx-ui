@@ -5,8 +5,9 @@
 
 import { Form, Input, InputNumber, Select, Switch } from 'antd';
 import { useTranslation } from 'react-i18next';
+import { PortHoppingFields } from '@/components/PortHoppingFields';
 import { QuicTuning } from './QuicTuning';
-import { SideBySide } from '../widgets';
+import { Section, SideBySide } from '../widgets';
 import type { FormMasqueradeKind, FormValues } from '../form/types';
 
 export function HysteriaTab() {
@@ -85,6 +86,14 @@ export function HysteriaTab() {
               <Switch />
             </Form.Item>
           </SideBySide>
+          <Form.Item
+            name="hysteria_masq_proxy_x_forwarded"
+            label={t('inbounds.hysteriaMasqProxyXForwarded')}
+            tooltip={t('inbounds.hysteriaMasqProxyXForwardedHint')}
+            valuePropName="checked"
+          >
+            <Switch />
+          </Form.Item>
         </>
       )}
 
@@ -105,6 +114,10 @@ export function HysteriaTab() {
           </Form.Item>
         </>
       )}
+
+      <Section itemKey="hop" labelKey="hop.section">
+        <PortHoppingFields side="server" />
+      </Section>
 
       <QuicTuning hysteria />
     </>

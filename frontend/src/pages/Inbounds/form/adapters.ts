@@ -25,6 +25,7 @@ import type {
   WsTransport,
   XhttpTransport,
 } from '@/api/types';
+import { formToHop, hopToForm } from '@/lib/udpHop';
 import { DEFAULTS } from './defaults';
 import type { FormValues } from './types';
 
@@ -81,11 +82,13 @@ export function inboundToForm(inb: Inbound): FormValues {
       v.hysteria_masq_proxy_url = h.masquerade.url;
       v.hysteria_masq_proxy_rewrite_host = h.masquerade.rewrite_host;
       v.hysteria_masq_proxy_insecure = h.masquerade.insecure;
+      v.hysteria_masq_proxy_x_forwarded = h.masquerade.x_forwarded ?? false;
     } else if (h.masquerade.kind === 'string') {
       v.hysteria_masq_string_content = h.masquerade.content;
       v.hysteria_masq_string_status_code = h.masquerade.status_code;
     }
     if (h.quic_params) hydrateQuicParams(v, h.quic_params);
+    Object.assign(v, hopToForm(h.udp_hop));
   }
 
   // `network` stays as the typed transport kind for non-hysteria
@@ -380,6 +383,9 @@ function hydrateQuicParams(v: FormValues, q: QuicParams) {
   v.quic_disable_path_mtu_discovery = q.disable_path_mtu_discovery;
   v.quic_max_incoming_streams = q.max_incoming_streams ?? null;
   v.quic_disable_chrome_parrot = q.disable_chrome_parrot ?? false;
+  v.quic_disable_gso = q.disable_gso ?? false;
+  v.quic_disable_stateless_reset = q.disable_stateless_reset ?? false;
+  v.quic_brutal_disable_loss_compensation = q.brutal_disable_loss_compensation ?? false;
 }
 
 /** Collect the operator-set QUIC tuning fields into a `QuicParams`,
@@ -401,6 +407,9 @@ function buildQuicParams(v: FormValues): QuicParams | null {
     disable_path_mtu_discovery: v.quic_disable_path_mtu_discovery,
     max_incoming_streams: orNullNum(v.quic_max_incoming_streams),
     disable_chrome_parrot: v.quic_disable_chrome_parrot,
+    disable_gso: v.quic_disable_gso,
+    disable_stateless_reset: v.quic_disable_stateless_reset,
+    brutal_disable_loss_compensation: v.quic_brutal_disable_loss_compensation,
   };
   // True only when every nullable field is null AND the booleans sit at
   // their defaults — that's "operator hasn't touched the panel".
@@ -417,7 +426,10 @@ function buildQuicParams(v: FormValues): QuicParams | null {
     q.keep_alive_period_secs === null &&
     !q.disable_path_mtu_discovery &&
     q.max_incoming_streams === null &&
-    !q.disable_chrome_parrot;
+    !q.disable_chrome_parrot &&
+    !q.disable_gso &&
+    !q.disable_stateless_reset &&
+    !q.brutal_disable_loss_compensation;
   return isEmpty ? null : q;
 }
 
@@ -434,6 +446,7 @@ function buildMasquerade(v: FormValues): HysteriaMasquerade {
         url: v.hysteria_masq_proxy_url,
         rewrite_host: v.hysteria_masq_proxy_rewrite_host,
         insecure: v.hysteria_masq_proxy_insecure,
+        x_forwarded: v.hysteria_masq_proxy_x_forwarded,
       };
     case 'string':
       return {
@@ -457,6 +470,7 @@ function buildTransport(v: FormValues): TransportConfig {
       udp_idle_timeout: orNullNum(v.hysteria_udp_idle_timeout),
       masquerade: buildMasquerade(v),
       quic_params: buildQuicParams(v),
+      udp_hop: formToHop(v),
     };
     return { kind: 'hysteria', ...h };
   }

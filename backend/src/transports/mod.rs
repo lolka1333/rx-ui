@@ -24,6 +24,7 @@ pub mod hysteria;
 pub mod quic;
 pub mod sockopt;
 pub mod tcp;
+pub mod udphop;
 pub mod ws;
 pub mod xhttp;
 

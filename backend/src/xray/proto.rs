@@ -112,6 +112,9 @@ pub mod xray {
                 pub mod xicmp {
                     tonic::include_proto!("xray.transport.internet.finalmask.xicmp");
                 }
+                pub mod udphop {
+                    tonic::include_proto!("xray.transport.internet.finalmask.udphop");
+                }
             }
             pub mod hysteria {
                 tonic::include_proto!("xray.transport.internet.hysteria");

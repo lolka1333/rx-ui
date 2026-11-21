@@ -41,6 +41,8 @@ export type {
   HysteriaMasquerade,
   QuicParams,
   QuicCongestion,
+  UdpHop,
+  UdpHopRemote,
 } from './transport';
 
 export type { FinalMask, NoiseItem, XmcProfile } from './finalmask';

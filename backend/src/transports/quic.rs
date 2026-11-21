@@ -45,6 +45,9 @@ impl QuicCongestion {
     }
 }
 
+// The switches mirror xray's own `QuicParams` booleans one to one; folding
+// them into an enum or bitset would only blur that mapping.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../frontend/src/api/types/transport.ts")]
 pub struct QuicParams {
@@ -88,6 +91,19 @@ pub struct QuicParams {
     /// Absent in rows saved before the field existed, hence the default.
     #[serde(default)]
     pub disable_chrome_parrot: bool,
+    /// Send one packet per syscall instead of batching them with UDP GSO —
+    /// for kernels and virtual NICs where GSO sends fail or stall.
+    #[serde(default)]
+    pub disable_gso: bool,
+    /// Never answer a packet for an unknown connection with a stateless
+    /// reset. A reset is a recognisable QUIC reply a prober can provoke;
+    /// without it such packets are dropped silently.
+    #[serde(default)]
+    pub disable_stateless_reset: bool,
+    /// Brutal only: send at the set rate as is instead of raising it to make
+    /// up for measured loss.
+    #[serde(default)]
+    pub brutal_disable_loss_compensation: bool,
 }
 
 /// Limits xray's JSON loader enforces on `quicParams` (`QuicParamsConfig.Build`).
@@ -202,17 +218,14 @@ impl QuicParams {
             bbr_profile: self.bbr_profile.clone().unwrap_or_default(),
             brutal_up: self.brutal_up_mbps.unwrap_or(0),
             brutal_down: self.brutal_down_mbps.unwrap_or(0),
+            // Every field is spelled out rather than left to `..default()`
+            // on purpose: the compiler is what caught both the v26.9.8 and
+            // the v26.9.9 renumbering, and it can only do that while every
+            // field is named.
             disable_chrome_parrot: self.disable_chrome_parrot,
-            // Three switches xray v26.9.8 added to this message. The panel does
-            // not model them yet, and `false` is the core's own default for
-            // every one of them, so the emitted config is unchanged — they are
-            // named rather than left to `..default()` because this struct is
-            // exhaustively initialised on purpose: the compiler is what caught
-            // both the v26.9.8 and the v26.9.9 renumbering, and it can only do
-            // that while every field is spelled out.
-            brutal_disable_loss_compensation: false,
-            disable_gso: false,
-            disable_stateless_reset: false,
+            brutal_disable_loss_compensation: self.brutal_disable_loss_compensation,
+            disable_gso: self.disable_gso,
+            disable_stateless_reset: self.disable_stateless_reset,
             init_stream_receive_window: self.init_stream_receive_window.unwrap_or(0),
             max_stream_receive_window: self.max_stream_receive_window.unwrap_or(0),
             init_conn_receive_window: self.init_conn_receive_window.unwrap_or(0),

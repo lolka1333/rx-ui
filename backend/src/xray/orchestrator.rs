@@ -11,6 +11,8 @@
 
 use crate::models::{Client, CustomOutbound, Inbound, OutboundProtocolConfig, Sniffing};
 use crate::protocols::vless::vless_client_encryption_fields;
+use crate::transports::TransportConfig;
+use crate::transports::udphop::UdpHop;
 use crate::xray::proto::xray::app::proxyman::{
     MultiplexingConfig, ReceiverConfig, SenderConfig, SniffingConfig,
 };
@@ -291,7 +293,15 @@ pub fn outbound_to_handler_config(ob: &CustomOutbound) -> anyhow::Result<Outboun
     // (or UDP Noise) lines up — without it the server drops the connection.
     // `client_side = true` puts Fragment in the TCP slot: the dialer fragments
     // its OWN ClientHello (the asymmetric half the inbound deliberately omits).
-    let (tcpmasks, udpmasks) = ob.finalmask.masks(true);
+    let (tcpmasks, mut udpmasks) = ob.finalmask.masks(true);
+    // Port hopping goes LAST: the core reverses the list and wants the mask
+    // that opens its own socket first (`finalmask.DialUDP`, `HandleDial`).
+    // Client side only, so it is never added on the inbound path.
+    if let TransportConfig::Hysteria(h) = &ob.transport
+        && let Some(hop) = h.udp_hop.as_ref().and_then(UdpHop::to_typed_message)
+    {
+        udpmasks.push(hop);
+    }
 
     // Chain this outbound through another one.
     //
@@ -802,6 +812,7 @@ mod tests {
                 udp_idle_timeout: None,
                 masquerade: HysteriaMasquerade::default(),
                 quic_params: None,
+                udp_hop: None,
             }),
             security: SecurityConfig::None(NoneSecurity {}),
             finalmask: FinalMask::None,
@@ -835,6 +846,42 @@ mod tests {
         let sender = SenderConfig::decode(&cfg.sender_settings.unwrap().value[..]).unwrap();
         let stream = sender.stream_settings.expect("stream settings");
         assert_eq!(stream.protocol_name, "hysteria");
+        assert!(stream.udpmasks.is_empty(), "no mask, no hopping");
+    }
+
+    /// Hopping is pushed as the LAST UDP mask, after the outbound's own mask:
+    /// the core reverses the list and wants the socket-owning mask first.
+    #[test]
+    fn hysteria_outbound_puts_port_hopping_last() {
+        use crate::transports::finalmask::SalamanderParams;
+        use crate::transports::udphop::{UdpHop, UdpHopRemote};
+        let mut ob = hysteria_outbound();
+        ob.finalmask = FinalMask::Salamander(SalamanderParams {
+            password: "pw".into(),
+        });
+        if let TransportConfig::Hysteria(h) = &mut ob.transport {
+            h.udp_hop = Some(UdpHop {
+                remote: UdpHopRemote::Interval,
+                ports: "20000-20001".into(),
+                ..UdpHop::default()
+            });
+        }
+        let cfg = outbound_to_handler_config(&ob).unwrap();
+        let sender = SenderConfig::decode(&cfg.sender_settings.unwrap().value[..]).unwrap();
+        let types: Vec<_> = sender
+            .stream_settings
+            .unwrap()
+            .udpmasks
+            .into_iter()
+            .map(|m| m.r#type)
+            .collect();
+        assert_eq!(
+            types,
+            vec![
+                "xray.transport.internet.finalmask.salamander.Config",
+                "xray.transport.internet.finalmask.udphop.Config",
+            ]
+        );
     }
 
     // === TLS cert presence gates the build (create → 400, not a phantom row) ==
@@ -998,7 +1045,11 @@ mod tests {
                 disable_path_mtu_discovery: true,
                 max_incoming_streams: Some(64),
                 disable_chrome_parrot: true,
+                disable_gso: true,
+                disable_stateless_reset: true,
+                brutal_disable_loss_compensation: false,
             }),
+            udp_hop: None,
         });
         inb
     }

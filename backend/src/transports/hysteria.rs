@@ -32,6 +32,10 @@ pub enum HysteriaMasquerade {
         url: String,
         rewrite_host: bool,
         insecure: bool,
+        /// Add `X-Forwarded-For/-Host/-Proto` so the site behind the proxy
+        /// sees the visitor rather than the server. Absent in older rows.
+        #[serde(default)]
+        x_forwarded: bool,
     },
     String {
         content: String,
@@ -66,10 +70,12 @@ impl HysteriaMasquerade {
                 url,
                 rewrite_host,
                 insecure,
+                x_forwarded,
             } => {
                 cfg.masq_url.clone_from(url);
                 cfg.masq_url_rewrite_host = *rewrite_host;
                 cfg.masq_url_insecure = *insecure;
+                cfg.masq_url_x_forwarded = *x_forwarded;
             }
             Self::String {
                 content,
@@ -109,6 +115,47 @@ pub struct HysteriaTransport {
     /// the orchestrator routes it via the shared `Transport::quic_params_proto`
     /// trait method. `None` leaves all QUIC knobs at xray defaults.
     pub quic_params: Option<QuicParams>,
+    /// Port hopping — client side only (see `transports::udphop`). On an
+    /// inbound it is never pushed to xray: it reaches clients through the
+    /// share link. On an outbound it is pushed as the last UDP mask.
+    #[serde(default)]
+    pub udp_hop: Option<super::udphop::UdpHop>,
+}
+
+/// The core's limits for `udpIdleTimeout` (`HysteriaConfig.Build`).
+const UDP_IDLE_TIMEOUT_SECS: std::ops::RangeInclusive<i64> = 2..=600;
+
+impl HysteriaTransport {
+    /// What xray's own loader would refuse — the panel pushes over gRPC, which
+    /// skips it — plus hopping next to XICMP, which the core only refuses when
+    /// the first connection is dialled. `finalmask` is the mask this transport
+    /// runs under.
+    pub fn validate(&self, finalmask: &super::finalmask::FinalMask) -> Result<(), String> {
+        if let Some(t) = self
+            .udp_idle_timeout
+            .filter(|t| *t != 0 && !UDP_IDLE_TIMEOUT_SECS.contains(t))
+        {
+            return Err(format!(
+                "UDP idle timeout must be {}-{} s, got {t}",
+                UDP_IDLE_TIMEOUT_SECS.start(),
+                UDP_IDLE_TIMEOUT_SECS.end()
+            ));
+        }
+        if let Some(q) = &self.quic_params {
+            q.validate()?;
+        }
+        if let Some(hop) = self.udp_hop.as_ref().filter(|h| h.is_active()) {
+            hop.validate()?;
+            if matches!(finalmask, super::finalmask::FinalMask::Xicmp(_)) {
+                return Err(
+                    "port hopping cannot run with XICMP: both open their own socket, \
+                            and the core allows only one of them"
+                        .to_owned(),
+                );
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Transport for HysteriaTransport {
@@ -135,4 +182,82 @@ impl Transport for HysteriaTransport {
     }
     // share_link_params: default impl returns `[("type", "hysteria")]`,
     // never consulted because hysteria builds its own `hysteria2://` URL.
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::transports::finalmask::{FinalMask, XicmpParams};
+    use crate::transports::udphop::{UdpHop, UdpHopRemote};
+
+    fn hopping() -> HysteriaTransport {
+        HysteriaTransport {
+            udp_hop: Some(UdpHop {
+                local: true,
+                ..UdpHop::default()
+            }),
+            ..HysteriaTransport::default()
+        }
+    }
+
+    #[test]
+    fn hopping_and_xicmp_cannot_share_the_socket() {
+        let xicmp = FinalMask::Xicmp(XicmpParams {
+            allowed_client_ips: vec![],
+            server_ips: vec!["203.0.113.9".into()],
+            dgram: false,
+        });
+        let err = hopping().validate(&xicmp).unwrap_err();
+        assert!(err.contains("XICMP"), "got: {err}");
+        assert_eq!(hopping().validate(&FinalMask::None), Ok(()));
+        // An inactive hopping block is no hopping: XICMP stays allowed.
+        let idle = HysteriaTransport {
+            udp_hop: Some(UdpHop {
+                remote: UdpHopRemote::Off,
+                ..UdpHop::default()
+            }),
+            ..HysteriaTransport::default()
+        };
+        assert_eq!(idle.validate(&xicmp), Ok(()));
+    }
+
+    #[test]
+    fn udp_idle_timeout_follows_the_core_limits() {
+        for (t, ok) in [(0, true), (2, true), (600, true), (1, false), (601, false)] {
+            let tr = HysteriaTransport {
+                udp_idle_timeout: Some(t),
+                ..HysteriaTransport::default()
+            };
+            assert_eq!(tr.validate(&FinalMask::None).is_ok(), ok, "timeout {t}");
+        }
+    }
+
+    #[test]
+    fn proxy_masquerade_carries_x_forwarded() {
+        let tr = HysteriaTransport {
+            masquerade: HysteriaMasquerade::Proxy {
+                url: "https://example.com".into(),
+                rewrite_host: true,
+                insecure: false,
+                x_forwarded: true,
+            },
+            ..HysteriaTransport::default()
+        };
+        let msg = tr.build_settings().unwrap();
+        let cfg = XrayHysteriaConfig::decode(msg.value.as_slice()).unwrap();
+        assert_eq!(cfg.masq_type, "proxy");
+        assert!(cfg.masq_url_rewrite_host && cfg.masq_url_x_forwarded);
+        // Rows saved before the field existed still load, with it off.
+        let old: HysteriaMasquerade = serde_json::from_str(
+            r#"{"kind":"proxy","url":"https://example.com","rewrite_host":false,"insecure":false}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            old,
+            HysteriaMasquerade::Proxy {
+                x_forwarded: false,
+                ..
+            }
+        ));
+    }
 }

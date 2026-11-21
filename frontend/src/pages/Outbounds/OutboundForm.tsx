@@ -22,6 +22,8 @@ import { ImportOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import type { CustomOutbound, VlessEncryptionMode } from '@/api/types';
 import { useFinalMaskGuard } from '@/api/finalmaskSupport';
+import { PortHoppingFields } from '@/components/PortHoppingFields';
+import { bbrProfileSelectOptions } from '@/lib/quic';
 import { FinalMaskTab } from '@/pages/Inbounds/tabs/FinalMaskTab';
 import { LinkParseError, parseOutboundLink } from './parseLink';
 // Single source of truth for uTLS fingerprints — same list the inbound
@@ -560,29 +562,50 @@ export const OutboundForm = memo(function OutboundForm({
             <Select
               options={[
                 { value: '', label: t('outbounds.hyCongestionDefault') },
-                { value: 'brutal', label: 'Brutal' },
                 { value: 'bbr', label: 'BBR' },
+                { value: 'brutal', label: 'Brutal' },
+                { value: 'force-brutal', label: 'Force Brutal' },
+                { value: 'reno', label: 'Reno' },
               ]}
             />
           </Form.Item>
-          {hyCongestion === 'brutal' && (
-            <SideBySide>
+          {hyCongestion === 'bbr' && (
+            <Form.Item
+              name="hy_bbr_profile"
+              label={t('inbounds.quicBbrProfile')}
+              tooltip={t('inbounds.quicBbrProfileHint')}
+            >
+              <Select options={bbrProfileSelectOptions(t)} />
+            </Form.Item>
+          )}
+          {(hyCongestion === 'brutal' || hyCongestion === 'force-brutal') && (
+            <>
+              <SideBySide>
+                <Form.Item
+                  name="hy_brutal_up_mbps"
+                  label={t('outbounds.hyBrutalUp')}
+                  tooltip={t('outbounds.hyBrutalHint')}
+                  style={{ flex: 1 }}
+                >
+                  <InputNumber min={1} placeholder="100" />
+                </Form.Item>
+                <Form.Item
+                  name="hy_brutal_down_mbps"
+                  label={t('outbounds.hyBrutalDown')}
+                  style={{ flex: 1 }}
+                >
+                  <InputNumber min={1} placeholder="100" />
+                </Form.Item>
+              </SideBySide>
               <Form.Item
-                name="hy_brutal_up_mbps"
-                label={t('outbounds.hyBrutalUp')}
-                tooltip={t('outbounds.hyBrutalHint')}
-                style={{ flex: 1 }}
+                name="hy_brutal_no_loss_comp"
+                label={t('inbounds.quicBrutalNoLossComp')}
+                tooltip={t('inbounds.quicBrutalNoLossCompHint')}
+                valuePropName="checked"
               >
-                <InputNumber min={1} placeholder="100" />
+                <Switch />
               </Form.Item>
-              <Form.Item
-                name="hy_brutal_down_mbps"
-                label={t('outbounds.hyBrutalDown')}
-                style={{ flex: 1 }}
-              >
-                <InputNumber min={1} placeholder="100" />
-              </Form.Item>
-            </SideBySide>
+            </>
           )}
           <SideBySide>
             <Form.Item
@@ -643,6 +666,37 @@ export const OutboundForm = memo(function OutboundForm({
           >
             <Switch />
           </Form.Item>
+          <SideBySide>
+            <Form.Item
+              name="hy_disable_pmtud"
+              label={t('inbounds.quicDisablePathMtu')}
+              tooltip={t('inbounds.quicDisablePathMtuHint')}
+              valuePropName="checked"
+              style={{ flex: 1 }}
+            >
+              <Switch />
+            </Form.Item>
+            <Form.Item
+              name="hy_disable_gso"
+              label={t('inbounds.quicDisableGso')}
+              tooltip={t('inbounds.quicDisableGsoHint')}
+              valuePropName="checked"
+              style={{ flex: 1 }}
+            >
+              <Switch />
+            </Form.Item>
+          </SideBySide>
+          <Form.Item
+            name="hy_disable_stateless_reset"
+            label={t('inbounds.quicDisableStatelessReset')}
+            tooltip={t('inbounds.quicDisableStatelessResetHint')}
+            valuePropName="checked"
+          >
+            <Switch />
+          </Form.Item>
+
+          <SubHeader>{t('hop.section')}</SubHeader>
+          <PortHoppingFields side="client" />
         </>
       )}
 

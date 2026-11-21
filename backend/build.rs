@@ -94,6 +94,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "proto/transport/internet/finalmask/salamander/config.proto",
         "proto/transport/internet/finalmask/xmc/config.proto",
         "proto/transport/internet/finalmask/xicmp/config.proto",
+        // udphop — client-side port hopping for Hysteria 2 outbounds (inbound
+        // hopping only rides to clients in the share link).
+        "proto/transport/internet/finalmask/udphop/config.proto",
         // RoutingService — live routing-rule mutation (AddRule/RemoveRule)
         // so rule changes apply without an xray restart. `config.proto`
         // carries the RoutingRule / router Config shapes we build and push;

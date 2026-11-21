@@ -7,6 +7,7 @@
 
 import type {
   CustomOutbound,
+  QuicCongestion,
   QuicParams,
   SecurityConfig,
   TransportConfig,
@@ -17,6 +18,7 @@ import type {
 // Reuse the inbound form's header collapser + finalmask builder so ws/xhttp
 // headers and the FinalMask cipher serialize identically on both sides.
 import { uuid } from '@/lib/id';
+import { formToHop, HOP_DEFAULTS, hopToForm, type HopFormFields } from '@/lib/udpHop';
 import {
   buildFinalMask,
   collapseHeaders,
@@ -37,7 +39,7 @@ export type OutboundProtocol = 'vless' | 'hysteria' | 'wireguard' | 'masque';
 export type OutboundNetwork = 'tcp' | 'ws' | 'xhttp';
 export type OutboundSecurity = 'none' | 'tls' | 'reality';
 
-export interface OutboundFormValues extends FinalMaskFormFields {
+export interface OutboundFormValues extends FinalMaskFormFields, HopFormFields {
   tag: string;
   enabled: boolean;
   /** Outbound protocol — VLESS or Hysteria 2. Drives which protocol/transport
@@ -65,7 +67,8 @@ export interface OutboundFormValues extends FinalMaskFormFields {
   // bandwidth caps (hysteria2's congestion-control feature) and the QUIC
   // keepalive/idle timers. '' congestion = xray default. All ride on the
   // hysteria transport's `quic_params`.
-  hy_congestion: '' | 'brutal' | 'bbr';
+  hy_congestion: '' | QuicCongestion;
+  hy_bbr_profile: string;
   hy_brutal_up_mbps: number | null;
   hy_brutal_down_mbps: number | null;
   hy_keep_alive_secs: number | null;
@@ -77,8 +80,11 @@ export interface OutboundFormValues extends FinalMaskFormFields {
   hy_init_conn_window: number | null;
   hy_max_conn_window: number | null;
   hy_disable_chrome_parrot: boolean;
-  // Port hopping — rotate the UDP port across a set to dodge port-based
-  // blocking. Empty = disabled.
+  hy_disable_pmtud: boolean;
+  hy_disable_gso: boolean;
+  hy_disable_stateless_reset: boolean;
+  hy_brutal_no_loss_comp: boolean;
+  // Port hopping is the `hy_hop_*` block from `HopFormFields`.
   // transport
   network: OutboundNetwork;
   ws_path: string;
@@ -160,6 +166,7 @@ function isSelfContained(kind: OutboundProtocol): boolean {
 }
 
 export const OUTBOUND_DEFAULTS: OutboundFormValues = {
+  ...HOP_DEFAULTS,
   tag: '',
   enabled: true,
   protocol_kind: 'vless',
@@ -183,6 +190,11 @@ export const OUTBOUND_DEFAULTS: OutboundFormValues = {
   hy_init_conn_window: null,
   hy_max_conn_window: null,
   hy_disable_chrome_parrot: false,
+  hy_bbr_profile: '',
+  hy_disable_pmtud: false,
+  hy_disable_gso: false,
+  hy_disable_stateless_reset: false,
+  hy_brutal_no_loss_comp: false,
   network: 'tcp',
   ws_path: '/',
   ws_host: '',
@@ -382,11 +394,19 @@ function buildSecurity(v: OutboundFormValues): SecurityConfig {
  *  Only the fields a client cares about are surfaced (Brutal caps, keepalive
  *  /idle, receive windows, the Chrome switch); everything else stays at
  *  xray's defaults. */
-function buildHyQuic(v: OutboundFormValues): QuicParams | null {
-  const congestion =
-    v.hy_congestion === 'brutal' ? 'brutal' : v.hy_congestion === 'bbr' ? 'bbr' : null;
+function buildHyQuic(
+  v: OutboundFormValues,
+  existing: CustomOutbound | null,
+): QuicParams | null {
+  const congestion = v.hy_congestion === '' ? null : v.hy_congestion;
+  // Not in the form (it bounds streams the SERVER opens, which a client never
+  // sees), so whatever an API write stored is carried rather than reset.
+  const storedQuic =
+    existing?.transport.kind === 'hysteria' ? existing.transport.quic_params : null;
+  const maxIncomingStreams = storedQuic?.max_incoming_streams ?? null;
   const anySet =
     congestion !== null ||
+    v.hy_bbr_profile !== '' ||
     v.hy_brutal_up_mbps !== null ||
     v.hy_brutal_down_mbps !== null ||
     v.hy_keep_alive_secs !== null ||
@@ -395,22 +415,30 @@ function buildHyQuic(v: OutboundFormValues): QuicParams | null {
     v.hy_max_stream_window !== null ||
     v.hy_init_conn_window !== null ||
     v.hy_max_conn_window !== null ||
-    v.hy_disable_chrome_parrot;
+    maxIncomingStreams !== null ||
+    v.hy_disable_chrome_parrot ||
+    v.hy_disable_pmtud ||
+    v.hy_disable_gso ||
+    v.hy_disable_stateless_reset ||
+    v.hy_brutal_no_loss_comp;
   if (!anySet) return null;
   return {
     congestion,
-    bbr_profile: null,
+    bbr_profile: orNull(v.hy_bbr_profile),
     brutal_up_mbps: v.hy_brutal_up_mbps,
     brutal_down_mbps: v.hy_brutal_down_mbps,
     init_stream_receive_window: v.hy_init_stream_window,
     max_stream_receive_window: v.hy_max_stream_window,
     init_conn_receive_window: v.hy_init_conn_window,
     max_conn_receive_window: v.hy_max_conn_window,
-    max_incoming_streams: null,
+    max_incoming_streams: maxIncomingStreams,
     max_idle_timeout_secs: v.hy_max_idle_secs,
     keep_alive_period_secs: v.hy_keep_alive_secs,
-    disable_path_mtu_discovery: false,
+    disable_path_mtu_discovery: v.hy_disable_pmtud,
     disable_chrome_parrot: v.hy_disable_chrome_parrot,
+    disable_gso: v.hy_disable_gso,
+    disable_stateless_reset: v.hy_disable_stateless_reset,
+    brutal_disable_loss_compensation: v.hy_brutal_no_loss_comp,
   };
 }
 
@@ -487,7 +515,8 @@ export function formToOutbound(
             auth: orNull(v.hysteria_auth),
             udp_idle_timeout: null,
             masquerade: { kind: 'notfound' },
-            quic_params: buildHyQuic(v),
+            quic_params: buildHyQuic(v, existing),
+            udp_hop: formToHop(v),
           }
         : selfContained
           ? { kind: 'tcp' }
@@ -585,12 +614,8 @@ export function outboundToForm(ob: CustomOutbound): OutboundFormValues {
     d.hysteria_auth = tr.auth ?? '';
     const q = tr.quic_params;
     if (q) {
-      d.hy_congestion =
-        q.congestion === 'brutal' || q.congestion === 'force-brutal'
-          ? 'brutal'
-          : q.congestion === 'bbr'
-            ? 'bbr'
-            : '';
+      d.hy_congestion = q.congestion ?? '';
+      d.hy_bbr_profile = q.bbr_profile ?? '';
       d.hy_brutal_up_mbps = q.brutal_up_mbps;
       d.hy_brutal_down_mbps = q.brutal_down_mbps;
       d.hy_keep_alive_secs = q.keep_alive_period_secs;
@@ -600,7 +625,12 @@ export function outboundToForm(ob: CustomOutbound): OutboundFormValues {
       d.hy_init_conn_window = q.init_conn_receive_window;
       d.hy_max_conn_window = q.max_conn_receive_window;
       d.hy_disable_chrome_parrot = q.disable_chrome_parrot ?? false;
+      d.hy_disable_pmtud = q.disable_path_mtu_discovery;
+      d.hy_disable_gso = q.disable_gso ?? false;
+      d.hy_disable_stateless_reset = q.disable_stateless_reset ?? false;
+      d.hy_brutal_no_loss_comp = q.brutal_disable_loss_compensation ?? false;
     }
+    Object.assign(d, hopToForm(tr.udp_hop));
   }
   const toPairs = (h: { [k: string]: string } | null): HeaderPair[] =>
     h ? Object.entries(h).map(([name, value]) => ({ name, value })) : [];

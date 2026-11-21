@@ -3,9 +3,11 @@
 //! adapter — every field a form might touch has an explicit baseline
 //! here so the form never sees `undefined`.
 
+import { HOP_DEFAULTS } from '@/lib/udpHop';
 import type { FormValues } from './types';
 
 export const DEFAULTS: FormValues = {
+  ...HOP_DEFAULTS,
   tag: '',
   port: 443,
   listen: '0.0.0.0',
@@ -25,6 +27,7 @@ export const DEFAULTS: FormValues = {
   hysteria_masq_proxy_url: '',
   hysteria_masq_proxy_rewrite_host: false,
   hysteria_masq_proxy_insecure: false,
+  hysteria_masq_proxy_x_forwarded: false,
   hysteria_masq_string_content: '',
   hysteria_masq_string_status_code: 200,
   // WireGuard: keys stay empty so the backend generates the device pair on
@@ -56,6 +59,9 @@ export const DEFAULTS: FormValues = {
   quic_disable_path_mtu_discovery: false,
   quic_max_incoming_streams: null,
   quic_disable_chrome_parrot: false,
+  quic_disable_gso: false,
+  quic_disable_stateless_reset: false,
+  quic_brutal_disable_loss_compensation: false,
   // Base mode: no flow. XTLS Vision is the recommended add-on for VLESS+Reality
   // but it's still an extra layer the user opts into — match xray's own default
   // (empty flow) so newcomers get a working baseline they can extend.

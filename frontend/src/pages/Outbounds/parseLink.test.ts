@@ -274,6 +274,56 @@ describe('hysteria2 links', () => {
     });
   });
 
+  it('reads mport= as hopping both ports, the way v2rayN does', () => {
+    const out = parseOutboundLink(hy2({ mport: '20000:30000' }));
+    expect(out).toMatchObject({
+      hy_hop_local: true,
+      hy_hop_remote: 'interval',
+      hy_hop_ports: '20000-30000',
+    });
+  });
+
+  it('takes the exact hopping from an udphop layer in fm, not as the mask', () => {
+    const out = parseOutboundLink(
+      hy2({
+        obfs: 'salamander',
+        'obfs-password': 'pw',
+        mport: '20000-30000',
+        fm: fm({
+          udp: [
+            { type: 'salamander', settings: { password: 'pw' } },
+            {
+              type: 'udphop',
+              settings: { mode: 'perConnRemote', interval: '20-40', remotePorts: '443,20000-20100' },
+            },
+          ],
+        }),
+      }),
+    );
+    expect(out).toMatchObject({
+      finalmask_kind: 'salamander',
+      finalmask_salamander_password: 'pw',
+      hy_hop_local: false,
+      hy_hop_remote: 'per_connection',
+      hy_hop_ports: '443,20000-20100',
+      hy_hop_interval_min: 20,
+      hy_hop_interval_max: 40,
+    });
+  });
+
+  it('does not mistake a lone udphop layer for a mask', () => {
+    const out = parseOutboundLink(
+      hy2({ fm: fm({ udp: [{ type: 'udphop', settings: { mode: 'intervalLocal', interval: 30 } }] }) }),
+    );
+    expect(out.finalmask_kind).toBeUndefined();
+    expect(out).toMatchObject({
+      hy_hop_local: true,
+      hy_hop_remote: 'off',
+      hy_hop_interval_min: 30,
+      hy_hop_interval_max: 30,
+    });
+  });
+
   it('reads fm.quicParams with no mask and skips values that are not positive numbers', () => {
     const out = parseOutboundLink(
       hy2({
