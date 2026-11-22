@@ -6,7 +6,7 @@
 import { useMemo } from 'react';
 import { Form, InputNumber, Select, Switch } from 'antd';
 import { useTranslation } from 'react-i18next';
-import { bbrProfileSelectOptions } from '@/lib/quic';
+import { bbrProfileSelectOptions, MIN_RECEIVE_WINDOW, receiveWindowRule } from '@/lib/quic';
 import { NumberUnitField, Section, SideBySide } from '../widgets';
 import type { FormCongestion, FormValues } from '../form/types';
 
@@ -37,6 +37,16 @@ export function QuicTuning({ hysteria = false }: { hysteria?: boolean }) {
     [t],
   );
   const bbrProfileOptions = useMemo(() => bbrProfileSelectOptions(t), [t]);
+  // The four windows share the floor: shown in the empty field, and flagged
+  // under it while a smaller value is typed.
+  const windowField = useMemo(
+    () => ({
+      unit: t('inbounds.unitBytes'),
+      placeholder: t('inbounds.quicWindowPlaceholder', { min: MIN_RECEIVE_WINDOW }),
+      rules: [receiveWindowRule(t('inbounds.quicWindowMin', { min: MIN_RECEIVE_WINDOW }))],
+    }),
+    [t],
+  );
   return (
     <Section itemKey="quic" labelKey="inbounds.quicSection">
       <Form.Item
@@ -109,24 +119,24 @@ export function QuicTuning({ hysteria = false }: { hysteria?: boolean }) {
           name="quic_init_stream_receive_window"
           labelKey="inbounds.quicInitStreamWindow"
           tooltipKey={hysteria ? 'inbounds.quicWindowHintHy' : 'inbounds.quicWindowHint'}
-          unit={t('inbounds.unitBytes')}
+          {...windowField}
         />
         <NumberUnitField
           name="quic_max_stream_receive_window"
           labelKey="inbounds.quicMaxStreamWindow"
-          unit={t('inbounds.unitBytes')}
+          {...windowField}
         />
       </SideBySide>
       <SideBySide>
         <NumberUnitField
           name="quic_init_conn_receive_window"
           labelKey="inbounds.quicInitConnWindow"
-          unit={t('inbounds.unitBytes')}
+          {...windowField}
         />
         <NumberUnitField
           name="quic_max_conn_receive_window"
           labelKey="inbounds.quicMaxConnWindow"
-          unit={t('inbounds.unitBytes')}
+          {...windowField}
         />
       </SideBySide>
 

@@ -786,6 +786,8 @@ export const en: Dict = {
     quicMaxStreamWindow: 'Max stream window',
     quicInitConnWindow: 'Initial conn window',
     quicMaxConnWindow: 'Max conn window',
+    quicWindowPlaceholder: 'min {{min}}',
+    quicWindowMin: 'At least {{min}} bytes — the core refuses a smaller window',
     quicWindowHint: 'QUIC flow-control window sizes. Leave empty for xray defaults — only tune for high-bandwidth-high-latency links.',
     quicMaxIncomingStreams: 'Max incoming streams',
     quicMaxIncomingStreamsHint: 'Cap on concurrent QUIC streams per connection. 0/empty = xray default.',

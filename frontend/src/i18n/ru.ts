@@ -786,6 +786,8 @@ export const ru = {
     quicMaxStreamWindow: 'Макс. окно потока',
     quicInitConnWindow: 'Начальное окно соединения',
     quicMaxConnWindow: 'Макс. окно соединения',
+    quicWindowPlaceholder: 'мин. {{min}}',
+    quicWindowMin: 'Не меньше {{min}} байт — меньшее окно ядро не принимает',
     quicWindowHint: 'Размеры окон flow-control QUIC. Пусто = дефолт xray — крути только для high-bandwidth high-latency каналов.',
     quicMaxIncomingStreams: 'Макс. входящих потоков',
     quicMaxIncomingStreamsHint: 'Лимит одновременных QUIC-стримов на соединение. 0/пусто = дефолт xray.',

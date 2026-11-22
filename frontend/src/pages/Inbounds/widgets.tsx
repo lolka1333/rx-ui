@@ -533,6 +533,7 @@ interface NumberWithUnitFieldProps {
   unit: string;
   placeholder?: string;
   min?: number;
+  rules?: FormItemProps['rules'];
 }
 
 /** Half-row `Form.Item` carrying a `NumberWithUnit`. Pair two of them inside
@@ -545,6 +546,7 @@ export function NumberUnitField({
   unit,
   placeholder,
   min = 0,
+  rules,
 }: NumberWithUnitFieldProps) {
   const { t } = useTranslation();
   return (
@@ -552,6 +554,7 @@ export function NumberUnitField({
       name={name}
       label={t(labelKey)}
       tooltip={tooltipKey ? t(tooltipKey) : undefined}
+      rules={rules}
       style={{ flex: 1 }}
     >
       <NumberWithUnit min={min} placeholder={placeholder} unit={unit} />

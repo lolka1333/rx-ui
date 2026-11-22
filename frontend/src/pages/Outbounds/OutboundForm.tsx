@@ -23,7 +23,7 @@ import { useTranslation } from 'react-i18next';
 import type { CustomOutbound, VlessEncryptionMode } from '@/api/types';
 import { useFinalMaskGuard } from '@/api/finalmaskSupport';
 import { PortHoppingFields } from '@/components/PortHoppingFields';
-import { bbrProfileSelectOptions } from '@/lib/quic';
+import { bbrProfileSelectOptions, MIN_RECEIVE_WINDOW, receiveWindowRule } from '@/lib/quic';
 import { FinalMaskTab } from '@/pages/Inbounds/tabs/FinalMaskTab';
 import { LinkParseError, parseOutboundLink } from './parseLink';
 // Single source of truth for uTLS fingerprints — same list the inbound
@@ -102,6 +102,13 @@ export const OutboundForm = memo(function OutboundForm({
   const { t } = useTranslation();
   const protocol = Form.useWatch('protocol_kind', form) as OutboundProtocol | undefined;
   const isHysteria = protocol === 'hysteria';
+  // The receive windows' floor, shown in the empty fields and flagged under
+  // it while a smaller value is typed (same as the inbound's QUIC tab).
+  const windowPlaceholder = t('inbounds.quicWindowPlaceholder', { min: MIN_RECEIVE_WINDOW });
+  const windowRules = useMemo(
+    () => [receiveWindowRule(t('inbounds.quicWindowMin', { min: MIN_RECEIVE_WINDOW }))],
+    [t],
+  );
   const isWireguard = protocol === 'wireguard';
   const isMasque = protocol === 'masque';
   const isWarpTunnel = editing?.protocol.kind === 'wireguard' && editing.protocol.warp;
@@ -628,34 +635,38 @@ export const OutboundForm = memo(function OutboundForm({
           <SideBySide>
             <Form.Item
               name="hy_init_stream_window"
+              rules={windowRules}
               label={t('outbounds.hyInitStreamWindow')}
               tooltip={t('outbounds.hyWindowHint')}
               style={{ flex: 1 }}
             >
-              <InputNumber min={0} placeholder="8388608" style={{ width: '100%' }} />
+              <InputNumber min={0} placeholder={windowPlaceholder} style={{ width: '100%' }} />
             </Form.Item>
             <Form.Item
               name="hy_max_stream_window"
+              rules={windowRules}
               label={t('outbounds.hyMaxStreamWindow')}
               style={{ flex: 1 }}
             >
-              <InputNumber min={0} placeholder="8388608" style={{ width: '100%' }} />
+              <InputNumber min={0} placeholder={windowPlaceholder} style={{ width: '100%' }} />
             </Form.Item>
           </SideBySide>
           <SideBySide>
             <Form.Item
               name="hy_init_conn_window"
+              rules={windowRules}
               label={t('outbounds.hyInitConnWindow')}
               style={{ flex: 1 }}
             >
-              <InputNumber min={0} placeholder="20971520" style={{ width: '100%' }} />
+              <InputNumber min={0} placeholder={windowPlaceholder} style={{ width: '100%' }} />
             </Form.Item>
             <Form.Item
               name="hy_max_conn_window"
+              rules={windowRules}
               label={t('outbounds.hyMaxConnWindow')}
               style={{ flex: 1 }}
             >
-              <InputNumber min={0} placeholder="20971520" style={{ width: '100%' }} />
+              <InputNumber min={0} placeholder={windowPlaceholder} style={{ width: '100%' }} />
             </Form.Item>
           </SideBySide>
           <Form.Item
