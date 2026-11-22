@@ -23,7 +23,10 @@ use crate::{
     auth::AuthUser,
     error::{AppError, AppResult},
     protocols::vless::VlessEncryptionAuth,
-    xray::keygen::{self, EchKeyBundle, RealityKeypair, VlessEncryptionKeypair, WireguardKeypair},
+    xray::keygen::{
+        self, EchKeyBundle, RealityKeypair, SelfSignedCert, VlessEncryptionKeypair,
+        WireguardKeypair,
+    },
 };
 use axum::{
     Json, Router,
@@ -38,6 +41,45 @@ pub fn routes() -> Router<AppState> {
         .route("/reality-keypair", post(reality_keypair))
         .route("/wireguard-keypair", post(wireguard_keypair))
         .route("/ech", post(ech))
+        .route("/tls-cert", post(tls_cert))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TlsCertQuery {
+    /// The name to issue the certificate for — the inbound's SNI. Optional:
+    /// without one the certificate names the server's detected address, the
+    /// host its share links dial when no SNI is set.
+    #[serde(default)]
+    pub server_name: Option<String>,
+}
+
+/// Issue a self-signed certificate for a Hysteria inbound. Side-effect-free,
+/// like the other generators: the form drops it into the certificate fields
+/// and the next save stores it. Its share links then carry the pin, so clients
+/// connect with no further step.
+async fn tls_cert(
+    _user: AuthUser,
+    State(state): State<AppState>,
+    Query(q): Query<TlsCertQuery>,
+) -> AppResult<Json<SelfSignedCert>> {
+    let given = q
+        .server_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let name = if let Some(name) = given {
+        name.to_owned()
+    } else {
+        let host = state.host.snapshot().await;
+        host.ipv4.or(host.ipv6).ok_or_else(|| {
+            AppError::BadRequest(
+                "the server's address is not detected yet — fill in the SNI first".into(),
+            )
+        })?
+    };
+    keygen::generate_self_signed_cert(&name)
+        .map(Json)
+        .map_err(|e| AppError::BadRequest(e.to_string()))
 }
 
 /// Generate a fresh Reality x25519 keypair. Side-effect-free: nothing is

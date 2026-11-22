@@ -18,20 +18,32 @@ import {
   Form,
   Input,
   InputNumber,
+  Popconfirm,
   Radio,
   Select,
   Switch,
   Tooltip,
   Typography,
 } from 'antd';
-import { DeleteOutlined, PlusOutlined, QuestionCircleOutlined } from '@ant-design/icons';
+import {
+  DeleteOutlined,
+  PlusOutlined,
+  QuestionCircleOutlined,
+  SafetyCertificateOutlined,
+} from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { pemRule } from '@/lib/pem';
 import { apiClient } from '@/api/client';
 import { apiErrorMessage } from '@/api/errors';
-import type { EchKeyBundle, TlsCertSource, TlsCertUsage } from '@/api/types';
+import type {
+  EchKeyBundle,
+  SelfSignedCert,
+  TlsCertificate,
+  TlsCertSource,
+  TlsCertUsage,
+} from '@/api/types';
 import { FINGERPRINT_OPTIONS, fingerprintRule } from '../helpers';
 import { ChipGroup, Section } from '../widgets';
 import type { FormValues } from '../form/types';
@@ -131,6 +143,43 @@ export function TlsTab() {
       message.error(apiErrorMessage(err) ?? t('inbounds.tlsEchGenerateError')),
   });
 
+  // Self-signed certificate on demand — Hysteria only, the one protocol whose
+  // share links carry the pin (`pinSHA256=`) that makes such a certificate
+  // usable. A VLESS link has no pin, and a client would refuse the
+  // certificate. The fingerprint is kept to show it once, for an outbound on
+  // another server that has to pin it by hand.
+  const hysteria = Form.useWatch('protocol_kind', form) === 'hysteria2';
+  const certs = Form.useWatch('tls_certificates', form) as TlsCertificate[] | undefined;
+  const hasCert = (certs ?? []).some((c) => Boolean(c?.cert?.trim()));
+  const [issuedPin, setIssuedPin] = useState<string | null>(null);
+  const certKeygen = useMutation({
+    mutationFn: async (sn: string) =>
+      (
+        await apiClient.post<SelfSignedCert>('/keygen/tls-cert', undefined, {
+          params: sn.trim() ? { server_name: sn.trim() } : {},
+        })
+      ).data,
+    onSuccess: (issued) => {
+      form.setFieldValue('tls_certificates', [
+        {
+          source: 'inline',
+          cert: issued.certificate,
+          key: issued.key,
+          usage: 'encipherment',
+          ocsp_stapling: 0,
+          build_chain: false,
+          one_time_loading: true,
+        } satisfies TlsCertificate,
+      ]);
+      form.setFieldValue('tls_self_signed', true);
+      setIssuedPin(issued.pin_sha256);
+      message.success(t('inbounds.tlsCertGenerated'));
+    },
+    onError: (err: unknown) =>
+      message.error(apiErrorMessage(err) ?? t('inbounds.tlsCertGenerateError')),
+  });
+  const generateCert = () => certKeygen.mutate(tlsServerName);
+
   const tlsVerOpts = useMemo(
     () => [
       { value: '', label: t('inbounds.tlsVersionDefault') },
@@ -167,7 +216,7 @@ export function TlsTab() {
           <>
             {fields.length === 0 && (
               <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
-                {t('inbounds.tlsCertificatesEmpty')}
+                {t(hysteria ? 'inbounds.tlsCertificatesEmptyHy' : 'inbounds.tlsCertificatesEmpty')}
               </Typography.Text>
             )}
             {fields.map((field) => (
@@ -179,24 +228,69 @@ export function TlsTab() {
               />
             ))}
             <Form.Item>
-              <Button
-                type="dashed"
-                onClick={() =>
-                  add({
-                    source: 'inline' as TlsCertSource,
-                    cert: '',
-                    key: '',
-                    usage: 'encipherment' as TlsCertUsage,
-                    ocsp_stapling: 0,
-                    build_chain: false,
-                    one_time_loading: true,
-                  })
-                }
-                icon={<PlusOutlined />}
-                block
-              >
-                {t('inbounds.tlsAddCertificate')}
-              </Button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button
+                  type="dashed"
+                  onClick={() =>
+                    add({
+                      source: 'inline' as TlsCertSource,
+                      cert: '',
+                      key: '',
+                      usage: 'encipherment' as TlsCertUsage,
+                      ocsp_stapling: 0,
+                      build_chain: false,
+                      one_time_loading: true,
+                    })
+                  }
+                  icon={<PlusOutlined />}
+                  style={{ flex: 1 }}
+                >
+                  {t('inbounds.tlsAddCertificate')}
+                </Button>
+                {hysteria && (
+                  // Replacing a certificate changes the pin every client holds,
+                  // so a filled one is only swapped after a confirm.
+                  <Popconfirm
+                    disabled={!hasCert}
+                    title={t('inbounds.tlsCertReplaceConfirm')}
+                    description={
+                      <div style={{ maxWidth: 360 }}>{t('inbounds.tlsCertReplaceWarning')}</div>
+                    }
+                    okType="danger"
+                    cancelText={t('common.cancel')}
+                    onConfirm={generateCert}
+                  >
+                    <Tooltip title={t('inbounds.tlsCertGenerateHint')}>
+                      <Button
+                        type="dashed"
+                        icon={<SafetyCertificateOutlined />}
+                        loading={certKeygen.isPending}
+                        onClick={hasCert ? undefined : generateCert}
+                        style={{ flex: 1 }}
+                      >
+                        {t('inbounds.tlsCertGenerate')}
+                      </Button>
+                    </Tooltip>
+                  </Popconfirm>
+                )}
+              </div>
+              {hysteria && issuedPin && (
+                <div style={{ marginTop: 8 }}>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    {t('inbounds.tlsCertPin')}
+                  </Typography.Text>
+                  <Typography.Paragraph
+                    copyable
+                    code
+                    style={{ fontSize: 12, marginBottom: 2, marginTop: 2, wordBreak: 'break-all' }}
+                  >
+                    {issuedPin}
+                  </Typography.Paragraph>
+                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                    {t('inbounds.tlsCertPinHint')}
+                  </Typography.Text>
+                </div>
+              )}
             </Form.Item>
           </>
         )}

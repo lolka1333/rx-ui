@@ -61,6 +61,7 @@ export type {
   TlsCertSource,
   TlsCertUsage,
   EchKeyBundle,
+  SelfSignedCert,
 } from './security';
 
 export type {

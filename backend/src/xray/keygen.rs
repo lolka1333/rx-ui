@@ -295,6 +295,90 @@ pub async fn generate_ech_server_keys(
     })
 }
 
+/// A self-signed certificate for a Hysteria inbound, as the form's "Generate"
+/// button receives it: both halves in PEM, plus the certificate's SHA-256 —
+/// the `pinSHA256` the inbound's share links will carry, shown so the operator
+/// can set the same pin on another server's outbound.
+#[derive(serde::Serialize, ts_rs::TS)]
+#[ts(export, export_to = "../../frontend/src/api/types/security.ts")]
+pub struct SelfSignedCert {
+    pub certificate: String,
+    /// PKCS#8 private key. SECRET — never log.
+    pub key: String,
+    /// Lowercase hex, the same value `TlsSecurity::cert_pin_sha256` derives.
+    pub pin_sha256: String,
+}
+
+/// How long a generated certificate lasts. A client that pins it accepts the
+/// matching leaf without checking dates (xray returns before any chain or
+/// expiry check), so a short life would only force a re-issue — and with it a
+/// new pin for every client — for nothing.
+const SELF_SIGNED_YEARS: i32 = 10;
+
+/// Issue a self-signed ECDSA P-256 server certificate for `name` (a hostname,
+/// optionally `*.`, or an IP). The name goes into both the subject CN and the
+/// SAN, as on any real server certificate, so a prober that sends that SNI sees
+/// an ordinary leaf rather than a tool's default subject.
+pub fn generate_self_signed_cert(name: &str) -> anyhow::Result<SelfSignedCert> {
+    use chrono::Datelike as _;
+    use rcgen::{
+        CertificateParams, DistinguishedName, DnType, ExtendedKeyUsagePurpose, IsCa, KeyPair,
+        KeyUsagePurpose, date_time_ymd,
+    };
+    use sha2::{Digest as _, Sha256};
+
+    let name = cert_subject_name(name)?;
+    let mut params = CertificateParams::new(vec![name.clone()])?;
+    let mut subject = DistinguishedName::new();
+    subject.push(DnType::CommonName, name);
+    params.distinguished_name = subject;
+    // Valid from yesterday, so a client whose clock runs behind is not refused.
+    let from = chrono::Utc::now().date_naive() - chrono::Days::new(1);
+    let (month, day) = (u8::try_from(from.month())?, u8::try_from(from.day())?);
+    params.not_before = date_time_ymd(from.year(), month, day);
+    // Day capped at 28: the same date has to exist ten years on (29 February).
+    params.not_after = date_time_ymd(from.year() + SELF_SIGNED_YEARS, month, day.min(28));
+    params.is_ca = IsCa::ExplicitNoCa;
+    params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
+    params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
+
+    let key = KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256)?;
+    let cert = params.self_signed(&key)?;
+    Ok(SelfSignedCert {
+        certificate: cert.pem(),
+        key: key.serialize_pem(),
+        pin_sha256: hex_lower(&Sha256::digest(cert.der())),
+    })
+}
+
+/// The name a certificate is issued for: an IP (IPv6 brackets dropped) or a DNS
+/// name made of letters, digits and inner hyphens, with an optional leading
+/// `*.`. rcgen on its own takes any ASCII, spaces included, and a certificate
+/// for a name no client can send fails far from here with nothing pointing back.
+fn cert_subject_name(raw: &str) -> anyhow::Result<String> {
+    let name = raw.trim();
+    let unbracketed = name
+        .strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .unwrap_or(name);
+    if unbracketed.parse::<std::net::IpAddr>().is_ok() {
+        return Ok(unbracketed.to_owned());
+    }
+    let label_ok = |l: &str| {
+        !l.is_empty()
+            && l.len() <= 63
+            && !l.starts_with('-')
+            && !l.ends_with('-')
+            && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    };
+    let host = name.strip_prefix("*.").unwrap_or(name);
+    anyhow::ensure!(
+        name.len() <= 253 && host.split('.').all(label_ok),
+        "{name:?} is not a hostname or IP address"
+    );
+    Ok(name.to_ascii_lowercase())
+}
+
 /// Decode a base64-url (no-pad) x25519 key back into raw 32 bytes for proto
 /// serialization.
 pub fn decode_x25519_key(encoded: &str) -> anyhow::Result<Vec<u8>> {
@@ -600,5 +684,96 @@ mod wireguard_tests {
         for bad in ["", "hunter2", "not base64 at all!!", "deadbeef"] {
             assert!(parse_wireguard_key(bad).is_err(), "{bad} should be refused");
         }
+    }
+}
+
+#[cfg(test)]
+mod self_signed_tests {
+    use super::*;
+    use crate::security::tls::{TlsCertSource, TlsCertUsage, TlsCertificate, TlsSecurity};
+    use rcgen::PublicKeyData as _;
+
+    fn inbound_tls(cert: &SelfSignedCert) -> TlsSecurity {
+        TlsSecurity {
+            certificates: vec![TlsCertificate {
+                source: TlsCertSource::Inline,
+                cert: cert.certificate.clone(),
+                key: cert.key.clone(),
+                usage: TlsCertUsage::Encipherment,
+                ocsp_stapling: 0,
+                build_chain: false,
+                one_time_loading: true,
+            }],
+            self_signed: Some(true),
+            ..TlsSecurity::default()
+        }
+    }
+
+    /// The pin the button shows has to be the one the share links will carry,
+    /// or an outbound set from it never connects.
+    #[test]
+    fn the_shown_pin_is_the_one_links_carry() {
+        let cert = generate_self_signed_cert("hy.example.com").unwrap();
+        assert_eq!(
+            inbound_tls(&cert).cert_pin_sha256().as_deref(),
+            Some(cert.pin_sha256.as_str())
+        );
+    }
+
+    /// The key is the one the certificate was issued for, in the PKCS#8 form
+    /// any tool reads, and the name sits in the certificate.
+    #[test]
+    fn key_and_name_belong_to_the_certificate() {
+        let cert = generate_self_signed_cert("Hy.Example.com").unwrap();
+        assert!(
+            cert.key.starts_with("-----BEGIN PRIVATE KEY-----"),
+            "{}",
+            &cert.key[..40]
+        );
+        let key = rcgen::KeyPair::from_pem(&cert.key).unwrap();
+        let der = pem_first_der(&cert.certificate);
+        let spki = key.subject_public_key_info();
+        assert!(der.windows(spki.len()).any(|w| w == spki.as_slice()));
+        let name = b"hy.example.com";
+        assert!(der.windows(name.len()).any(|w| w == name));
+        // A second press gives a different certificate.
+        assert_ne!(
+            generate_self_signed_cert("hy.example.com")
+                .unwrap()
+                .pin_sha256,
+            generate_self_signed_cert("hy.example.com")
+                .unwrap()
+                .pin_sha256
+        );
+    }
+
+    #[test]
+    fn hostnames_ips_and_wildcards_pass_everything_else_does_not() {
+        for ok in [
+            "hy.example.com",
+            "*.example.com",
+            "localhost",
+            "1.2.3.4",
+            "[2001:db8::1]",
+        ] {
+            assert!(cert_subject_name(ok).is_ok(), "{ok} should pass");
+        }
+        assert_eq!(cert_subject_name("[2001:db8::1]").unwrap(), "2001:db8::1");
+        for bad in [
+            "",
+            "a b.com",
+            "-x.com",
+            "x..com",
+            "x.com.",
+            "https://x.com",
+            "привет.рф",
+        ] {
+            assert!(cert_subject_name(bad).is_err(), "{bad:?} should be refused");
+        }
+    }
+
+    fn pem_first_der(pem: &str) -> Vec<u8> {
+        let body: String = pem.lines().filter(|l| !l.starts_with("-----")).collect();
+        STANDARD.decode(body).unwrap()
     }
 }

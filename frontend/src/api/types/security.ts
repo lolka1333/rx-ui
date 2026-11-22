@@ -104,6 +104,22 @@ export type SecurityConfig = { "kind": "none" } & NoneSecurity | { "kind": "tls"
 
 export type SecurityKind = "none" | "tls" | "reality";
 
+/**
+ * A self-signed certificate for a Hysteria inbound, as the form's "Generate"
+ * button receives it: both halves in PEM, plus the certificate's SHA-256 —
+ * the `pinSHA256` the inbound's share links will carry, shown so the operator
+ * can set the same pin on another server's outbound.
+ */
+export type SelfSignedCert = { certificate: string, 
+/**
+ * PKCS#8 private key. SECRET — never log.
+ */
+key: string, 
+/**
+ * Lowercase hex, the same value `TlsSecurity::cert_pin_sha256` derives.
+ */
+pin_sha256: string, };
+
 export type TlsCertSource = "inline" | "path";
 
 export type TlsCertUsage = "encipherment" | "verify" | "issue";

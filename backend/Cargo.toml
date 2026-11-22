@@ -86,6 +86,10 @@ base64 = "0.23"
 # SHA-256 of a self-signed leaf cert's DER — distributed in the hysteria2
 # share-link as `pinSHA256=` so clients pin it.
 sha2 = "0.11"
+# The self-signed certificate behind the Hysteria inbound's "Generate" button.
+# Signs over the aws-lc-rs provider already in the tree; with the defaults off
+# it does not pull in `ring`.
+rcgen = { version = "0.14", default-features = false, features = ["aws_lc_rs", "pem"] }
 # `StreamExt::for_each_concurrent` for the traffic poller's bounded-concurrency
 # enforcement. Already in the tree via tonic/hyper; pinned here as a direct dep.
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
