@@ -107,8 +107,9 @@ export type SecurityKind = "none" | "tls" | "reality";
 /**
  * A self-signed certificate for a Hysteria inbound, as the form's "Generate"
  * button receives it: both halves in PEM, plus the certificate's SHA-256 —
- * the `pinSHA256` the inbound's share links will carry, shown so the operator
- * can set the same pin on another server's outbound.
+ * the `pinSHA256` the inbound's share links will carry. The form does not
+ * show it (clients get it in the link); a script that sets the pin on another
+ * server's outbound reads it here.
  */
 export type SelfSignedCert = { certificate: string, 
 /**

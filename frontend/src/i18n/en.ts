@@ -1178,8 +1178,6 @@ export const en: Dict = {
     tlsCertGenerateError: 'Could not issue the certificate',
     tlsCertReplaceConfirm: 'Replace the certificate?',
     tlsCertReplaceWarning: 'The fingerprint changes: clients without a subscription need new links, and outbounds on other servers need the new pin.',
-    tlsCertPin: 'Fingerprint (pinSHA256)',
-    tlsCertPinHint: 'Clients get it in the link on their own. For an outbound on another server, paste it into "Pin cert SHA-256".',
     tlsRemoveCertificate: 'Remove certificate',
     tlsCertSourceTooltip: 'Inline — PEM stored in the panel DB (backup is self-contained). Path — filesystem path xray re-reads at handshake (convenient when certbot / vault-agent owns rotation).',
     tlsCertSourceInline: 'PEM',

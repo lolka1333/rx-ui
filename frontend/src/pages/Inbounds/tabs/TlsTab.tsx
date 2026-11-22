@@ -32,7 +32,7 @@ import {
   SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { pemRule } from '@/lib/pem';
 import { apiClient } from '@/api/client';
@@ -146,12 +146,10 @@ export function TlsTab() {
   // Self-signed certificate on demand — Hysteria only, the one protocol whose
   // share links carry the pin (`pinSHA256=`) that makes such a certificate
   // usable. A VLESS link has no pin, and a client would refuse the
-  // certificate. The fingerprint is kept to show it once, for an outbound on
-  // another server that has to pin it by hand.
+  // certificate.
   const hysteria = Form.useWatch('protocol_kind', form) === 'hysteria2';
   const certs = Form.useWatch('tls_certificates', form) as TlsCertificate[] | undefined;
   const hasCert = (certs ?? []).some((c) => Boolean(c?.cert?.trim()));
-  const [issuedPin, setIssuedPin] = useState<string | null>(null);
   const certKeygen = useMutation({
     mutationFn: async (sn: string) =>
       (
@@ -172,7 +170,6 @@ export function TlsTab() {
         } satisfies TlsCertificate,
       ]);
       form.setFieldValue('tls_self_signed', true);
-      setIssuedPin(issued.pin_sha256);
       message.success(t('inbounds.tlsCertGenerated'));
     },
     onError: (err: unknown) =>
@@ -274,23 +271,6 @@ export function TlsTab() {
                   </Popconfirm>
                 )}
               </div>
-              {hysteria && issuedPin && (
-                <div style={{ marginTop: 8 }}>
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    {t('inbounds.tlsCertPin')}
-                  </Typography.Text>
-                  <Typography.Paragraph
-                    copyable
-                    code
-                    style={{ fontSize: 12, marginBottom: 2, marginTop: 2, wordBreak: 'break-all' }}
-                  >
-                    {issuedPin}
-                  </Typography.Paragraph>
-                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-                    {t('inbounds.tlsCertPinHint')}
-                  </Typography.Text>
-                </div>
-              )}
             </Form.Item>
           </>
         )}

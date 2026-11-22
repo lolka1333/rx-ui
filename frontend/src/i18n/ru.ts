@@ -1176,8 +1176,6 @@ export const ru = {
     tlsCertGenerateError: 'Не удалось выпустить сертификат',
     tlsCertReplaceConfirm: 'Заменить сертификат?',
     tlsCertReplaceWarning: 'Сменится отпечаток: клиентам без подписки понадобятся новые ссылки, а исходящим на других серверах — новый пин.',
-    tlsCertPin: 'Отпечаток (pinSHA256)',
-    tlsCertPinHint: 'Клиенты получат его в ссылке сами. Для исходящего на другом сервере вставьте его в поле «Пин серта SHA-256».',
     tlsRemoveCertificate: 'Удалить сертификат',
     tlsCertSourceTooltip: 'Inline — PEM хранится в БД панели (бэкап self-contained). Path — путь к файлу на диске, xray перечитывает на handshake (удобно если ротацией занимается certbot / vault-agent).',
     tlsCertSourceInline: 'PEM',
