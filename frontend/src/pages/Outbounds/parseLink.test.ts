@@ -57,6 +57,20 @@ describe('vless links', () => {
     });
   });
 
+  it('pins a self-signed TLS server from pcs and vcn', () => {
+    const out = parseOutboundLink(
+      vless({ type: 'tcp', security: 'tls', sni: 'de1.example.com', pcs: 'aa11, bb22', vcn: 'de1.example.com' }),
+    );
+    expect(out).toMatchObject({
+      security: 'tls',
+      tls_server_name: 'de1.example.com',
+      tls_pinned_peer_cert_sha256: ['aa11', 'bb22'],
+      tls_verify_peer_cert_by_name: ['de1.example.com'],
+    });
+    const plain = parseOutboundLink(vless({ type: 'tcp', security: 'tls', sni: 'de1.example.com' }));
+    expect(plain.tls_pinned_peer_cert_sha256).toBeUndefined();
+  });
+
   it('fills the Reality defaults a link may leave out', () => {
     const out = parseOutboundLink(vless({ security: 'reality', sni: 'a', pbk: 'k', sid: '' }));
     expect(out.reality_fingerprint).toBe('chrome');

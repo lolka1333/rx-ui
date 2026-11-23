@@ -1167,10 +1167,9 @@ export const en: Dict = {
     tlsRejectUnknownSni: 'Reject unknown SNI',
     tlsRejectUnknownSniTooltip: 'When enabled, clients whose SNI does not match the cert\'s server_name get reset. Prevents accidental exposure of internal hostnames.',
     tlsSelfSigned: 'Self-signed cert',
-    tlsSelfSignedTooltip: 'The cert is not from a public CA. Distributes its SHA-256 fingerprint in the subscription (pinSHA256) so clients pin it instead of failing verification — the modern replacement for allowInsecure. Leave off for a real domain cert (pinning would break clients on renewal).',
+    tlsSelfSignedTooltip: 'The cert is not from a public CA. Distributes its SHA-256 fingerprint in the links (pinSHA256 for Hysteria 2, pcs for VLESS) so clients pin it instead of failing verification — the modern replacement for allowInsecure. Leave off for a real domain cert (pinning would break clients on renewal).',
     // Multi-cert array
-    tlsCertificatesEmpty: 'No certificates yet — add at least one (security=tls won\'t start without).',
-    tlsCertificatesEmptyHy: 'No certificates yet — add your own or generate a self-signed one.',
+    tlsCertificatesEmpty: 'No certificates yet — add your own or generate a self-signed one.',
     tlsAddCertificate: 'Add certificate',
     tlsCertGenerate: 'Generate',
     tlsCertGenerateHint: 'A self-signed certificate for 10 years, issued for the name in the SNI field (empty: the server IP). Clients get its fingerprint in the link and connect with no setup.',

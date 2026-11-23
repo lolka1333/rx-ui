@@ -127,6 +127,16 @@ export function parseOutboundLink(raw: string): Partial<OutboundFormValues> {
       ? alpn.split(',').map((s) => s.trim()).filter(Boolean)
       : [];
     out.tls_fingerprint = get('fp') || 'chrome';
+    // A self-signed server is pinned (`pcs`) or accepted by name (`vcn`) —
+    // the share-link names of xray's pinnedPeerCertSha256 / verifyPeerCertByName,
+    // both comma-separated lists.
+    const list = (v: string) =>
+      v
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    if (get('pcs')) out.tls_pinned_peer_cert_sha256 = list(get('pcs'));
+    if (get('vcn')) out.tls_verify_peer_cert_by_name = list(get('vcn'));
   }
 
   // --- transport ---

@@ -143,11 +143,9 @@ export function TlsTab() {
       message.error(apiErrorMessage(err) ?? t('inbounds.tlsEchGenerateError')),
   });
 
-  // Self-signed certificate on demand — Hysteria only, the one protocol whose
-  // share links carry the pin (`pinSHA256=`) that makes such a certificate
-  // usable. A VLESS link has no pin, and a client would refuse the
-  // certificate.
-  const hysteria = Form.useWatch('protocol_kind', form) === 'hysteria2';
+  // Self-signed certificate on demand. Usable for every protocol that reaches
+  // this tab: the share link carries its pin (`pinSHA256=` for Hysteria 2,
+  // `pcs=` for VLESS), so a client pins it instead of refusing it.
   const certs = Form.useWatch('tls_certificates', form) as TlsCertificate[] | undefined;
   const hasCert = (certs ?? []).some((c) => Boolean(c?.cert?.trim()));
   const certKeygen = useMutation({
@@ -213,7 +211,7 @@ export function TlsTab() {
           <>
             {fields.length === 0 && (
               <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
-                {t(hysteria ? 'inbounds.tlsCertificatesEmptyHy' : 'inbounds.tlsCertificatesEmpty')}
+                {t('inbounds.tlsCertificatesEmpty')}
               </Typography.Text>
             )}
             {fields.map((field) => (
@@ -244,10 +242,9 @@ export function TlsTab() {
                 >
                   {t('inbounds.tlsAddCertificate')}
                 </Button>
-                {hysteria && (
-                  // Replacing a certificate changes the pin every client holds,
-                  // so a filled one is only swapped after a confirm.
-                  <Popconfirm
+                {/* Replacing a certificate changes the pin every client holds,
+                    so a filled one is only swapped after a confirm. */}
+                <Popconfirm
                     disabled={!hasCert}
                     title={t('inbounds.tlsCertReplaceConfirm')}
                     description={
@@ -268,8 +265,7 @@ export function TlsTab() {
                         {t('inbounds.tlsCertGenerate')}
                       </Button>
                     </Tooltip>
-                  </Popconfirm>
-                )}
+                </Popconfirm>
               </div>
             </Form.Item>
           </>

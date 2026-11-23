@@ -53,7 +53,7 @@ pub struct TlsCertQuery {
     pub server_name: Option<String>,
 }
 
-/// Issue a self-signed certificate for a Hysteria inbound. Side-effect-free,
+/// Issue a self-signed certificate for a TLS inbound. Side-effect-free,
 /// like the other generators: the form drops it into the certificate fields
 /// and the next save stores it. Its share links then carry the pin, so clients
 /// connect with no further step.

@@ -304,6 +304,24 @@ pub fn build_vless_share_link(
             .as_security()
             .share_link_params(fallback_host),
     );
+    // A self-signed certificate reaches the client as its pin: `pcs=` is the
+    // share-link name of xray's `pinnedPeerCertSha256` (v2rayN reads it into
+    // that field). Without it the client checks the certificate against the
+    // system roots and refuses it — the core has no allowInsecure any more. As
+    // for hysteria2, a pin that can't be derived fails here rather than ship a
+    // link no client can verify.
+    if let SecurityConfig::Tls(tls) = &inbound.security
+        && tls.self_signed == Some(true)
+    {
+        let pin = tls.cert_pin_sha256().ok_or_else(|| {
+            anyhow::anyhow!(
+                "inbound {} is marked self-signed but its cert fingerprint can't be \
+                 derived — use an inline PEM certificate, not a file path",
+                inbound.tag
+            )
+        })?;
+        params.push(("pcs".to_owned(), pin));
+    }
     // FinalMask, when active, rides along as `fm=` so the client app
     // configures the SAME wire-obfuscation symmetric to the server.
     // Inactive variants contribute nothing.
@@ -1113,6 +1131,46 @@ mod tests {
         tls.certificates[0].source = TlsCertSource::Path;
         tls.certificates[0].cert = "/etc/xray/hy.crt".into();
         let err = build_share_link(&hy_inbound(tls), &base_client(), "1.2.3.4").unwrap_err();
+        assert!(err.to_string().contains("self-signed"), "got: {err}");
+    }
+
+    /// VLESS over TLS with a self-signed certificate: the pin rides as `pcs=`,
+    /// whatever the transport, and only when the operator flagged the cert.
+    #[test]
+    fn vless_self_signed_tls_carries_pcs() {
+        for transport in [
+            TransportConfig::Tcp(TcpTransport {}),
+            TransportConfig::Ws(WsTransport::default()),
+        ] {
+            let inb = inbound(
+                transport,
+                SecurityConfig::Tls(tls_self_signed("vl.example.com", true)),
+            );
+            let link = build_vless_share_link(&inb, &base_client(), "1.2.3.4").unwrap();
+            assert!(link.contains("security=tls"), "got: {link}");
+            assert!(
+                link.contains(&format!("pcs={SELF_SIGNED_PIN}")),
+                "got: {link}"
+            );
+        }
+        let unflagged = inbound(
+            TransportConfig::Tcp(TcpTransport {}),
+            SecurityConfig::Tls(tls_self_signed("vl.example.com", false)),
+        );
+        let link = build_vless_share_link(&unflagged, &base_client(), "1.2.3.4").unwrap();
+        assert!(!link.contains("pcs="), "got: {link}");
+    }
+
+    #[test]
+    fn vless_self_signed_path_cert_is_rejected() {
+        let mut tls = tls_self_signed("vl.example.com", true);
+        tls.certificates[0].source = TlsCertSource::Path;
+        tls.certificates[0].cert = "/etc/xray/vl.crt".into();
+        let inb = inbound(
+            TransportConfig::Tcp(TcpTransport {}),
+            SecurityConfig::Tls(tls),
+        );
+        let err = build_vless_share_link(&inb, &base_client(), "1.2.3.4").unwrap_err();
         assert!(err.to_string().contains("self-signed"), "got: {err}");
     }
 

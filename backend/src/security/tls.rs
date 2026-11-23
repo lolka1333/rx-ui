@@ -119,9 +119,9 @@ pub struct TlsSecurity {
     #[serde(default)]
     pub pinned_peer_cert_sha256: Option<Vec<String>>,
     /// Operator flag: this inbound serves a SELF-SIGNED (not publicly trusted)
-    /// certificate. When set, the hysteria2 share-link distributes the leaf
-    /// cert's SHA-256 as `pinSHA256=` so clients pin it instead of failing
-    /// chain validation. This is the fork's replacement for the removed
+    /// certificate. When set, share links distribute the leaf cert's SHA-256 —
+    /// `pinSHA256=` in hysteria2 links, `pcs=` in vless ones — so clients pin
+    /// it instead of failing chain validation. This is the fork's replacement for the removed
     /// `allowInsecure`/`insecure=1` on self-signed inbounds — leave it off for
     /// a real CA cert (pinning would break clients on the next renewal).
     #[serde(default)]
@@ -151,9 +151,10 @@ impl TlsSecurity {
     }
 
     /// SHA-256 (lowercase hex) of the first certificate's leaf DER — the value
-    /// distributed as the hysteria2 share-link `pinSHA256=` when `self_signed`
-    /// is set. Returns `None` for a `Path`-sourced cert (its bytes aren't read
-    /// here) or a malformed PEM, in which case the builder omits the pin.
+    /// distributed as the share link's `pinSHA256=` (hysteria2) or `pcs=`
+    /// (vless) when `self_signed` is set. Returns `None` for a `Path`-sourced
+    /// cert (its bytes aren't read here) or a malformed PEM; the link builders
+    /// then refuse to build rather than ship a link no client can verify.
     pub fn cert_pin_sha256(&self) -> Option<String> {
         let spec = self.certificates.first()?;
         if !matches!(spec.source, TlsCertSource::Inline) {

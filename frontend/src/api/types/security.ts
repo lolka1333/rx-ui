@@ -105,9 +105,9 @@ export type SecurityConfig = { "kind": "none" } & NoneSecurity | { "kind": "tls"
 export type SecurityKind = "none" | "tls" | "reality";
 
 /**
- * A self-signed certificate for a Hysteria inbound, as the form's "Generate"
+ * A self-signed certificate for a TLS inbound, as the form's "Generate"
  * button receives it: both halves in PEM, plus the certificate's SHA-256 —
- * the `pinSHA256` the inbound's share links will carry. The form does not
+ * the pin the inbound's share links will carry (`pinSHA256` / `pcs`). The form does not
  * show it (clients get it in the link); a script that sets the pin on another
  * server's outbound reads it here.
  */
@@ -192,9 +192,9 @@ verify_peer_cert_by_name: Array<string> | null,
 pinned_peer_cert_sha256: Array<string> | null, 
 /**
  * Operator flag: this inbound serves a SELF-SIGNED (not publicly trusted)
- * certificate. When set, the hysteria2 share-link distributes the leaf
- * cert's SHA-256 as `pinSHA256=` so clients pin it instead of failing
- * chain validation. This is the fork's replacement for the removed
+ * certificate. When set, share links distribute the leaf cert's SHA-256 —
+ * `pinSHA256=` in hysteria2 links, `pcs=` in vless ones — so clients pin
+ * it instead of failing chain validation. This is the fork's replacement for the removed
  * `allowInsecure`/`insecure=1` on self-signed inbounds — leave it off for
  * a real CA cert (pinning would break clients on the next renewal).
  */
